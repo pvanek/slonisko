@@ -28,7 +28,7 @@ qt_standard_project_setup(REQUIRES 6.5)
 
 # libpq 17+: chunked rows mode and the non-blocking cancel API.
 find_package(PostgreSQL 17 REQUIRED)
-find_package(PgQuery REQUIRED)
+include(SloniskoPgQuery)
 
 include(SloniskoCompilerOptions)
 

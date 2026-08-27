@@ -36,17 +36,23 @@ On openSUSE Tumbleweed:
 sudo zypper install cmake gcc-c++ qt6-base-devel postgresql17-devel
 ```
 
-libpg_query is usually not packaged. Build it from source:
+libpg_query is usually not packaged. Either build it from source and point
+CMake at it with `-DPgQuery_ROOT=/path/to/libpg_query`:
 
 ```sh
 git clone https://github.com/pganalyze/libpg_query.git
 make -C libpg_query
 ```
 
+or let CMake download and build a pinned version as part of the project with
+`-DSLONISKO_BUNDLED_PGQUERY=ON`. For offline builds, pass
+`-DFETCHCONTENT_SOURCE_DIR_LIBPG_QUERY=/path/to/libpg_query` to use an
+already downloaded copy.
+
 ## Building
 
 ```sh
-cmake -S . -B build -DPgQuery_ROOT=/path/to/libpg_query
+cmake -S . -B build -DSLONISKO_BUNDLED_PGQUERY=ON
 cmake --build build
 ctest --test-dir build --output-on-failure
 ./build/src/app/slonisko
