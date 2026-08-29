@@ -5,6 +5,7 @@
 
 #include <QPointer>
 
+#include <algorithm>
 #include <cstring>
 
 namespace slonisko::pg {
@@ -21,6 +22,9 @@ int connectTimeoutMs(PGconn *conn)
     }
     return Connection::DefaultConnectTimeoutMs;
 }
+
+// Large enough to keep the socket busy, small enough not to double memory use.
+constexpr qsizetype CopyChunkSize = 64 * 1024;
 
 } // namespace
 
@@ -69,6 +73,8 @@ void Connection::close()
     m_cancel.reset();
     m_conn.reset();
     m_copyOut = false;
+    m_copyIn = false;
+    m_copyData.reset();
     m_fatalMessage.clear();
     m_error.clear();
     setState(State::Disconnected);
@@ -84,7 +90,7 @@ int Connection::backendPid() const
     return m_conn ? PQbackendPID(m_conn.get()) : 0;
 }
 
-bool Connection::execute(const QByteArray &sql, int chunkSize)
+bool Connection::execute(const QByteArray &sql, int chunkSize, std::optional<QByteArray> copyData)
 {
     if (m_state != State::Ready)
         return false;
@@ -97,6 +103,7 @@ bool Connection::execute(const QByteArray &sql, int chunkSize)
     }
     if (chunkSize > 0)
         PQsetChunkedRowsMode(conn, chunkSize);
+    m_copyData = std::move(copyData);
 
     setState(State::Busy);
     // In non-blocking mode the query may not be fully sent yet.
@@ -191,6 +198,9 @@ void Connection::processResults()
                 return; // Wait for more data.
             m_copyOut = false;
         }
+        // While copying in, libpq keeps returning the COPY_IN result.
+        if (m_copyIn && !sendCopyData())
+            return;
         if (PQisBusy(conn))
             return;
 
@@ -204,8 +214,11 @@ void Connection::processResults()
 
         const Result result(raw);
         if (result.status() == PGRES_COPY_IN) {
-            // Inline COPY data is not supported yet; fail the COPY instead of hanging.
-            if (PQputCopyEnd(conn, "COPY FROM STDIN is not supported") < 0 || PQflush(conn) < 0) {
+            if (m_copyData) {
+                m_copyIn = true;
+                m_copySent = 0;
+            } else if (PQputCopyEnd(conn, "No data for COPY FROM STDIN") < 0 || PQflush(conn) < 0) {
+                // Fail the COPY instead of leaving it waiting forever.
                 connectionLost();
                 return;
             }
@@ -217,6 +230,70 @@ void Connection::processResults()
         if (!guard)
             return;
     }
+}
+
+// Sends as much of m_copyData as the socket takes, then ends the COPY.
+// Returns true once the COPY has ended, false to wait for the socket.
+bool Connection::sendCopyData()
+{
+    PGconn *conn = m_conn.get();
+    const QByteArray &data = *m_copyData;
+    while (m_copySent < data.size()) {
+        // libpq would buffer everything in non-blocking mode, so only queue
+        // more once the previous chunk has reached the socket, bounding memory
+        // use. (A server error cannot stop the sending early: libpq only reads
+        // it after PQputCopyEnd, and the server discards the rest meanwhile.)
+        const int unsent = PQflush(conn);
+        if (unsent < 0) {
+            connectionLost();
+            return false;
+        }
+        if (unsent == 1) {
+            watch(true, true);
+            return false;
+        }
+
+        const auto length = static_cast<int>(std::min(data.size() - m_copySent, CopyChunkSize));
+        const int sent = PQputCopyData(conn, data.constData() + m_copySent, length);
+        if (sent == 0) {
+            watch(true, true);
+            return false;
+        }
+        if (sent < 0)
+            return copyInEnded();
+        m_copySent += length;
+    }
+
+    const int ended = PQputCopyEnd(conn, nullptr);
+    if (ended == 0) {
+        watch(true, true);
+        return false;
+    }
+    if (ended < 0)
+        return copyInEnded();
+
+    const int unsent = PQflush(conn);
+    if (unsent < 0) {
+        connectionLost();
+        return false;
+    }
+    m_copyIn = false;
+    m_copyData.reset();
+    watch(true, unsent == 1);
+    return m_state == State::Busy;
+}
+
+// libpq refused more COPY data. That normally means the connection broke;
+// otherwise the COPY ended some other way and its result is waiting.
+bool Connection::copyInEnded()
+{
+    m_copyIn = false;
+    m_copyData.reset();
+    if (PQstatus(m_conn.get()) == CONNECTION_BAD) {
+        connectionLost();
+        return false;
+    }
+    return true;
 }
 
 void Connection::connectionLost()
@@ -294,6 +371,8 @@ void Connection::fail(const QString &message)
     m_cancel.reset();
     m_conn.reset();
     m_copyOut = false;
+    m_copyIn = false;
+    m_copyData.reset();
     m_fatalMessage.clear();
     m_error = message;
     setState(State::Failed);

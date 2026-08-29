@@ -11,6 +11,8 @@
 #include <QString>
 #include <QTimer>
 
+#include <optional>
+
 namespace slonisko::pg {
 
 // One libpq connection driven by the Qt event loop. Never blocks the caller
@@ -48,7 +50,12 @@ public:
     // failed statement ends the query. If the connection is lost instead,
     // state() becomes Failed and queryFinished() is not emitted. Returns
     // false unless state() == Ready.
-    bool execute(const QByteArray &sql, int chunkSize = 0);
+    //
+    // copyData is sent to the first COPY ... FROM STDIN in sql, in the COPY's
+    // format, without the \. end marker (a CopyData span from the splitter).
+    // Any other COPY FROM STDIN fails with an error result.
+    bool execute(const QByteArray &sql, int chunkSize = 0,
+                 std::optional<QByteArray> copyData = std::nullopt);
 
     // Asks the server, without blocking, to cancel the running query, which
     // then ends with an error result (SQLSTATE 57014). The server may finish
@@ -71,6 +78,8 @@ private:
     void pollConnect();
     void readInput();
     void processResults();
+    bool sendCopyData();
+    bool copyInEnded();
     void connectionLost();
     void watch(bool read, bool write);
     void pollCancel();
@@ -86,6 +95,9 @@ private:
     SocketWatcher m_watcher;
     QTimer m_connectTimer;
     bool m_copyOut = false; // Discarding COPY TO STDOUT data.
+    std::optional<QByteArray> m_copyData; // For the query's first COPY FROM STDIN.
+    bool m_copyIn = false; // Sending m_copyData.
+    qsizetype m_copySent = 0;
     // Why the server is about to close the connection, e.g. an idle timeout.
     // libpq delivers it as a notice, not as the connection's error message.
     QString m_fatalMessage;

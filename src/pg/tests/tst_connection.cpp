@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "pg/Connection.h"
+#include "sql/Splitter.h"
 
 #include <QElapsedTimer>
 #include <QFile>
@@ -10,6 +11,7 @@
 #include <QTest>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 using slonisko::pg::Connection;
@@ -60,13 +62,14 @@ private:
 };
 
 // Runs sql to completion and returns its results.
-std::vector<Result> run(Connection &c, const QByteArray &sql, int chunkSize = 0)
+std::vector<Result> run(Connection &c, const QByteArray &sql, int chunkSize = 0,
+                        std::optional<QByteArray> copyData = std::nullopt)
 {
     Recorder recorder(c);
-    if (!c.execute(sql, chunkSize))
+    if (!c.execute(sql, chunkSize, std::move(copyData)))
         return {};
     (void)QTest::qWaitFor([&] { return recorder.finished > 0 || c.state() != State::Busy; },
-                          10'000);
+                          30'000);
     return std::move(recorder.results);
 }
 
@@ -365,7 +368,7 @@ private Q_SLOTS:
         QCOMPARE(c.state(), State::Ready);
     }
 
-    void copyFromStdinFailsInsteadOfHanging()
+    void copyFromStdinWithoutDataFails()
     {
         REQUIRE_SERVER();
         Connection c;
@@ -377,8 +380,198 @@ private Q_SLOTS:
         QCOMPARE(results.size(), 3u);
         QCOMPARE(results[1].status(), PGRES_COPY_IN);
         QVERIFY(results[2].isError());
-        QVERIFY2(results[2].errorMessage().contains(QLatin1String("not supported")),
+        QVERIFY2(results[2].errorMessage().contains(QLatin1String("No data for COPY")),
                  qPrintable(results[2].errorMessage()));
+    }
+
+    void copyFromStdin_data()
+    {
+        QTest::addColumn<QByteArray>("sql");
+        QTest::addColumn<QByteArray>("data");
+        QTest::addColumn<QByteArray>("expectedRows");
+
+        QTest::newRow("text") << QByteArray("COPY t FROM STDIN")
+                              << QByteArray("1\tone\n2\t\\N\n3\ttab\\there\n")
+                              << QByteArray("1:one|2:NULL|3:tab\there");
+        QTest::newRow("empty") << QByteArray("COPY t FROM STDIN") << QByteArray("") << QByteArray();
+        QTest::newRow("no final newline")
+            << QByteArray("COPY t FROM STDIN") << QByteArray("1\tone\n2\ttwo")
+            << QByteArray("1:one|2:two");
+        QTest::newRow("CSV with CRLF")
+            << QByteArray("COPY t (a, b) FROM STDIN WITH (FORMAT csv, HEADER)")
+            << QByteArray("a,b\r\n1,\"x;y\"\r\n2,\"multi\r\nline\"\r\n")
+            << QByteArray("1:x;y|2:multi\r\nline");
+        QTest::newRow("UTF-8") << QByteArray("COPY t FROM STDIN")
+                               << QStringLiteral("1\tžluťoučký kůň\n").toUtf8()
+                               << QStringLiteral("1:žluťoučký kůň").toUtf8();
+    }
+
+    void copyFromStdin()
+    {
+        QFETCH(QByteArray, sql);
+        QFETCH(QByteArray, data);
+        QFETCH(QByteArray, expectedRows);
+        REQUIRE_SERVER();
+        Connection c;
+        c.open(conninfo);
+        QVERIFY(waitForState(c, State::Ready));
+        QCOMPARE(run(c, "CREATE TEMP TABLE t (a int, b text)").size(), 1u);
+
+        const auto results = run(c, sql, 0, data);
+        QCOMPARE(c.state(), State::Ready);
+        QCOMPARE(results.size(), 2u);
+        QCOMPARE(results[0].status(), PGRES_COPY_IN);
+        QVERIFY2(!results[1].isError(), qPrintable(results[1].errorMessage()));
+        const int rowCount = expectedRows.isEmpty() ? 0 : int(expectedRows.count('|')) + 1;
+        QCOMPARE(results[1].commandTag(), "COPY " + QByteArray::number(rowCount));
+
+        const auto rows = run(c,
+                              "SELECT string_agg(a || ':' || coalesce(b, 'NULL'), '|' ORDER BY a) "
+                              "FROM t");
+        QCOMPARE(rows[0].value(0, 0), expectedRows);
+    }
+
+    void copyFromStdinLarge()
+    {
+        REQUIRE_SERVER();
+        Connection c;
+        c.open(conninfo);
+        QVERIFY(waitForState(c, State::Ready));
+        QCOMPARE(run(c, "CREATE TEMP TABLE t (a int, b text)").size(), 1u);
+
+        // Far more than libpq and socket buffers hold, so sending has to wait.
+        QByteArray data;
+        const QByteArray padding(100, 'x');
+        for (int i = 1; i <= 200'000; ++i)
+            data += QByteArray::number(i) + '\t' + padding + '\n';
+
+        const auto results = run(c, "COPY t FROM STDIN", 0, data);
+        QCOMPARE(results.size(), 2u);
+        QCOMPARE(results[1].commandTag(), QByteArray("COPY 200000"));
+        QCOMPARE(run(c, "SELECT sum(a) FROM t")[0].value(0, 0), QByteArray("20000100000"));
+    }
+
+    void copyFromStdinBadData()
+    {
+        REQUIRE_SERVER();
+        Connection c;
+        c.open(conninfo);
+        QVERIFY(waitForState(c, State::Ready));
+        QCOMPARE(run(c, "CREATE TEMP TABLE t (a int, b text)").size(), 1u);
+
+        // The bad row comes first; the rest is still sent and discarded.
+        QByteArray data = "oops\tbad\n";
+        for (int i = 1; i <= 200'000; ++i)
+            data += QByteArray::number(i) + "\tfine\n";
+
+        const auto results = run(c, "COPY t FROM STDIN", 0, data);
+        QCOMPARE(c.state(), State::Ready);
+        QCOMPARE(results.size(), 2u);
+        QCOMPARE(results[1].sqlState(), QByteArray("22P02"));
+        QCOMPARE(run(c, "SELECT count(*) FROM t")[0].value(0, 0), QByteArray("0"));
+    }
+
+    void copyDataGoesToFirstCopyOnly()
+    {
+        REQUIRE_SERVER();
+        Connection c;
+        c.open(conninfo);
+        QVERIFY(waitForState(c, State::Ready));
+        QCOMPARE(run(c, "CREATE TEMP TABLE t (a int, b text)").size(), 1u);
+
+        const auto results = run(c, "COPY t FROM STDIN; COPY t FROM STDIN", 0, "1\tone\n");
+        QCOMPARE(results.size(), 4u);
+        QCOMPARE(results[1].commandTag(), QByteArray("COPY 1"));
+        QCOMPARE(results[2].status(), PGRES_COPY_IN);
+        QVERIFY(results[3].errorMessage().contains(QLatin1String("No data for COPY")));
+        QCOMPARE(c.state(), State::Ready);
+    }
+
+    void cancelCopyFromStdin()
+    {
+        REQUIRE_SERVER();
+        Connection c;
+        c.open(conninfo);
+        QVERIFY(waitForState(c, State::Ready));
+        QCOMPARE(run(c, "CREATE TEMP TABLE t (a int, b text)").size(), 1u);
+
+        QByteArray data;
+        for (int i = 1; i <= 2'000'000; ++i)
+            data += QByteArray::number(i) + "\tfine\n";
+
+        Recorder recorder(c);
+        QVERIFY(c.execute("COPY t FROM STDIN", 0, data));
+        QTRY_VERIFY(!recorder.results.empty()); // COPY_IN: sending has started.
+        QVERIFY(c.cancel());
+        QTRY_COMPARE_WITH_TIMEOUT(recorder.finished, 1, 30'000);
+        QCOMPARE(c.state(), State::Ready);
+        // Either the cancel arrived in time, or the COPY had already finished.
+        const Result &last = recorder.results.back();
+        QVERIFY2(last.sqlState() == "57014" || last.commandTag() == "COPY 2000000",
+                 qPrintable(last.errorMessage()));
+    }
+
+    void terminatedDuringCopy()
+    {
+        REQUIRE_SERVER();
+        Connection c;
+        c.open(conninfo);
+        QVERIFY(waitForState(c, State::Ready));
+        QCOMPARE(run(c, "CREATE TEMP TABLE t (a int, b text)").size(), 1u);
+
+        QByteArray data;
+        for (int i = 1; i <= 2'000'000; ++i)
+            data += QByteArray::number(i) + "\tfine\n";
+
+        Connection admin;
+        admin.open(conninfo);
+        QVERIFY(waitForState(admin, State::Ready));
+
+        Recorder recorder(c);
+        QVERIFY(c.execute("COPY t FROM STDIN", 0, data));
+        QTRY_VERIFY(!recorder.results.empty()); // COPY_IN: sending has started.
+        run(admin, "SELECT pg_terminate_backend(" + QByteArray::number(c.backendPid()) + ")");
+
+        // Whether the COPY was still sending or had just finished, the
+        // connection ends up failed rather than hanging.
+        QVERIFY(waitForState(c, State::Failed, 10'000));
+        QVERIFY(!c.errorMessage().isEmpty());
+        QCOMPARE(recorder.finished, 0);
+    }
+
+    // Runs a pg_dump-style script the way the editor will: statement by
+    // statement, with each COPY getting the data span that follows it.
+    void runSplitScript()
+    {
+        REQUIRE_SERVER();
+        Connection c;
+        c.open(conninfo);
+        QVERIFY(waitForState(c, State::Ready));
+
+        const QByteArray script = "CREATE TEMP TABLE orders (id int PRIMARY KEY, note text);\n"
+                                  "COPY orders (id, note) FROM stdin;\n"
+                                  "1\tfirst; with semicolon\n"
+                                  "2\t\\N\n"
+                                  "\\.\n"
+                                  "\\echo loaded\n"
+                                  "INSERT INTO orders VALUES (3, 'third');\n"
+                                  "SELECT count(*), count(note) FROM orders;\n";
+
+        using Kind = slonisko::sql::StatementSpan::Kind;
+        const auto spans = slonisko::sql::splitStatements(script);
+        std::vector<Result> last;
+        for (std::size_t i = 0; i < spans.size(); ++i) {
+            if (spans[i].kind != Kind::Sql)
+                continue; // Meta-commands are the script runner's business.
+            std::optional<QByteArray> data;
+            if (i + 1 < spans.size() && spans[i + 1].kind == Kind::CopyData)
+                data = script.mid(spans[i + 1].offset, spans[i + 1].length);
+            last = run(c, script.mid(spans[i].offset, spans[i].length), 0, data);
+            QVERIFY(!last.empty());
+            QVERIFY2(!last.back().isError(), qPrintable(last.back().errorMessage()));
+        }
+        QCOMPARE(last[0].value(0, 0), QByteArray("3"));
+        QCOMPARE(last[0].value(0, 1), QByteArray("2"));
     }
 
     void copyToStdoutIsDiscarded()
