@@ -20,7 +20,7 @@ option(SLONISKO_WERROR "Treat compiler warnings as errors" OFF)
 
 set(SLONISKO_QT_COMPONENTS Core Widgets)
 if(SLONISKO_BUILD_TESTS)
-    list(APPEND SLONISKO_QT_COMPONENTS Test)
+    list(APPEND SLONISKO_QT_COMPONENTS Test Network)
 endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS ${SLONISKO_QT_COMPONENTS})

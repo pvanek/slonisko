@@ -58,6 +58,13 @@ ctest --test-dir build --output-on-failure
 ./build/src/app/slonisko
 ```
 
+The database tests (`src/pg`) need a PostgreSQL server. `ctest` starts a
+throwaway `postgres:18` container for them with Docker and removes it
+afterwards (`-DSLONISKO_TEST_POSTGRES_IMAGE=...` picks another image). Without
+Docker they are skipped; to use an existing server instead, set
+`SLONISKO_TEST_CONNINFO` to a libpq connection string. The tests create only
+temporary objects.
+
 Any CMake generator works; add `-G Ninja` for faster incremental builds if you
 have Ninja installed.
 

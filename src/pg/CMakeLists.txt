@@ -4,9 +4,17 @@
 add_library(slonisko_pg STATIC
     Connection.cpp
     Connection.h
-    Handles.h)
+    Handles.h
+    Result.cpp
+    Result.h
+    SocketWatcher.cpp
+    SocketWatcher.h)
 add_library(Slonisko::Pg ALIAS slonisko_pg)
 
 target_include_directories(slonisko_pg PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(slonisko_pg PUBLIC Qt6::Core PostgreSQL::PostgreSQL)
 slonisko_target_defaults(slonisko_pg)
+
+if(SLONISKO_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

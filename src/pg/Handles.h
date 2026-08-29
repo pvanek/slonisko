@@ -24,7 +24,19 @@ struct NotifyDeleter
     void operator()(PGnotify *n) const noexcept { PQfreemem(n); }
 };
 
+struct CancelDeleter
+{
+    void operator()(PGcancelConn *c) const noexcept { PQcancelFinish(c); }
+};
+
+struct ConninfoDeleter
+{
+    void operator()(PQconninfoOption *o) const noexcept { PQconninfoFree(o); }
+};
+
 using ConnPtr = std::unique_ptr<PGconn, ConnDeleter>;
+using CancelPtr = std::unique_ptr<PGcancelConn, CancelDeleter>;
+using ConninfoPtr = std::unique_ptr<PQconninfoOption, ConninfoDeleter>;
 using ResultPtr = std::unique_ptr<PGresult, ResultDeleter>;
 using NotifyPtr = std::unique_ptr<PGnotify, NotifyDeleter>;
 
