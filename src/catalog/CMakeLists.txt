@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(slonisko_catalog STATIC
+    Monitoring.cpp
+    Monitoring.h
+    Objects.cpp
+    Objects.h
     Snapshot.cpp
     Snapshot.h)
 add_library(Slonisko::Catalog ALIAS slonisko_catalog)

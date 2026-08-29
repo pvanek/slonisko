@@ -1,0 +1,648 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ConnectionDialog</class>
+ <widget class="QDialog" name="ConnectionDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>520</width>
+    <height>460</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Connection</string>
+  </property>
+  <layout class="QVBoxLayout" name="dialogLayout">
+   <item>
+    <widget class="QTabWidget" name="tabs">
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <widget class="QWidget" name="generalTab">
+      <attribute name="title">
+       <string>General</string>
+      </attribute>
+      <layout class="QFormLayout" name="generalForm">
+       <item row="0" column="0">
+        <widget class="QLabel" name="nameLabel">
+         <property name="text">
+          <string>&amp;Name:</string>
+         </property>
+         <property name="buddy">
+          <cstring>name</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QLineEdit" name="name">
+         <property name="placeholderText">
+          <string>Defaults to user@host/database</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="colorLabel">
+         <property name="text">
+          <string>&amp;Color:</string>
+         </property>
+         <property name="buddy">
+          <cstring>colorButton</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <layout class="QHBoxLayout" name="colorRow">
+         <item>
+          <widget class="QPushButton" name="colorButton">
+           <property name="text">
+            <string>Choose…</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="clearColorButton">
+           <property name="toolTip">
+            <string>No color</string>
+           </property>
+           <property name="text">
+            <string>None</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="colorSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="hostLabel">
+         <property name="text">
+          <string>&amp;Host:</string>
+         </property>
+         <property name="buddy">
+          <cstring>host</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <layout class="QHBoxLayout" name="hostRow" stretch="1,0,0">
+         <item>
+          <widget class="QLineEdit" name="host"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="portLabel">
+           <property name="text">
+            <string>&amp;Port:</string>
+           </property>
+           <property name="buddy">
+            <cstring>port</cstring>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QSpinBox" name="port">
+           <property name="minimum">
+            <number>1</number>
+           </property>
+           <property name="maximum">
+            <number>65535</number>
+           </property>
+           <property name="value">
+            <number>5432</number>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="databaseLabel">
+         <property name="text">
+          <string>&amp;Database:</string>
+         </property>
+         <property name="buddy">
+          <cstring>database</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QLineEdit" name="database"/>
+       </item>
+       <item row="4" column="0">
+        <widget class="QLabel" name="userLabel">
+         <property name="text">
+          <string>&amp;User:</string>
+         </property>
+         <property name="buddy">
+          <cstring>user</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="1">
+        <widget class="QLineEdit" name="user"/>
+       </item>
+       <item row="5" column="0">
+        <widget class="QLabel" name="passwordModeLabel">
+         <property name="text">
+          <string>Pass&amp;word:</string>
+         </property>
+         <property name="buddy">
+          <cstring>passwordMode</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="5" column="1">
+        <widget class="QComboBox" name="passwordMode">
+         <property name="toolTip">
+          <string>The order of the items must match config::PasswordMode.</string>
+         </property>
+         <item>
+          <property name="text">
+           <string>Save password</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Ask on every connect</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>No password (.pgpass, trust, peer, …)</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item row="6" column="1">
+        <widget class="QLineEdit" name="password">
+         <property name="echoMode">
+          <enum>QLineEdit::EchoMode::Password</enum>
+         </property>
+        </widget>
+       </item>
+       <item row="7" column="1">
+        <widget class="QLabel" name="walletWarning">
+         <property name="styleSheet">
+          <string notr="true">color: #b26a00;</string>
+         </property>
+         <property name="text">
+          <string>No system wallet is available: saved passwords are stored in plain text in the settings file.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="8" column="1">
+        <widget class="QCheckBox" name="showAllDatabases">
+         <property name="text">
+          <string>Show &amp;all databases of the server</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="sslTab">
+      <attribute name="title">
+       <string>SSL</string>
+      </attribute>
+      <layout class="QFormLayout" name="sslForm">
+       <item row="0" column="0">
+        <widget class="QLabel" name="sslModeLabel">
+         <property name="text">
+          <string>SSL &amp;mode:</string>
+         </property>
+         <property name="buddy">
+          <cstring>sslMode</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="sslMode">
+         <item>
+          <property name="text">
+           <string notr="true">disable</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string notr="true">allow</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string notr="true">prefer</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string notr="true">require</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string notr="true">verify-ca</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string notr="true">verify-full</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="sslRootCertLabel">
+         <property name="text">
+          <string>&amp;Root certificate:</string>
+         </property>
+         <property name="buddy">
+          <cstring>sslRootCert</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <layout class="QHBoxLayout" name="sslRootCertRow" stretch="1,0">
+         <item>
+          <widget class="QLineEdit" name="sslRootCert"/>
+         </item>
+         <item>
+          <widget class="QToolButton" name="sslRootCertBrowse">
+           <property name="toolTip">
+            <string>Browse</string>
+           </property>
+           <property name="text">
+            <string notr="true">…</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="sslCertLabel">
+         <property name="text">
+          <string>Client &amp;certificate:</string>
+         </property>
+         <property name="buddy">
+          <cstring>sslCert</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <layout class="QHBoxLayout" name="sslCertRow" stretch="1,0">
+         <item>
+          <widget class="QLineEdit" name="sslCert"/>
+         </item>
+         <item>
+          <widget class="QToolButton" name="sslCertBrowse">
+           <property name="toolTip">
+            <string>Browse</string>
+           </property>
+           <property name="text">
+            <string notr="true">…</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="sslKeyLabel">
+         <property name="text">
+          <string>Client &amp;key:</string>
+         </property>
+         <property name="buddy">
+          <cstring>sslKey</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <layout class="QHBoxLayout" name="sslKeyRow" stretch="1,0">
+         <item>
+          <widget class="QLineEdit" name="sslKey"/>
+         </item>
+         <item>
+          <widget class="QToolButton" name="sslKeyBrowse">
+           <property name="toolTip">
+            <string>Browse</string>
+           </property>
+           <property name="text">
+            <string notr="true">…</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="sshTab">
+      <attribute name="title">
+       <string>SSH Tunnel</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="sshLayout">
+       <item>
+        <widget class="QGroupBox" name="ssh">
+         <property name="title">
+          <string>Connect through an &amp;SSH tunnel</string>
+         </property>
+         <property name="checkable">
+          <bool>true</bool>
+         </property>
+         <property name="checked">
+          <bool>false</bool>
+         </property>
+         <layout class="QFormLayout" name="sshForm">
+          <item row="0" column="0">
+           <widget class="QLabel" name="sshHostLabel">
+            <property name="text">
+             <string>SSH &amp;host:</string>
+            </property>
+            <property name="buddy">
+             <cstring>sshHost</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <layout class="QHBoxLayout" name="sshHostRow" stretch="1,0,0">
+            <item>
+             <widget class="QLineEdit" name="sshHost"/>
+            </item>
+            <item>
+             <widget class="QLabel" name="sshPortLabel">
+              <property name="text">
+               <string>P&amp;ort:</string>
+              </property>
+              <property name="buddy">
+               <cstring>sshPort</cstring>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="sshPort">
+              <property name="minimum">
+               <number>1</number>
+              </property>
+              <property name="maximum">
+               <number>65535</number>
+              </property>
+              <property name="value">
+               <number>22</number>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="sshUserLabel">
+            <property name="text">
+             <string>SSH &amp;user:</string>
+            </property>
+            <property name="buddy">
+             <cstring>sshUser</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="sshUser">
+            <property name="placeholderText">
+             <string>Your login name</string>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="0">
+           <widget class="QLabel" name="sshAuthLabel">
+            <property name="text">
+             <string>&amp;Authentication:</string>
+            </property>
+            <property name="buddy">
+             <cstring>sshAuth</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="2" column="1">
+           <widget class="QComboBox" name="sshAuth">
+            <property name="toolTip">
+             <string>The order of the items must match config::SshTunnelSettings::Auth.</string>
+            </property>
+            <item>
+             <property name="text">
+              <string>SSH agent or default keys</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Private key file</string>
+             </property>
+            </item>
+            <item>
+             <property name="text">
+              <string>Password</string>
+             </property>
+            </item>
+           </widget>
+          </item>
+          <item row="3" column="0">
+           <widget class="QLabel" name="sshKeyFileLabel">
+            <property name="text">
+             <string>&amp;Key file:</string>
+            </property>
+            <property name="buddy">
+             <cstring>sshKeyFile</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QWidget" name="sshKeyField" native="true">
+            <layout class="QHBoxLayout" name="sshKeyRow" stretch="1,0">
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="QLineEdit" name="sshKeyFile"/>
+             </item>
+             <item>
+              <widget class="QToolButton" name="sshKeyFileBrowse">
+               <property name="toolTip">
+                <string>Browse</string>
+               </property>
+               <property name="text">
+                <string notr="true">…</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item row="4" column="0">
+           <widget class="QLabel" name="sshSecretLabel">
+            <property name="text">
+             <string>Pass&amp;word:</string>
+            </property>
+            <property name="buddy">
+             <cstring>sshSecret</cstring>
+            </property>
+           </widget>
+          </item>
+          <item row="4" column="1">
+           <widget class="QLineEdit" name="sshSecret">
+            <property name="echoMode">
+             <enum>QLineEdit::EchoMode::Password</enum>
+            </property>
+           </widget>
+          </item>
+          <item row="5" column="1">
+           <widget class="QCheckBox" name="sshSaveSecret">
+            <property name="text">
+             <string>Save the password</string>
+            </property>
+           </widget>
+          </item>
+          <item row="6" column="0" colspan="2">
+           <widget class="QLabel" name="sshNote">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="text">
+             <string>Uses the ssh program. The server's host key is accepted and remembered the first time; a changed key fails the connection.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="sshSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Vertical</enum>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="advancedTab">
+      <attribute name="title">
+       <string>Advanced</string>
+      </attribute>
+      <layout class="QFormLayout" name="advancedForm">
+       <item row="0" column="0">
+        <widget class="QLabel" name="applicationNameLabel">
+         <property name="text">
+          <string>Application &amp;name:</string>
+         </property>
+         <property name="buddy">
+          <cstring>applicationName</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QLineEdit" name="applicationName"/>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="connectTimeoutLabel">
+         <property name="text">
+          <string>Connect &amp;timeout:</string>
+         </property>
+         <property name="buddy">
+          <cstring>connectTimeout</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QSpinBox" name="connectTimeout">
+         <property name="specialValueText">
+          <string>None</string>
+         </property>
+         <property name="suffix">
+          <string> s</string>
+         </property>
+         <property name="maximum">
+          <number>600</number>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="extraParametersLabel">
+         <property name="text">
+          <string>&amp;Extra parameters:</string>
+         </property>
+         <property name="buddy">
+          <cstring>extraParameters</cstring>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QLineEdit" name="extraParameters">
+         <property name="toolTip">
+          <string>Further libpq connection parameters, as keyword=value pairs separated by spaces</string>
+         </property>
+         <property name="placeholderText">
+          <string notr="true">target_session_attrs=read-write keepalives_idle=60</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="status">
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="textInteractionFlags">
+      <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="buttonRow" stretch="0,1">
+     <item>
+      <widget class="QPushButton" name="testButton">
+       <property name="text">
+        <string>&amp;Test Connection</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDialogButtonBox" name="buttons">
+       <property name="standardButtons">
+        <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <tabstops>
+  <tabstop>tabs</tabstop>
+  <tabstop>name</tabstop>
+  <tabstop>colorButton</tabstop>
+  <tabstop>clearColorButton</tabstop>
+  <tabstop>host</tabstop>
+  <tabstop>port</tabstop>
+  <tabstop>database</tabstop>
+  <tabstop>user</tabstop>
+  <tabstop>passwordMode</tabstop>
+  <tabstop>password</tabstop>
+  <tabstop>showAllDatabases</tabstop>
+  <tabstop>testButton</tabstop>
+ </tabstops>
+ <resources/>
+ <connections/>
+</ui>
