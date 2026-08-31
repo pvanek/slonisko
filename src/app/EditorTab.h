@@ -6,6 +6,7 @@
 #include "pg/Connection.h"
 #include "sql/PsqlVariables.h"
 
+#include <QColor>
 #include <QElapsedTimer>
 #include <QPointer>
 #include <QWidget>
@@ -40,7 +41,23 @@ public:
     pg::Connection *connection() const { return m_connection; }
     Session *session() const { return m_session; }
     QString database() const { return m_database; }
+    // The file name (or the tab's name), * when modified, and the connection.
     QString title() const;
+    // The connection's color, if its profile has one.
+    QColor color() const;
+
+    // Files. Text is read and written as UTF-8, with the file's line endings.
+    QString filePath() const { return m_filePath; }
+    bool isModified() const;
+    // Whether nothing was typed or opened yet, so opening a file can reuse the tab.
+    bool isBlank() const;
+    bool openFile(const QString &path, QString *error = nullptr);
+    bool saveFile(const QString &path, QString *error = nullptr);
+    // Save to the file, or ask where if there is none. False if cancelled or failed.
+    bool save();
+    bool saveAs();
+    // Before closing: asks to save changes. False to keep the tab open.
+    bool maybeSave();
 
     // Connects the editor to a database of a session; null disconnects.
     void setSession(Session *session, const QString &database = {});
@@ -85,6 +102,7 @@ private:
     };
 
     void updateSessions();
+    void updateTargetColor();
     void updateActions();
     void updateStatus();
     void start(std::deque<Job> jobs);
@@ -101,6 +119,7 @@ private:
 
     ConnectionBrowser *m_browser = nullptr;
     QString m_name;
+    QString m_filePath;
     SqlEditor *m_editor = nullptr;
     ResultPanel *m_panel = nullptr;
     QComboBox *m_target = nullptr;

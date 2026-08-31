@@ -68,7 +68,9 @@ ResultView::ResultView(QWidget *parent)
     m_setNull = action(QStringLiteral("edit-clear"), tr("Set NULL"),
                        QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
                        [this] { m_model->setNull(m_table->selectionModel()->selectedIndexes()); });
-    m_save = action(QStringLiteral("document-save"), tr("Save"), QKeySequence::Save,
+    // No shortcut of its own: the main window's Ctrl+S saves these changes
+    // when the grid has focus, and the script otherwise.
+    m_save = action(QStringLiteral("document-save"), tr("Save"), QKeySequence(),
                     [this] { Q_EMIT saveRequested(); });
     m_discard = action(QStringLiteral("edit-undo"), tr("Discard"), QKeySequence(),
                        [this] { m_model->discardChanges(); });

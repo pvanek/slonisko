@@ -12,6 +12,8 @@
 #include "SqlEditor.h"
 #include "TestServer.h"
 
+#include <QComboBox>
+#include <QFile>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QStandardPaths>
@@ -305,6 +307,70 @@ private Q_SLOTS:
         QVERIFY(!model()->isEditable());
         QVERIFY(model()->editTarget().reason.contains(QLatin1String("not come from a table")));
         QVERIFY(!(model()->flags(model()->index(0, 0)) & Qt::ItemIsEditable));
+    }
+
+    void files()
+    {
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("script.sql"));
+        QVERIFY(m_tab->isBlank());
+        setText("SELECT 'žluťoučký';\n");
+        QVERIFY(m_tab->isModified());
+        QVERIFY(m_tab->title().startsWith(QLatin1String("Script*")));
+
+        QString error;
+        QVERIFY2(m_tab->saveFile(path, &error), qPrintable(error));
+        QVERIFY(!m_tab->isModified());
+        QVERIFY(m_tab->title().startsWith(QStringLiteral("script.sql ·")));
+        QCOMPARE(m_tab->filePath(), path);
+        QFile saved(path);
+        QVERIFY(saved.open(QIODevice::ReadOnly));
+        QCOMPARE(saved.readAll(), QStringLiteral("SELECT 'žluťoučký';\n").toUtf8());
+
+        // Opened elsewhere, the same text; not modified.
+        EditorTab other(m_browser.get(), QStringLiteral("Other"));
+        QVERIFY(other.openFile(path, &error));
+        QCOMPARE(other.editor()->utf8Text(), QStringLiteral("SELECT 'žluťoučký';\n").toUtf8());
+        QVERIFY(!other.isModified());
+        QVERIFY(!other.isBlank());
+
+        // Windows line endings stay Windows line endings, new lines too.
+        const QString crlf = dir.filePath(QStringLiteral("crlf.sql"));
+        QFile file(crlf);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        file.write("SELECT 1;\r\nSELECT 2;\r\n");
+        file.close();
+        QVERIFY(other.openFile(crlf));
+        other.editor()->setCursorPosition(other.editor()->utf8Text().size());
+        other.editor()->SendScintilla(QsciScintillaBase::SCI_NEWLINE);
+        QVERIFY(other.saveFile(crlf));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(file.readAll(), QByteArray("SELECT 1;\r\nSELECT 2;\r\n\r\n"));
+
+        QVERIFY(!other.saveFile(dir.filePath(QStringLiteral("missing/dir/x.sql")), &error));
+        QVERIFY(!error.isEmpty());
+    }
+
+    void connectionColor()
+    {
+        auto profile = m_server->profile;
+        profile.color = QStringLiteral("#c62828");
+        auto red
+            = std::make_unique<Session>(profile, Session::Credentials {m_server->password, {}});
+        red->open();
+        QTRY_COMPARE(red->state(), Session::State::Connected);
+        m_tab->setSession(red.get());
+        QCOMPARE(m_tab->color(), QColor(0xc6, 0x28, 0x28));
+
+        auto *combo = m_tab->findChild<QComboBox *>();
+        QVERIFY(combo);
+        QCOMPARE(combo->property("connectionColor").value<QColor>(), QColor(0xc6, 0x28, 0x28));
+        // Tinted towards red.
+        const QColor button = combo->palette().color(QPalette::Button);
+        QVERIFY(button.red() > button.blue());
+
+        m_tab->setSession(nullptr);
+        QVERIFY(!combo->property("connectionColor").value<QColor>().isValid());
     }
 
     // Regression: closing the window with several editors crashed.

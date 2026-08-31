@@ -5,12 +5,17 @@
 
 #include "ConnectionBrowser.h"
 #include "EditorTab.h"
+#include "FileBrowser.h"
+#include "Icons.h"
+#include "ResultModel.h"
 #include "ResultPanel.h"
 #include "ResultView.h"
 #include "SqlEditor.h"
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSplitter>
@@ -23,10 +28,22 @@ namespace slonisko {
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_mainSplitter(new QSplitter(Qt::Horizontal, this)),
       m_workSplitter(new QSplitter(Qt::Vertical, m_mainSplitter)),
-      m_browser(new ConnectionBrowser(m_settings, true, m_mainSplitter)),
-      m_editors(new QTabWidget(m_workSplitter)), m_results(new QStackedWidget(m_workSplitter))
+      m_left(new QTabWidget(m_mainSplitter)),
+      m_browser(new ConnectionBrowser(m_settings, true, m_left)),
+      m_files(new FileBrowser(m_settings, m_left)), m_editors(new QTabWidget(m_workSplitter)),
+      m_results(new QStackedWidget(m_workSplitter))
 {
-    m_mainSplitter->addWidget(m_browser);
+    m_left->setDocumentMode(true);
+    m_left->setTabPosition(QTabWidget::West);
+    m_left->addTab(m_browser, QIcon::fromTheme(QStringLiteral("network-server-database")),
+                   tr("Connections"));
+    m_left->addTab(m_files, QIcon::fromTheme(QStringLiteral("folder")), tr("Files"));
+    m_left->setCurrentIndex(m_settings.value(QStringLiteral("window/leftTab"), 0).toInt());
+    connect(m_left, &QTabWidget::currentChanged, this,
+            [this](int i) { m_settings.setValue(QStringLiteral("window/leftTab"), i); });
+    connect(m_files, &FileBrowser::fileActivated, this,
+            [this](const QString &path) { openFile(path); });
+    m_mainSplitter->addWidget(m_left);
     m_mainSplitter->addWidget(m_workSplitter);
     m_mainSplitter->setStretchFactor(1, 1);
     m_workSplitter->addWidget(m_editors);
@@ -89,8 +106,7 @@ EditorTab *MainWindow::newEditor(Session *session, const QString &database)
     auto *tab = new EditorTab(m_browser, tr("Script %1").arg(++m_editorCount));
     m_results->addWidget(tab->resultPanel());
     const int index = m_editors->addTab(tab, tab->title());
-    connect(tab, &EditorTab::titleChanged, this,
-            [this, tab] { m_editors->setTabText(m_editors->indexOf(tab), tab->title()); });
+    connect(tab, &EditorTab::titleChanged, this, [this, tab] { updateTab(tab); });
 
     QString db = database;
     if (!session)
@@ -100,15 +116,77 @@ EditorTab *MainWindow::newEditor(Session *session, const QString &database)
     if (session)
         tab->setSession(session, db);
 
+    updateTab(tab);
     m_editors->setCurrentIndex(index);
     tab->editor()->setFocus();
     return tab;
 }
 
+void MainWindow::updateTab(EditorTab *tab)
+{
+    const int index = m_editors->indexOf(tab);
+    if (index < 0)
+        return;
+    m_editors->setTabText(index, tab->title());
+    m_editors->setTabToolTip(index, tab->filePath());
+    const QColor color = tab->color();
+    m_editors->setTabIcon(index, color.isValid() ? Icons::connection(color.name(), true) : QIcon());
+}
+
+EditorTab *MainWindow::openFile(const QString &path)
+{
+    // Already open: just show it.
+    const QString absolute = QFileInfo(path).absoluteFilePath();
+    for (int i = 0; i < m_editors->count(); ++i) {
+        auto *open = qobject_cast<EditorTab *>(m_editors->widget(i));
+        if (open && open->filePath() == absolute) {
+            m_editors->setCurrentIndex(i);
+            return open;
+        }
+    }
+    EditorTab *tab = currentEditor();
+    if (!tab || !tab->isBlank())
+        tab = newEditor(tab ? tab->session() : nullptr, tab ? tab->database() : QString());
+    QString error;
+    if (!tab->openFile(path, &error)) {
+        QMessageBox::warning(this, tr("Open File"), tr("Could not open %1:\n%2").arg(path, error));
+        return nullptr;
+    }
+    m_editors->setCurrentWidget(tab);
+    return tab;
+}
+
+void MainWindow::openFile()
+{
+    const QString dir = m_settings.value(QStringLiteral("files/lastDirectory")).toString();
+    const QStringList paths = QFileDialog::getOpenFileNames(
+        this, tr("Open SQL Script"), dir, tr("SQL scripts (*.sql *.psql);;All files (*)"));
+    for (const QString &path : paths)
+        openFile(path);
+    if (!paths.isEmpty())
+        m_settings.setValue(QStringLiteral("files/lastDirectory"),
+                            QFileInfo(paths.first()).absolutePath());
+}
+
+void MainWindow::saveCurrent()
+{
+    EditorTab *tab = currentEditor();
+    if (!tab)
+        return;
+    // In the result grid, with edits pending, Save means those.
+    ResultView *results = tab->resultPanel()->results();
+    const QWidget *focus = QApplication::focusWidget();
+    if (focus && results->isAncestorOf(focus) && results->model()->hasChanges()) {
+        tab->saveChanges();
+        return;
+    }
+    tab->save();
+}
+
 void MainWindow::closeEditor(int index)
 {
     auto *tab = qobject_cast<EditorTab *>(m_editors->widget(index));
-    if (!tab)
+    if (!tab || !tab->maybeSave())
         return;
     m_editors->removeTab(index);
     delete tab; // Also deletes its result panel.
@@ -118,6 +196,16 @@ void MainWindow::closeEditor(int index)
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+    for (int i = 0; i < m_editors->count(); ++i) {
+        auto *tab = qobject_cast<EditorTab *>(m_editors->widget(i));
+        if (tab && tab->isModified()) {
+            m_editors->setCurrentIndex(i);
+            if (!tab->maybeSave()) {
+                event->ignore();
+                return;
+            }
+        }
+    }
     m_settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
     m_settings.setValue(QStringLiteral("window/mainSplitter"), m_mainSplitter->saveState());
     m_settings.setValue(QStringLiteral("window/workSplitter"), m_workSplitter->saveState());
@@ -128,8 +216,24 @@ void MainWindow::setupMenus()
 {
     QMenu *file = menuBar()->addMenu(tr("&File"));
     file->addAction(m_browser->newConnectionAction());
-    QAction *editor = file->addAction(tr("New SQL &Editor"), this, [this] { newEditor(); });
+    QAction *editor = file->addAction(QIcon::fromTheme(QStringLiteral("document-new")),
+                                      tr("New SQL &Editor"), this, [this] { newEditor(); });
     editor->setShortcut(QKeySequence::New);
+    QAction *open = file->addAction(QIcon::fromTheme(QStringLiteral("document-open")),
+                                    tr("&Open File…"), this, qOverload<>(&MainWindow::openFile));
+    open->setShortcut(QKeySequence::Open);
+    QAction *save = file->addAction(QIcon::fromTheme(QStringLiteral("document-save")), tr("&Save"),
+                                    this, &MainWindow::saveCurrent);
+    save->setShortcut(QKeySequence::Save);
+    QAction *saveAs = file->addAction(QIcon::fromTheme(QStringLiteral("document-save-as")),
+                                      tr("Save &As…"), this, [this] {
+                                          if (EditorTab *tab = currentEditor())
+                                              tab->saveAs();
+                                      });
+    saveAs->setShortcut(QKeySequence::SaveAs);
+    QAction *close = file->addAction(tr("&Close Editor"), this,
+                                     [this] { closeEditor(m_editors->currentIndex()); });
+    close->setShortcut(QKeySequence::Close);
     file->addSeparator();
     QAction *quit = file->addAction(tr("&Quit"), this, &QWidget::close);
     quit->setShortcut(QKeySequence::Quit);

@@ -4,6 +4,7 @@
 #include "EditorTab.h"
 
 #include "ConnectionBrowser.h"
+#include "Icons.h"
 #include "PlanView.h"
 #include "ResultPanel.h"
 #include "ResultModel.h"
@@ -16,7 +17,13 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QLabel>
+#include <QMessageBox>
+#include <QSaveFile>
+#include <QSettings>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -95,6 +102,7 @@ EditorTab::EditorTab(ConnectionBrowser *browser, const QString &name, QWidget *p
     connect(m_connection, &pg::Connection::notice, this,
             [this](const QString &message) { m_panel->log(message); });
     connect(m_browser, &ConnectionBrowser::sessionsChanged, this, &EditorTab::updateSessions);
+    connect(m_editor, &QsciScintilla::modificationChanged, this, &EditorTab::titleChanged);
     connect(m_panel->results(), &ResultView::saveRequested, this, [this] { saveChanges(); });
     m_editor->setSnapshotProvider(
         [this] { return m_session ? m_session->snapshot(m_database) : catalog::SnapshotPtr(); });
@@ -111,12 +119,110 @@ EditorTab::~EditorTab()
 
 QString EditorTab::title() const
 {
+    QString name = m_filePath.isEmpty() ? m_name : QFileInfo(m_filePath).fileName();
+    if (isModified())
+        name += QLatin1Char('*');
     if (!m_session)
-        return m_name;
+        return name;
     const QString db = m_database.isEmpty() || m_database == m_session->profile().database
         ? QString()
         : QLatin1Char('/') + m_database;
-    return m_name + QStringLiteral(" · ") + m_session->profile().displayName() + db;
+    return name + QStringLiteral(" · ") + m_session->profile().displayName() + db;
+}
+
+QColor EditorTab::color() const
+{
+    return m_session ? QColor::fromString(m_session->profile().color) : QColor();
+}
+
+bool EditorTab::isModified() const
+{
+    return m_editor->isModified();
+}
+
+bool EditorTab::isBlank() const
+{
+    return m_filePath.isEmpty() && !isModified() && m_editor->length() == 0;
+}
+
+bool EditorTab::openFile(const QString &path, QString *error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+    const QByteArray bytes = file.readAll();
+    // Keep the file's line endings, and type new lines the same way.
+    m_editor->setEolMode(bytes.contains("\r\n") ? QsciScintilla::EolWindows
+                                                : QsciScintilla::EolUnix);
+    m_editor->setText(QString::fromUtf8(bytes));
+    m_editor->setModified(false);
+    m_editor->setCursorPosition(0);
+    m_filePath = QFileInfo(path).absoluteFilePath();
+    setToolTip(m_filePath);
+    Q_EMIT titleChanged();
+    return true;
+}
+
+bool EditorTab::saveFile(const QString &path, QString *error)
+{
+    // Written to a temporary file first, so a failed save leaves the old one.
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(m_editor->utf8Text()) < 0
+        || !file.commit()) {
+        if (error)
+            *error = file.errorString();
+        return false;
+    }
+    m_editor->setModified(false);
+    m_filePath = QFileInfo(path).absoluteFilePath();
+    setToolTip(m_filePath);
+    Q_EMIT titleChanged();
+    return true;
+}
+
+bool EditorTab::save()
+{
+    if (m_filePath.isEmpty())
+        return saveAs();
+    QString error;
+    if (saveFile(m_filePath, &error))
+        return true;
+    QMessageBox::warning(this, tr("Save"), tr("Could not save %1:\n%2").arg(m_filePath, error));
+    return false;
+}
+
+bool EditorTab::saveAs()
+{
+    QSettings settings;
+    const QString dir = m_filePath.isEmpty()
+        ? settings.value(QStringLiteral("files/lastDirectory")).toString()
+        : m_filePath;
+    const QString path = QFileDialog::getSaveFileName(this, tr("Save SQL Script"), dir,
+                                                      tr("SQL scripts (*.sql);;All files (*)"));
+    if (path.isEmpty())
+        return false;
+    settings.setValue(QStringLiteral("files/lastDirectory"), QFileInfo(path).absolutePath());
+    QString error;
+    if (saveFile(path, &error))
+        return true;
+    QMessageBox::warning(this, tr("Save"), tr("Could not save %1:\n%2").arg(path, error));
+    return false;
+}
+
+bool EditorTab::maybeSave()
+{
+    if (!isModified())
+        return true;
+    const QString name = m_filePath.isEmpty() ? m_name : QFileInfo(m_filePath).fileName();
+    const auto answer = QMessageBox::question(
+        this, tr("Unsaved Changes"), tr("Save the changes to %1?").arg(name),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (answer == QMessageBox::Save)
+        return save();
+    return answer == QMessageBox::Discard;
 }
 
 void EditorTab::setSession(Session *session, const QString &database)
@@ -166,13 +272,34 @@ void EditorTab::updateSessions()
         const QString label = db.isEmpty() || db == s->profile().database
             ? s->profile().displayName()
             : s->profile().displayName() + QLatin1Char('/') + db;
-        m_target->addItem(label);
+        m_target->addItem(Icons::connection(s->profile().color, true), label);
         const int i = m_target->count() - 1;
         m_target->setItemData(i, QVariant::fromValue(QPointer<Session>(s)), Qt::UserRole);
         m_target->setItemData(i, db, Qt::UserRole + 1);
         if (m_session == s)
             m_target->setCurrentIndex(i);
     }
+    updateTargetColor();
+}
+
+void EditorTab::updateTargetColor()
+{
+    // Tints the combo box with the connection's color, so it is clear at a
+    // glance which server (production!) this editor talks to.
+    const QColor c = color();
+    QPalette palette; // The application's, untinted.
+    if (c.isValid()) {
+        for (const QPalette::ColorRole role :
+             {QPalette::Button, QPalette::Base, QPalette::Window}) {
+            const QColor base = palette.color(role);
+            palette.setColor(role,
+                             QColor::fromRgbF(base.redF() * 0.75f + c.redF() * 0.25f,
+                                              base.greenF() * 0.75f + c.greenF() * 0.25f,
+                                              base.blueF() * 0.75f + c.blueF() * 0.25f));
+        }
+    }
+    m_target->setPalette(palette);
+    m_target->setProperty("connectionColor", c);
 }
 
 void EditorTab::updateActions()

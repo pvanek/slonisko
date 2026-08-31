@@ -16,6 +16,8 @@ add_library(slonisko_ui STATIC
     ConnectionDialog.ui
     EditorTab.cpp
     EditorTab.h
+    FileBrowser.cpp
+    FileBrowser.h
     Icons.cpp
     Icons.h
     MainWindow.cpp
