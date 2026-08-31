@@ -3,6 +3,7 @@
 
 #include "catalog/Completion.h"
 
+#include "catalog/Scope.h"
 #include "sql/Keywords.h"
 #include "sql/Lexer.h"
 
@@ -11,8 +12,6 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
-
-#include <pg_query.h>
 
 #include <algorithm>
 #include <optional>
@@ -25,28 +24,12 @@ using Context = Completion::Context;
 using Item = CompletionItem;
 using sql::Token;
 using sql::TokenKind;
+using namespace scope;
 
 // Put in place of the word at the cursor so the statement can parse.
 const QString Sentinel = QStringLiteral("slonisko_cursor");
 
 constexpr int MaxItems = 200;
-
-// A name in scope that rows come from: a table, view, CTE, subquery or
-// function in FROM.
-struct Source
-{
-    QString name; // How it is referred to: its alias, else its name.
-    QString schema;
-    QString relation;
-    QStringList columns; // Known columns of CTEs, subqueries and functions.
-    bool derived = false;
-};
-
-struct Scope
-{
-    std::vector<Source> sources;
-    std::vector<Source> ctes;
-};
 
 // What the parse tree says about the cursor and the scope.
 struct TreeInfo
@@ -58,247 +41,7 @@ struct TreeInfo
     Scope scope;
 };
 
-// Unquoted names fold to lowercase; quoted ones keep their case.
-QString normalize(QByteArrayView text, TokenKind kind)
-{
-    QString s = QString::fromUtf8(text);
-    if (kind == TokenKind::QuotedIdentifier) {
-        if (s.startsWith(QLatin1String("U&")))
-            s = s.mid(2);
-        if (s.startsWith(QLatin1Char('"')))
-            s = s.mid(1);
-        if (s.endsWith(QLatin1Char('"')))
-            s.chop(1);
-        return s.replace(QStringLiteral("\"\""), QStringLiteral("\""));
-    }
-    return s.toLower();
-}
-
-bool isName(TokenKind kind)
-{
-    return kind == TokenKind::Identifier || kind == TokenKind::QuotedIdentifier
-        || kind == TokenKind::Keyword;
-}
-
-QString quoted(const QString &name)
-{
-    if (!sql::needsQuoting(name.toUtf8()))
-        return name;
-    return QLatin1Char('"') + QString(name).replace(QLatin1Char('"'), QStringLiteral("\"\""))
-        + QLatin1Char('"');
-}
-
-// Significant tokens of a text, with helpers to read them.
-class Tokens
-{
-public:
-    explicit Tokens(QByteArrayView text) : m_text(text)
-    {
-        for (const Token &t : sql::tokenize(text)) {
-            if (sql::isSignificant(t.kind))
-                m_tokens.push_back(t);
-        }
-    }
-
-    int size() const { return int(m_tokens.size()); }
-    const Token &at(int i) const { return m_tokens[std::size_t(i)]; }
-    QByteArrayView text(int i) const { return m_text.sliced(at(i).offset, at(i).length); }
-    QString name(int i) const { return normalize(text(i), at(i).kind); }
-
-    bool is(int i, const char *word) const
-    {
-        return i >= 0 && i < size()
-            && (at(i).kind == TokenKind::Keyword || at(i).kind == TokenKind::Identifier)
-            && text(i).compare(QByteArrayView(word), Qt::CaseInsensitive) == 0;
-    }
-    bool isPunct(int i, char c) const
-    {
-        return i >= 0 && i < size() && at(i).kind == TokenKind::Punctuation
-            && text(i) == QByteArrayView(&c, 1);
-    }
-    bool isAnyOf(int i, std::initializer_list<const char *> words) const
-    {
-        return std::ranges::any_of(words, [&](const char *w) { return is(i, w); });
-    }
-    // Index past the parenthesis matching the one at i.
-    int skipParens(int i) const
-    {
-        int depth = 0;
-        for (; i < size(); ++i) {
-            if (isPunct(i, '('))
-                ++depth;
-            else if (isPunct(i, ')') && --depth == 0)
-                return i + 1;
-        }
-        return size();
-    }
-
-private:
-    QByteArrayView m_text;
-    std::vector<Token> m_tokens;
-};
-
-// Keywords that end a FROM item rather than name its alias.
-bool endsFromItem(const Tokens &t, int i)
-{
-    return t.isAnyOf(i, {"where",       "join",    "inner",   "left",      "right",   "full",
-                         "cross",       "natural", "on",      "using",     "group",   "order",
-                         "having",      "limit",   "offset",  "window",    "union",   "except",
-                         "intersect",   "set",     "values",  "returning", "for",     "fetch",
-                         "tablesample", "select",  "lateral", "when",      "default", "do",
-                         "into"});
-}
-
-bool canBeAlias(const Tokens &t, int i)
-{
-    if (i >= t.size() || endsFromItem(t, i))
-        return false;
-    const TokenKind kind = t.at(i).kind;
-    if (kind == TokenKind::Identifier || kind == TokenKind::QuotedIdentifier)
-        return true;
-    return kind == TokenKind::Keyword
-        && sql::keywordCategory(t.text(i)) == sql::KeywordCategory::Unreserved;
-}
-
-// Scope from tokens alone, for statements that do not parse.
-Scope tokenScope(const Tokens &t)
-{
-    Scope scope;
-    for (int i = 0; i < t.size(); ++i) {
-        if (t.is(i, "with")) {
-            int j = i + 1;
-            if (t.is(j, "recursive"))
-                ++j;
-            while (j < t.size() && isName(t.at(j).kind)) {
-                Source cte;
-                cte.name = t.name(j);
-                cte.derived = true;
-                ++j;
-                if (t.isPunct(j, '(')) {
-                    const int end = t.skipParens(j);
-                    for (int k = j + 1; k < end - 1; ++k) {
-                        if (isName(t.at(k).kind))
-                            cte.columns << t.name(k);
-                    }
-                    j = end;
-                }
-                if (!t.is(j, "as"))
-                    break;
-                ++j;
-                if (t.is(j, "not"))
-                    ++j;
-                if (t.is(j, "materialized"))
-                    ++j;
-                if (t.isPunct(j, '('))
-                    j = t.skipParens(j);
-                scope.ctes.push_back(cte);
-                if (!t.isPunct(j, ','))
-                    break;
-                ++j;
-            }
-            continue;
-        }
-        if (!t.isAnyOf(i, {"from", "join", "update", "into", "using"}))
-            continue;
-        const bool list = t.is(i, "from");
-        // INSERT INTO t (a, b) and UPDATE t: a column list, not a function call.
-        const bool functions = !t.isAnyOf(i, {"into", "update"});
-        int j = i + 1;
-        while (j < t.size()) {
-            if (t.isAnyOf(j, {"only", "lateral"}))
-                ++j;
-            Source source;
-            if (t.isPunct(j, '(')) {
-                source.derived = true;
-                j = t.skipParens(j);
-            } else if (j < t.size() && isName(t.at(j).kind) && !endsFromItem(t, j)) {
-                QStringList parts {t.name(j)};
-                ++j;
-                while (t.isPunct(j, '.') && j + 1 < t.size() && isName(t.at(j + 1).kind)) {
-                    parts << t.name(j + 1);
-                    j += 2;
-                }
-                source.relation = parts.last();
-                if (parts.size() > 1)
-                    source.schema = parts[parts.size() - 2];
-                source.name = source.relation;
-                if (functions && t.isPunct(j, '(')) { // A function in FROM.
-                    source.derived = true;
-                    source.schema.clear();
-                    j = t.skipParens(j);
-                }
-            } else {
-                break;
-            }
-            if (t.is(j, "as"))
-                ++j;
-            if (canBeAlias(t, j)) {
-                source.name = t.name(j);
-                ++j;
-                if (t.isPunct(j, '(')) {
-                    const int end = t.skipParens(j);
-                    for (int k = j + 1; k < end - 1; ++k) {
-                        if (isName(t.at(k).kind))
-                            source.columns << t.name(k);
-                    }
-                    j = end;
-                }
-            }
-            if (!source.name.isEmpty())
-                scope.sources.push_back(source);
-            if (!(list && t.isPunct(j, ',')))
-                break;
-            ++j;
-        }
-    }
-    return scope;
-}
-
 // Parse tree walking (pg_query's JSON).
-
-QStringList stringList(const QJsonArray &items)
-{
-    QStringList out;
-    for (const QJsonValue &v : items) {
-        const QJsonObject s = v.toObject().value(QLatin1String("String")).toObject();
-        if (!s.isEmpty())
-            out << s.value(QLatin1String("sval")).toString();
-    }
-    return out;
-}
-
-// Output column names of a query: its targets' aliases or column names.
-QStringList targetNames(const QJsonObject &selectStmt)
-{
-    QStringList out;
-    for (const QJsonValue &v : selectStmt.value(QLatin1String("targetList")).toArray()) {
-        const QJsonObject target = v.toObject().value(QLatin1String("ResTarget")).toObject();
-        QString name = target.value(QLatin1String("name")).toString();
-        if (name.isEmpty()) {
-            const QJsonObject ref = target.value(QLatin1String("val"))
-                                        .toObject()
-                                        .value(QLatin1String("ColumnRef"))
-                                        .toObject();
-            const QStringList fields = stringList(ref.value(QLatin1String("fields")).toArray());
-            if (!fields.isEmpty())
-                name = fields.last();
-        }
-        if (!name.isEmpty())
-            out << name;
-    }
-    return out;
-}
-
-Source rangeVarSource(const QJsonObject &rv)
-{
-    Source s;
-    s.schema = rv.value(QLatin1String("schemaname")).toString();
-    s.relation = rv.value(QLatin1String("relname")).toString();
-    const QString alias
-        = rv.value(QLatin1String("alias")).toObject().value(QLatin1String("aliasname")).toString();
-    s.name = alias.isEmpty() ? s.relation : alias;
-    return s;
-}
 
 class TreeWalker
 {
@@ -447,16 +190,11 @@ private:
 
 std::optional<TreeInfo> parseWithSentinel(const QByteArray &sql)
 {
-    PgQueryParseResult result = pg_query_parse(sql.constData());
-    std::optional<TreeInfo> info;
-    if (!result.error) {
-        const QJsonDocument doc = QJsonDocument::fromJson(QByteArray(result.parse_tree));
-        if (doc.toJson(QJsonDocument::Compact).contains(Sentinel.toUtf8())) {
-            info.emplace();
-            TreeWalker(*info).walk(doc.object(), QString());
-        }
-    }
-    pg_query_free_parse_result(result);
+    const std::optional<QJsonObject> tree = scope::parse(sql);
+    if (!tree || !QJsonDocument(*tree).toJson(QJsonDocument::Compact).contains(Sentinel.toUtf8()))
+        return std::nullopt;
+    TreeInfo info;
+    TreeWalker(info).walk(*tree, QString());
     return info;
 }
 

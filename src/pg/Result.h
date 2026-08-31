@@ -33,6 +33,11 @@ public:
     int columnCount() const;
     QString columnName(int column) const;
     Oid columnType(int column) const;
+    int columnTypeModifier(int column) const;
+    // The table a column comes from and its attribute number there; 0 when
+    // it is computed rather than read from a table.
+    Oid columnTable(int column) const;
+    int columnTableColumn(int column) const;
     bool isNull(int row, int column) const;
     QByteArray value(int row, int column) const;
 

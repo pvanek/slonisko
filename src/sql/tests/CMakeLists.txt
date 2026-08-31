@@ -3,3 +3,4 @@
 
 slonisko_add_test(tst_splitter Slonisko::Sql)
 slonisko_add_test(tst_lexer Slonisko::Sql)
+slonisko_add_test(tst_psqlvariables Slonisko::Sql)

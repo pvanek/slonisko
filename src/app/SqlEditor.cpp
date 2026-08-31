@@ -11,6 +11,7 @@
 #include <QGuiApplication>
 #include <QKeyEvent>
 #include <QPalette>
+#include <QToolTip>
 #include <QtConcurrent/QtConcurrentRun>
 
 namespace slonisko {
@@ -33,6 +34,7 @@ SqlEditor::SqlEditor(QWidget *parent)
     connect(this, &QsciScintilla::linesChanged, this, &SqlEditor::updateMarginWidth);
     updateMarginWidth();
 
+    setFolding(BoxedTreeFoldStyle, 2);
     setIndentationsUseTabs(false);
     setTabWidth(4);
     setAutoIndent(true);
@@ -66,6 +68,26 @@ SqlEditor::SqlEditor(QWidget *parent)
         clearErrors();
         m_statementTimer.start();
     });
+
+    // Semantic highlighting and hover explanations.
+    setupSemanticIndicators();
+    m_semanticTimer.setSingleShot(true);
+    m_semanticTimer.setInterval(200);
+    connect(&m_semanticTimer, &QTimer::timeout, this, &SqlEditor::analyzeVisible);
+    connect(this, &QsciScintilla::textChanged, &m_semanticTimer, qOverload<>(&QTimer::start));
+    connect(this, &QsciScintillaBase::SCN_UPDATEUI, this, [this](int updated) {
+        if (updated & SC_UPDATE_V_SCROLL)
+            m_semanticTimer.start();
+    });
+    connect(&m_semanticWatcher, &QFutureWatcher<std::vector<catalog::SemanticSpan>>::finished, this,
+            &SqlEditor::applySemantics);
+    send(SCI_SETMOUSEDWELLTIME, 500);
+    connect(this, &QsciScintillaBase::SCN_DWELLSTART, this, [this](int position, int x, int y) {
+        const QString text = position >= 0 ? explanationAt(position) : QString();
+        if (!text.isEmpty())
+            QToolTip::showText(viewport()->mapToGlobal(QPoint(x, y)), text, viewport());
+    });
+    connect(this, &QsciScintillaBase::SCN_DWELLEND, this, [] { QToolTip::hideText(); });
 
     m_completionTimer.setSingleShot(true);
     connect(&m_completionTimer, &QTimer::timeout, this, [this] { complete(false); });
@@ -273,7 +295,7 @@ void SqlEditor::updateStatementMark()
         send(SCI_INDICATORFILLRANGE, range->first, range->second - range->first);
 }
 
-void SqlEditor::markError(qsizetype pos)
+void SqlEditor::markError(qsizetype pos, const QString &message)
 {
     const long length = send(SCI_GETLENGTH);
     pos = std::clamp<qsizetype>(pos, 0, length);
@@ -284,10 +306,12 @@ void SqlEditor::markError(qsizetype pos)
         --pos;
     send(SCI_SETINDICATORCURRENT, ErrorIndicator);
     send(SCI_INDICATORFILLRANGE, pos, std::max<qsizetype>(end - pos, 1));
+    m_errors.push_back({{pos, std::max(end, pos + 1)}, message});
 }
 
 void SqlEditor::clearErrors()
 {
+    m_errors.clear();
     send(SCI_SETINDICATORCURRENT, ErrorIndicator);
     send(SCI_INDICATORCLEARRANGE, 0, send(SCI_GETLENGTH));
 }
@@ -295,6 +319,90 @@ void SqlEditor::clearErrors()
 bool SqlEditor::hasErrorAt(qsizetype pos) const
 {
     return send(SCI_INDICATORVALUEAT, ErrorIndicator, pos) != 0;
+}
+
+int SqlEditor::indicatorFor(catalog::SemanticSpan::Kind kind)
+{
+    return FirstSemanticIndicator + int(kind);
+}
+
+void SqlEditor::setupSemanticIndicators()
+{
+    using K = catalog::SemanticSpan::Kind;
+    const bool dark = QGuiApplication::palette().color(QPalette::Base).lightness() < 128;
+    auto textColor = [&](K kind, const QColor &color) {
+        send(SCI_INDICSETSTYLE, indicatorFor(kind), INDIC_TEXTFORE);
+        SendScintilla(SCI_INDICSETFORE, static_cast<unsigned long>(indicatorFor(kind)), color);
+    };
+    auto pick = [dark](const char *light, const char *darkColor) {
+        return QColor::fromString(QLatin1String(dark ? darkColor : light));
+    };
+    textColor(K::Relation, pick("#00796b", "#4fd1c5"));
+    textColor(K::Cte, pick("#00796b", "#4fd1c5"));
+    textColor(K::Column, pick("#8a4b08", "#e3a86c"));
+    textColor(K::Function, pick("#6f42c1", "#b392f0"));
+    for (const K kind : {K::UnknownRelation, K::UnknownColumn}) {
+        send(SCI_INDICSETSTYLE, indicatorFor(kind), INDIC_SQUIGGLEPIXMAP);
+        SendScintilla(SCI_INDICSETFORE, static_cast<unsigned long>(indicatorFor(kind)),
+                      pick("#d98c00", "#f2b84b"));
+    }
+    // Another language's body: plain text first, its own tokens over it.
+    textColor(K::ForeignText, QGuiApplication::palette().color(QPalette::Text));
+    textColor(K::ForeignKeyword, SqlLexer::color(SqlLexer::Keyword, dark));
+    textColor(K::ForeignString, SqlLexer::color(SqlLexer::String, dark));
+    textColor(K::ForeignComment, SqlLexer::color(SqlLexer::Comment, dark));
+    textColor(K::ForeignNumber, SqlLexer::color(SqlLexer::Number, dark));
+}
+
+void SqlEditor::refreshSemantics()
+{
+    m_semanticTimer.start(0);
+}
+
+void SqlEditor::analyzeVisible()
+{
+    // The lines on screen, and a margin, so scrolling a little finds them done.
+    const auto first = qsizetype(send(SCI_DOCLINEFROMVISIBLE, send(SCI_GETFIRSTVISIBLELINE)));
+    const auto count = qsizetype(send(SCI_LINESONSCREEN));
+    const qsizetype lastLine = std::max<qsizetype>(lines() - 1, 0);
+    const auto from = qsizetype(send(SCI_POSITIONFROMLINE, std::max<qsizetype>(first - 50, 0)));
+    const auto to = qsizetype(send(SCI_GETLINEENDPOSITION, std::min(first + count + 50, lastLine)));
+
+    m_semanticRevision = m_revision;
+    const catalog::SnapshotPtr snapshot = m_snapshot ? m_snapshot() : nullptr;
+    m_semanticWatcher.setFuture(QtConcurrent::run([text = utf8Text(), snapshot, from, to] {
+        return catalog::analyzeScript(text, snapshot.get(), from, to);
+    }));
+}
+
+void SqlEditor::applySemantics()
+{
+    if (m_semanticRevision != m_revision)
+        return; // Edited meanwhile; another analysis is on its way.
+    m_semantic = m_semanticWatcher.result();
+    const long length = send(SCI_GETLENGTH);
+    for (int kind = 0; kind <= int(catalog::SemanticSpan::Kind::ForeignNumber); ++kind) {
+        send(SCI_SETINDICATORCURRENT, FirstSemanticIndicator + kind);
+        send(SCI_INDICATORCLEARRANGE, 0, length);
+    }
+    for (const catalog::SemanticSpan &s : m_semantic) {
+        send(SCI_SETINDICATORCURRENT, indicatorFor(s.kind));
+        send(SCI_INDICATORFILLRANGE, s.offset, s.length);
+    }
+}
+
+QString SqlEditor::explanationAt(qsizetype pos) const
+{
+    for (const auto &[range, message] : m_errors) {
+        if (pos >= range.first && pos < range.second && !message.isEmpty())
+            return message;
+    }
+    for (const catalog::SemanticSpan &s : m_semantic) {
+        if (pos >= s.offset && pos < s.end() && !s.detail.isEmpty()
+            && s.kind != catalog::SemanticSpan::Kind::ForeignText)
+            return s.detail;
+    }
+    return {};
 }
 
 void SqlEditor::updateMarginWidth()

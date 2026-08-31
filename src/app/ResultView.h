@@ -10,6 +10,7 @@
 
 #include <functional>
 
+class QAction;
 class QLabel;
 class QStackedWidget;
 class QTableView;
@@ -45,11 +46,14 @@ public:
 
 Q_SIGNALS:
     void finished();
+    // Save was asked for; whoever ran the query saves the model's changes.
+    void saveRequested();
 
 private:
     void rerunQuery();
     void showOutcome(const pg::QueryOutcome &outcome, qint64 elapsedMs);
     void setMessage(const QString &text, bool error);
+    void updateEditing();
 
     QLabel *m_title = nullptr;
     QLabel *m_status = nullptr;
@@ -58,6 +62,13 @@ private:
     QTableView *m_table = nullptr;
     QLabel *m_message = nullptr;
     ResultModel *m_model = nullptr;
+    QLabel *m_editLabel = nullptr;
+    QWidget *m_editBar = nullptr;
+    QAction *m_addRow = nullptr;
+    QAction *m_deleteRows = nullptr;
+    QAction *m_setNull = nullptr;
+    QAction *m_save = nullptr;
+    QAction *m_discard = nullptr;
 
     std::function<void()> m_rerun;
     QPointer<pg::QueryRunner> m_runner;

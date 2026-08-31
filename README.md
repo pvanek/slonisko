@@ -12,10 +12,10 @@ Status: early development. Nothing works yet.
 
 | Directory       | Target              | Purpose                                                  |
 |-----------------|---------------------|----------------------------------------------------------|
-| `src/pg`        | `Slonisko::Pg`      | Async connection, queries, cancel, query queue, SSH tunnel |
+| `src/pg`        | `Slonisko::Pg`      | Async connection, queries, cancel, query queue, row store, SSH tunnel |
 | `src/config`    | `Slonisko::Config`  | Connection profiles, passwords (system wallet)           |
-| `src/sql`       | `Slonisko::Sql`     | PostgreSQL lexer and keywords, statement splitting       |
-| `src/catalog`   | `Slonisko::Catalog` | Browser and monitoring queries, EXPLAIN plans, catalog snapshots, completion |
+| `src/sql`       | `Slonisko::Sql`     | PostgreSQL lexer, statement splitting, psql variables, other languages' bodies |
+| `src/catalog`   | `Slonisko::Catalog` | Browser and monitoring queries, catalog snapshots, completion, semantic highlighting, EXPLAIN plans, result editing |
 | `src/app`       | `slonisko`          | The GUI                                                  |
 
 Each library keeps its Qt Test unit tests in its own `tests/` subdirectory.

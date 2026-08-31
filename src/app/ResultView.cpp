@@ -5,7 +5,10 @@
 
 #include "ResultModel.h"
 
+#include <QAction>
 #include <QElapsedTimer>
+#include <QItemSelectionModel>
+#include <QToolBar>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -33,10 +36,52 @@ ResultView::ResultView(QWidget *parent)
             m_rerun();
     });
 
+    // Editing: only shown when the result can be written back.
+    m_editLabel = new QLabel(this);
+    auto *editBar = new QToolBar(this);
+    editBar->setIconSize(QSize(16, 16));
+    editBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    auto action
+        = [&](const QString &icon, const QString &text, const QKeySequence &key, auto slot) {
+              auto *a = editBar->addAction(QIcon::fromTheme(icon), text);
+              a->setShortcut(key);
+              a->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+              m_table->addAction(a);
+              connect(a, &QAction::triggered, this, slot);
+              return a;
+          };
+    m_addRow = action(QStringLiteral("list-add"), tr("Add Row"),
+                      QKeySequence(Qt::CTRL | Qt::Key_Insert), [this] {
+                          const int row = m_model->addRow();
+                          m_table->setCurrentIndex(m_model->index(row, 0));
+                          m_table->scrollToBottom();
+                      });
+    m_deleteRows
+        = action(QStringLiteral("list-remove"), tr("Delete Rows"), QKeySequence::Delete, [this] {
+              QList<int> rows;
+              for (const QModelIndex &i : m_table->selectionModel()->selectedIndexes()) {
+                  if (!rows.contains(i.row()))
+                      rows << i.row();
+              }
+              m_model->toggleDeleted(rows);
+          });
+    m_setNull = action(QStringLiteral("edit-clear"), tr("Set NULL"),
+                       QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N),
+                       [this] { m_model->setNull(m_table->selectionModel()->selectedIndexes()); });
+    m_save = action(QStringLiteral("document-save"), tr("Save"), QKeySequence::Save,
+                    [this] { Q_EMIT saveRequested(); });
+    m_discard = action(QStringLiteral("edit-undo"), tr("Discard"), QKeySequence(),
+                       [this] { m_model->discardChanges(); });
+    m_editBar = editBar;
+    connect(m_model, &ResultModel::changesChanged, this, &ResultView::updateEditing);
+    connect(m_model, &ResultModel::editTargetChanged, this, &ResultView::updateEditing);
+
     auto *header = new QHBoxLayout;
     header->setContentsMargins(4, 2, 4, 2);
     header->addWidget(m_title);
     header->addStretch();
+    header->addWidget(m_editLabel);
+    header->addWidget(m_editBar);
     header->addWidget(m_status);
     header->addWidget(m_refresh);
 
@@ -71,6 +116,30 @@ ResultView::ResultView(QWidget *parent)
 
     showMessage(tr("Run a statement with Ctrl+Enter, or double-click an item under DBA Tools "
                    "or System Info."));
+    updateEditing();
+}
+
+void ResultView::updateEditing()
+{
+    const catalog::EditTarget &target = m_model->editTarget();
+    const bool editable = target.editable();
+    const bool changes = m_model->hasChanges();
+    m_editBar->setVisible(editable);
+    m_editLabel->setVisible(m_model->hasColumns() && (editable || !target.reason.isEmpty()));
+    if (editable) {
+        m_editLabel->setText(tr("Editing %1.%2").arg(target.schema, target.table));
+        m_editLabel->setToolTip(
+            tr("Double-click a cell to change it. Changes are saved with Save."));
+    } else {
+        m_editLabel->setText(tr("Read-only"));
+        m_editLabel->setToolTip(target.reason);
+    }
+    m_save->setEnabled(changes);
+    m_discard->setEnabled(changes);
+    m_table->setEditTriggers(editable ? QAbstractItemView::DoubleClicked
+                                     | QAbstractItemView::EditKeyPressed
+                                     | QAbstractItemView::AnyKeyPressed
+                                      : QAbstractItemView::NoEditTriggers);
 }
 
 void ResultView::run(pg::QueryRunner *runner, const QString &title, const QByteArray &sql)

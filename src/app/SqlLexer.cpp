@@ -173,6 +173,81 @@ SqlLexer::Style SqlLexer::styleFor(const sql::Token &t, QByteArrayView text)
     return Default;
 }
 
+int SqlLexer::stateDepth(const sql::LexState &s)
+{
+    using Mode = sql::LexState::Mode;
+    return (s.mode != Mode::Code ? 1 : 0) + (s.bodyTag.isEmpty() ? 0 : 1);
+}
+
+int SqlLexer::foldDepthAfter(const std::vector<sql::Token> &tokens, QByteArrayView text, int depth,
+                             const sql::LexState &start)
+{
+    QByteArray openBody = start.bodyTag; // The delimiter that ends the body we are in.
+    std::vector<const sql::Token *> significant;
+    for (const sql::Token &t : tokens) {
+        if (sql::isSignificant(t.kind))
+            significant.push_back(&t);
+    }
+    auto word = [&](std::size_t i) -> QByteArray {
+        if (i >= significant.size())
+            return {};
+        const sql::Token &t = *significant[i];
+        if (t.kind != TokenKind::Keyword && t.kind != TokenKind::Identifier)
+            return {};
+        return text.sliced(t.offset, t.length).toByteArray().toLower();
+    };
+
+    for (std::size_t i = 0; i < significant.size(); ++i) {
+        const sql::Token &t = *significant[i];
+        if (t.kind == TokenKind::PsqlCommand)
+            continue; // Not part of any statement.
+        if (depth == 0)
+            depth = 1; // A statement starts.
+        // A body's end: back to its statement's level, whatever the body
+        // held. Its language may not be PL/pgSQL, whose IF and LOOP this
+        // counts; Python's "if" has no END IF.
+        if (t.kind == TokenKind::DollarDelimiter && !t.inBody) {
+            const QByteArrayView tag = text.sliced(t.offset, t.length);
+            if (!openBody.isEmpty() && tag == openBody) {
+                openBody.clear();
+                depth = 1;
+            } else if (i + 1 < significant.size() && significant[i + 1]->inBody) {
+                openBody = tag.toByteArray();
+            }
+            continue;
+        }
+        if (t.kind == TokenKind::Punctuation) {
+            const char c = text[t.offset];
+            if (c == '(')
+                ++depth;
+            else if (c == ')' && depth > 1)
+                --depth;
+            else if (c == ';' && depth == 1 && !t.inBody)
+                depth = 0; // The statement ends.
+            continue;
+        }
+        const QByteArray w = word(i);
+        if (w.isEmpty())
+            continue;
+        const QByteArray before = i > 0 ? word(i - 1) : QByteArray();
+        if (w == "case") {
+            if (before != "end")
+                ++depth;
+        } else if (w == "end") {
+            if (depth > 1)
+                --depth;
+        } else if (w == "begin") {
+            if (t.inBody || word(i + 1) == "atomic")
+                ++depth;
+        } else if (t.inBody && (w == "if" || w == "loop")) {
+            // END IF and END LOOP close, IF EXISTS in DDL opens nothing.
+            if (before != "end" && word(i + 1) != "not" && word(i + 1) != "exists")
+                ++depth;
+        }
+    }
+    return depth;
+}
+
 void SqlLexer::styleText(int start, int end)
 {
     QsciScintilla *e = editor();
@@ -190,6 +265,16 @@ void SqlLexer::styleText(int start, int end)
         ? decode(int(e->SendScintilla(QsciScintillaBase::SCI_GETLINESTATE, line - 1)))
         : sql::LexState();
 
+    // The fold level of a line is its depth at the start; the structural
+    // part of it carries on from line to line.
+    constexpr int Base = QsciScintillaBase::SC_FOLDLEVELBASE;
+    constexpr int NumberMask = QsciScintillaBase::SC_FOLDLEVELNUMBERMASK;
+    constexpr int Header = QsciScintillaBase::SC_FOLDLEVELHEADERFLAG;
+    auto level
+        = [e](int l) { return int(e->SendScintilla(QsciScintillaBase::SCI_GETFOLDLEVEL, l)); };
+    int structure
+        = line > 0 ? std::max(0, (level(line) & NumberMask) - Base - stateDepth(state)) : 0;
+
     for (; line < lineCount; ++line) {
         const long from = e->SendScintilla(QsciScintillaBase::SCI_POSITIONFROMLINE, line);
         const long to = line + 1 < lineCount
@@ -198,8 +283,11 @@ void SqlLexer::styleText(int start, int end)
         const QByteArrayView text(document + from, to - from);
 
         startStyling(int(from));
+        const int startDepth = structure + stateDepth(state);
+        const sql::LexState startState = state;
+        const std::vector<sql::Token> tokens = sql::tokenize(text, state);
         bool afterDot = false; // In o.name, name is a column, not a keyword or type.
-        for (const sql::Token &t : sql::tokenize(text, state)) {
+        for (const sql::Token &t : tokens) {
             Style style = styleFor(t, text);
             if (afterDot && (style == Keyword || style == UnreservedKeyword || style == Type))
                 style = Identifier;
@@ -208,21 +296,39 @@ void SqlLexer::styleText(int start, int end)
             setStyling(int(t.length), style);
         }
 
+        structure = foldDepthAfter(tokens, text, structure, startState);
+        const int endDepth = structure + stateDepth(state);
+        e->SendScintilla(QsciScintillaBase::SCI_SETFOLDLEVEL, line,
+                         (Base + startDepth) | (endDepth > startDepth ? Header : 0));
+        // Where the next line starts; it sets its own header flag when styled.
+        int nextLevel = Base + endDepth;
+        if (line + 1 < lineCount) {
+            nextLevel |= level(line + 1) & Header;
+            const int previousNext = level(line + 1);
+            e->SendScintilla(QsciScintillaBase::SCI_SETFOLDLEVEL, line + 1, nextLevel);
+            nextLevel = previousNext == nextLevel ? nextLevel : -1;
+        }
+
         const int encoded = encode(state);
         const int previous = int(e->SendScintilla(QsciScintillaBase::SCI_GETLINESTATE, line));
         e->SendScintilla(QsciScintillaBase::SCI_SETLINESTATE, line, encoded);
         // Past the requested lines, go on only while this edit changes what
-        // the following lines start with.
-        if (line >= lastLine && encoded == previous)
+        // the following lines start with: lexer state or fold depth.
+        if (line >= lastLine && encoded == previous && nextLevel >= 0)
             break;
     }
 }
 
 QColor SqlLexer::defaultColor(int style) const
 {
+    return color(style, m_dark);
+}
+
+QColor SqlLexer::color(int style, bool isDark)
+{
     // Light and dark variants of a restrained palette.
-    auto pick = [this](const char *light, const char *dark) {
-        return QColor::fromString(QLatin1String(m_dark ? dark : light));
+    auto pick = [isDark](const char *light, const char *dark) {
+        return QColor::fromString(QLatin1String(isDark ? dark : light));
     };
     switch (style) {
     case Comment:
@@ -263,9 +369,9 @@ QColor SqlLexer::defaultPaper(int) const
 
 QFont SqlLexer::defaultFont(int style) const
 {
+    // No bold keywords: semantic highlighting recolors text but cannot
+    // change its font, and a bold SQL keyword in a Python body would stand out.
     QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    if (style == Keyword)
-        font.setBold(true);
     if (style == Comment)
         font.setItalic(true);
     return font;

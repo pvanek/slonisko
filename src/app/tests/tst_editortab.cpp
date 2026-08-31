@@ -116,11 +116,37 @@ private Q_SLOTS:
 
     void psqlCommandsAreSkipped()
     {
-        setText("\\set x 1\nSELECT 1;");
+        setText("\\connect other\nSELECT 1;");
         m_tab->editor()->selectAll();
         runAndWait();
         QVERIFY(messages().contains(QLatin1String("Skipped psql command")));
         QCOMPARE(model()->rowCount(), 1);
+    }
+
+    void psqlVariables()
+    {
+        setText("\\set n 3\n\\set who 'O''Brien'\n\\echo counting to :n\n"
+                "SELECT g, :'who' AS who FROM generate_series(1, :n) g;");
+        m_tab->editor()->selectAll();
+        runAndWait();
+        QCOMPARE(model()->rowCount(), 3);
+        QCOMPARE(model()->index(0, 1).data().toString(), QStringLiteral("O'Brien"));
+        QVERIFY(messages().contains(QLatin1String("counting to 3")));
+
+        // They stay set for later runs in this editor, like in psql.
+        setText("SELECT :n + 1;");
+        runAndWait();
+        QCOMPARE(model()->index(0, 0).data().toString(), QStringLiteral("4"));
+
+        // Error positions point into the text as written, not as sent.
+        setText("\\set long 'a much longer value'\nSELECT :'long', nope FROM (SELECT 1) s;");
+        m_tab->editor()->selectAll();
+        runAndWait();
+        QVERIFY(m_tab->editor()->hasErrorAt(find("nope")));
+
+        setText("SELECT :undefined_var;");
+        runAndWait();
+        QVERIFY(messages().contains(QLatin1String(":undefined_var is not set")));
     }
 
     void cancel()
@@ -192,6 +218,93 @@ private Q_SLOTS:
         QTRY_VERIFY(!m_tab->isRunning());
         // The position is in the user's text, not in the EXPLAIN prefix.
         QVERIFY(m_tab->editor()->hasErrorAt(find("nope")));
+    }
+
+    void editAndSave()
+    {
+        setText("CREATE TEMP TABLE ed (id int PRIMARY KEY, name text, note text);\n"
+                "INSERT INTO ed VALUES (1, 'one', 'a'), (2, 'two', 'b'), (3, 'three', 'c');");
+        m_tab->editor()->selectAll();
+        runAndWait();
+
+        setText("SELECT id, name, note, upper(name) AS shout FROM ed ORDER BY id;");
+        runAndWait();
+        QTRY_VERIFY(model()->isEditable());
+        QCOMPARE(model()->editTarget().table, QStringLiteral("ed"));
+        QVERIFY(!(model()->flags(model()->index(0, 3)) & Qt::ItemIsEditable)); // Computed.
+
+        QVERIFY(model()->setData(model()->index(0, 1), QStringLiteral("uno")));
+        model()->setNull({model()->index(0, 2)});
+        model()->toggleDeleted({1});
+        const int added = model()->addRow();
+        QVERIFY(model()->setData(model()->index(added, 0), QStringLiteral("10")));
+        QVERIFY(model()->setData(model()->index(added, 1), QStringLiteral("ten")));
+        QVERIFY(model()->hasChanges());
+
+        m_tab->saveChanges(false);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        QVERIFY2(messages().contains(QLatin1String("Saved 3 change(s).")), qPrintable(messages()));
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_IDLE);
+
+        // The query ran again, showing the saved rows.
+        QVERIFY(!model()->hasChanges());
+        QCOMPARE(model()->rowCount(), 3);
+        QCOMPARE(model()->index(0, 1).data().toString(), QStringLiteral("uno"));
+        QCOMPARE(model()->index(0, 2).data().toString(), QStringLiteral("NULL"));
+        QCOMPARE(model()->index(1, 0).data().toString(), QStringLiteral("3"));
+        QCOMPARE(model()->index(2, 1).data().toString(), QStringLiteral("ten"));
+    }
+
+    void failedSaveKeepsEverything()
+    {
+        setText("CREATE TEMP TABLE fs (id int PRIMARY KEY, name text);\n"
+                "INSERT INTO fs VALUES (1, 'one'), (2, 'two');");
+        m_tab->editor()->selectAll();
+        runAndWait();
+        setText("SELECT * FROM fs ORDER BY id;");
+        runAndWait();
+        QTRY_VERIFY(model()->isEditable());
+
+        QVERIFY(model()->setData(model()->index(0, 1), QStringLiteral("changed")));
+        const int added = model()->addRow();
+        QVERIFY(model()->setData(model()->index(added, 0), QStringLiteral("2"))); // Duplicate key.
+        m_tab->saveChanges(false);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        QVERIFY(messages().contains(QLatin1String("duplicate key")));
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_IDLE); // Rolled back.
+        QVERIFY(model()->hasChanges()); // Kept, to fix and save again.
+
+        setText("SELECT name FROM fs WHERE id = 1;");
+        runAndWait();
+        QCOMPARE(model()->index(0, 0).data().toString(), QStringLiteral("one"));
+    }
+
+    void saveInsideTransaction()
+    {
+        setText("BEGIN; CREATE TEMP TABLE st (id int PRIMARY KEY, v int); INSERT INTO st VALUES "
+                "(1, 1);");
+        m_tab->editor()->selectAll();
+        runAndWait();
+        setText("SELECT * FROM st;");
+        runAndWait();
+        QTRY_VERIFY(model()->isEditable());
+        QVERIFY(model()->setData(model()->index(0, 1), QStringLiteral("5")));
+        m_tab->saveChanges(false);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        QVERIFY(messages().contains(QLatin1String("in the open transaction")));
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_INTRANS);
+        QCOMPARE(model()->index(0, 1).data().toString(), QStringLiteral("5"));
+        setText("ROLLBACK;");
+        runAndWait();
+    }
+
+    void readOnlyResults()
+    {
+        setText("SELECT 1 AS one;");
+        runAndWait();
+        QVERIFY(!model()->isEditable());
+        QVERIFY(model()->editTarget().reason.contains(QLatin1String("not come from a table")));
+        QVERIFY(!(model()->flags(model()->index(0, 0)) & Qt::ItemIsEditable));
     }
 
     // Regression: closing the window with several editors crashed.

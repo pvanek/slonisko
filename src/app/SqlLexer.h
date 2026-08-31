@@ -51,6 +51,19 @@ public:
     const char *wordCharacters() const override;
 
     static Style styleFor(const sql::Token &token, QByteArrayView text);
+    // The palette, shared with the semantic highlighting.
+    static QColor color(int style, bool dark);
+    bool isDark() const { return m_dark; }
+
+    // Folding. A line's fold level is its depth at the start of the line:
+    // constructs the lexer state leaves open (comments, strings, bodies)
+    // plus structure: statements spanning lines, parentheses, CASE ... END,
+    // BEGIN ATOMIC ... END, and BEGIN/IF/LOOP ... END inside bodies.
+    static int stateDepth(const sql::LexState &state);
+    // The structural depth after a line's tokens, given the depth and the
+    // lexer state before them.
+    static int foldDepthAfter(const std::vector<sql::Token> &tokens, QByteArrayView text, int depth,
+                              const sql::LexState &start = {});
 
     // Packing a lexer state into Scintilla's per-line int, for tests.
     static int encode(const sql::LexState &state);

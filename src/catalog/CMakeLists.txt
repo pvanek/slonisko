@@ -4,12 +4,18 @@
 add_library(slonisko_catalog STATIC
     Completion.cpp
     Completion.h
+    Editing.cpp
+    Editing.h
     Monitoring.cpp
     Monitoring.h
     Objects.cpp
     Objects.h
     Plan.cpp
     Plan.h
+    Scope.cpp
+    Scope.h
+    Semantic.cpp
+    Semantic.h
     Snapshot.cpp
     Snapshot.h)
 add_library(Slonisko::Catalog ALIAS slonisko_catalog)

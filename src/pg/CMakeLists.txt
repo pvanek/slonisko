@@ -9,6 +9,8 @@ add_library(slonisko_pg STATIC
     QueryRunner.h
     Result.cpp
     Result.h
+    RowStore.cpp
+    RowStore.h
     SocketWatcher.cpp
     SocketWatcher.h
     SshTunnel.cpp

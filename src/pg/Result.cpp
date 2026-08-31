@@ -36,6 +36,21 @@ Oid Result::columnType(int column) const
     return PQftype(m_result.get(), column);
 }
 
+int Result::columnTypeModifier(int column) const
+{
+    return PQfmod(m_result.get(), column);
+}
+
+Oid Result::columnTable(int column) const
+{
+    return PQftable(m_result.get(), column);
+}
+
+int Result::columnTableColumn(int column) const
+{
+    return PQftablecol(m_result.get(), column);
+}
+
 bool Result::isNull(int row, int column) const
 {
     return PQgetisnull(m_result.get(), row, column) != 0;

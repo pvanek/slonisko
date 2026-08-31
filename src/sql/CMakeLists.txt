@@ -2,10 +2,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(slonisko_sql STATIC
+    EmbeddedLexer.cpp
+    EmbeddedLexer.h
     Keywords.cpp
     Keywords.h
     Lexer.cpp
     Lexer.h
+    PsqlVariables.cpp
+    PsqlVariables.h
     Splitter.cpp
     Splitter.h)
 add_library(Slonisko::Sql ALIAS slonisko_sql)

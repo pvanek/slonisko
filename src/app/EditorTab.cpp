@@ -6,9 +6,12 @@
 #include "ConnectionBrowser.h"
 #include "PlanView.h"
 #include "ResultPanel.h"
+#include "ResultModel.h"
 #include "ResultView.h"
 #include "Session.h"
 #include "SqlEditor.h"
+#include "SaveChangesDialog.h"
+#include "catalog/Editing.h"
 #include "catalog/Plan.h"
 
 #include <QAction>
@@ -92,6 +95,7 @@ EditorTab::EditorTab(ConnectionBrowser *browser, const QString &name, QWidget *p
     connect(m_connection, &pg::Connection::notice, this,
             [this](const QString &message) { m_panel->log(message); });
     connect(m_browser, &ConnectionBrowser::sessionsChanged, this, &EditorTab::updateSessions);
+    connect(m_panel->results(), &ResultView::saveRequested, this, [this] { saveChanges(); });
     m_editor->setSnapshotProvider(
         [this] { return m_session ? m_session->snapshot(m_database) : catalog::SnapshotPtr(); });
 
@@ -123,9 +127,16 @@ void EditorTab::setSession(Session *session, const QString &database)
     m_current.reset();
     m_connection->close();
 
+    if (m_session)
+        m_session->disconnect(this);
     m_session = session;
     m_database = database;
     if (m_session) {
+        // New catalog data: completion takes it as it comes; colors need a nudge.
+        connect(m_session, &Session::snapshotChanged, this, [this](const QString &db) {
+            if (db == (m_database.isEmpty() ? m_session->profile().database : m_database))
+                m_editor->refreshSemantics();
+        });
         m_panel->log(tr("Connecting to %1…").arg(title()));
         m_connection->open(m_session->conninfo(m_database));
     }
@@ -239,11 +250,18 @@ void EditorTab::run()
     std::deque<Job> jobs;
     for (const ScriptPiece &piece : m_editor->piecesToRun()) {
         if (piece.psqlCommand) {
-            m_panel->log(tr("Skipped psql command: %1").arg(preview(piece.sql)));
+            // Variables are handled in script order, as the jobs are queued.
+            QString output;
+            if (m_variables.apply(piece.sql, &output)) {
+                if (!output.isEmpty())
+                    m_panel->log(output);
+            } else {
+                m_panel->log(tr("Skipped psql command: %1").arg(preview(piece.sql)));
+            }
             continue;
         }
         Job job;
-        job.sql = piece.sql;
+        job.sql = substitute(piece.sql, job);
         job.copyData = piece.copyData;
         job.offset = piece.offset;
         jobs.push_back(std::move(job));
@@ -272,7 +290,7 @@ void EditorTab::explain(bool analyze)
         = analyze ? "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " : "EXPLAIN (FORMAT JSON) ";
     Job job;
     job.kind = Job::Kind::Explain;
-    job.sql = prefix + pieces.front().sql;
+    job.sql = prefix + substitute(pieces.front().sql, job);
     job.offset = pieces.front().offset;
     job.prefixChars = int(prefix.size());
     job.analyze = analyze;
@@ -323,8 +341,13 @@ void EditorTab::start(std::deque<Job> jobs)
 
 void EditorTab::startNext()
 {
-    while (!m_jobs.empty() && m_failed && !m_jobs.front().always)
+    while (!m_jobs.empty()) {
+        const Job &next = m_jobs.front();
+        const bool runs = next.onFailure ? m_failed : (!m_failed || next.always);
+        if (runs)
+            break;
         m_jobs.pop_front();
+    }
     if (m_jobs.empty()) {
         finishAll();
         return;
@@ -335,6 +358,7 @@ void EditorTab::startNext()
     m_rowsShown = false;
     m_rows = 0;
     m_commandTag.clear();
+    m_editInfo.clear();
     m_limited = false;
     m_timer.start();
     const int chunk = m_current->kind == Job::Kind::Statement ? 1000 : 0;
@@ -353,6 +377,10 @@ void EditorTab::onResult(const pg::Result &result)
         return;
     const Job &job = *m_current;
 
+    if (job.kind == Job::Kind::EditInfo) {
+        m_editInfo.push_back(result); // Errors too: editTarget() then says it could not look up.
+        return;
+    }
     if (result.isError()) {
         if (m_limited && result.sqlState() == "57014")
             return; // Our own cancel at the row limit.
@@ -361,7 +389,7 @@ void EditorTab::onResult(const pg::Result &result)
         m_panel->log(message, true);
         const int position = result.errorPosition();
         if (position > job.prefixChars)
-            markError(job, position - job.prefixChars);
+            markError(job, position - job.prefixChars, message);
         if (job.kind == Job::Kind::Explain) {
             m_panel->plan()->showMessage(message, true);
         } else if (job.kind == Job::Kind::Statement && !m_rowsShown) {
@@ -399,6 +427,10 @@ void EditorTab::onResult(const pg::Result &result)
             m_commandTag = result.commandTag();
         break;
     case Job::Kind::Silent:
+    case Job::Kind::Dml:
+        m_commandTag = result.commandTag();
+        break;
+    case Job::Kind::EditInfo:
         break;
     }
 }
@@ -438,11 +470,99 @@ void EditorTab::onFinished()
                 m_commandTag.isEmpty()
                     ? tr("Done in %1 ms.").arg(ms)
                     : tr("%1 in %2 ms.").arg(QString::fromUtf8(m_commandTag)).arg(ms));
+        // Rows from one table can be edited; find out which, and its key.
+        if (m_rowsShown && !m_failed) {
+            m_lastQuery = job;
+            lookUpEditTarget();
+        }
     } else if (job.kind == Job::Kind::Explain && !m_failed) {
         m_panel->log(
             tr("Explained: %1 (%2 ms)").arg(preview(job.sql.mid(job.prefixChars))).arg(ms));
+    } else if (job.kind == Job::Kind::EditInfo) {
+        m_panel->results()->model()->setEditTarget(
+            catalog::editTarget(m_panel->results()->model()->rows(), m_editInfo));
+    } else if (job.kind == Job::Kind::Dml && !m_failed && !catalog::changedOneRow(m_commandTag)) {
+        m_failed = true;
+        m_panel->log(tr("%1 changed %2 instead of one row; nothing was saved.")
+                         .arg(preview(job.sql), QString::fromUtf8(m_commandTag)),
+                     true);
     }
+    if (!job.message.isEmpty() && !m_failed)
+        m_panel->log(job.message);
     startNext();
+}
+
+void EditorTab::lookUpEditTarget()
+{
+    QString reason;
+    ResultModel *model = m_panel->results()->model();
+    const catalog::Oid table = catalog::sourceTable(model->rows(), &reason);
+    if (table == 0) {
+        catalog::EditTarget none;
+        none.reason = reason;
+        model->setEditTarget(none);
+        return;
+    }
+    // Next, before any further statement changes the rows on show.
+    Job info;
+    info.kind = Job::Kind::EditInfo;
+    info.sql = catalog::editTargetQuery(table);
+    m_jobs.push_front(std::move(info));
+}
+
+void EditorTab::saveChanges(bool confirm)
+{
+    ResultModel *model = m_panel->results()->model();
+    if (!model->hasChanges() || !model->isEditable() || isRunning()
+        || m_connection->state() != pg::Connection::State::Ready)
+        return;
+    const catalog::EditTarget &target = model->editTarget();
+    const QByteArrayList statements = catalog::dmlStatements(target, model->changes());
+    const PGTransactionStatusType status = m_connection->transactionStatus();
+    if (status == PQTRANS_INERROR) {
+        m_panel->log(tr("The current transaction has failed; roll it back before saving."), true);
+        return;
+    }
+    const bool inTransaction = status == PQTRANS_INTRANS;
+    if (confirm) {
+        SaveChangesDialog dialog(target.schema + QLatin1Char('.') + target.table, statements,
+                                 inTransaction, this);
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+    }
+
+    auto step = [](const QByteArray &sql, Job::Kind kind = Job::Kind::Silent) {
+        Job j;
+        j.kind = kind;
+        j.sql = sql;
+        return j;
+    };
+    // All of them or none: a transaction, or a savepoint in the open one.
+    std::deque<Job> jobs;
+    jobs.push_back(step(inTransaction ? "SAVEPOINT slonisko_save" : "BEGIN"));
+    for (const QByteArray &statement : statements)
+        jobs.push_back(step(statement, Job::Kind::Dml));
+    Job done = step(inTransaction ? "RELEASE SAVEPOINT slonisko_save" : "COMMIT");
+    done.message = inTransaction
+        ? tr("Saved %n change(s) in the open transaction.", nullptr, int(statements.size()))
+        : tr("Saved %n change(s).", nullptr, int(statements.size()));
+    jobs.push_back(done);
+    if (inTransaction) {
+        Job back = step("ROLLBACK TO SAVEPOINT slonisko_save");
+        back.onFailure = true;
+        Job release = step("RELEASE SAVEPOINT slonisko_save");
+        release.onFailure = true;
+        jobs.push_back(back);
+        jobs.push_back(release);
+    } else {
+        Job back = step("ROLLBACK");
+        back.onFailure = true;
+        jobs.push_back(back);
+    }
+    // Then show the rows as they are now.
+    if (m_lastQuery)
+        jobs.push_back(*m_lastQuery);
+    start(std::move(jobs));
 }
 
 void EditorTab::finishAll()
@@ -454,12 +574,24 @@ void EditorTab::finishAll()
     Q_EMIT runningChanged(false);
 }
 
-void EditorTab::markError(const Job &job, int position)
+void EditorTab::markError(const Job &job, int position, const QString &message)
 {
     if (job.offset < 0)
         return;
-    const QByteArray userText = job.sql.mid(job.prefixChars);
-    m_editor->markError(job.offset + bytesBefore(userText, position));
+    // A position in what was sent, back to where it is in the editor.
+    const QByteArray sent = job.sql.mid(job.prefixChars);
+    const qsizetype original
+        = sql::PsqlVariables::originalOffset(bytesBefore(sent, position), job.replacements);
+    m_editor->markError(job.offset + original, message);
+}
+
+QByteArray EditorTab::substitute(const QByteArray &sql, Job &job)
+{
+    QStringList unset;
+    const QByteArray out = m_variables.substitute(sql, &job.replacements, &unset);
+    for (const QString &name : unset)
+        m_panel->log(tr("psql variable :%1 is not set; left as it is.").arg(name));
+    return out;
 }
 
 QString EditorTab::preview(const QByteArray &sql)

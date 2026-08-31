@@ -80,6 +80,85 @@ private Q_SLOTS:
         QCOMPARE(styleAt(e, find(e, "not code")), int(SqlLexer::DollarString));
     }
 
+    void folding()
+    {
+        SqlEditor e;
+        e.setText(QStringLiteral("SELECT a,\n" // 0
+                                 "       b\n" // 1
+                                 "  FROM t;\n" // 2
+                                 "SELECT 1;\n" // 3
+                                 "CREATE FUNCTION f() RETURNS int AS $$\n" // 4
+                                 "BEGIN\n" // 5
+                                 "  IF x THEN\n" // 6
+                                 "    RETURN 1;\n" // 7
+                                 "  END IF;\n" // 8
+                                 "  RETURN 2;\n" // 9
+                                 "END\n" // 10
+                                 "$$ LANGUAGE plpgsql;\n" // 11
+                                 "/* multi\n" // 12
+                                 "   line */\n" // 13
+                                 "SELECT 2;")); // 14
+        e.SendScintilla(QsciScintillaBase::SCI_COLOURISE, 0, -1);
+        auto level = [&](int line) {
+            return int(e.SendScintilla(QsciScintillaBase::SCI_GETFOLDLEVEL,
+                                       static_cast<unsigned long>(line)));
+        };
+        auto depth = [&](int line) {
+            return (level(line) & QsciScintillaBase::SC_FOLDLEVELNUMBERMASK)
+                - QsciScintillaBase::SC_FOLDLEVELBASE;
+        };
+        auto header = [&](int line) {
+            return (level(line) & QsciScintillaBase::SC_FOLDLEVELHEADERFLAG) != 0;
+        };
+
+        const QList<int> depths {0, 1, 1, 0, 0, 2, 3, 4, 4, 3, 3, 2, 0, 1, 0};
+        for (int line = 0; line < depths.size(); ++line)
+            QVERIFY2(depth(line) == depths[line],
+                     qPrintable(QStringLiteral("line %1: %2").arg(line).arg(depth(line))));
+        const QList<int> headers {0, 4, 5, 6, 12};
+        for (int line = 0; line < depths.size(); ++line)
+            QVERIFY2(header(line) == headers.contains(line), qPrintable(QString::number(line)));
+
+        // A body in another language: its "if" does not leave the fold open.
+        e.setText(QStringLiteral("CREATE FUNCTION g() RETURNS int LANGUAGE plpython3u AS $$\n"
+                                 "if x:\n"
+                                 "    return 1\n"
+                                 "$$;\n"
+                                 "SELECT 1;"));
+        e.SendScintilla(QsciScintillaBase::SCI_COLOURISE, 0, -1);
+        QCOMPARE(depth(4), 0);
+        QVERIFY(!header(4));
+
+        e.setText(QStringLiteral("SELECT a,\n"
+                                 "       b\n"
+                                 "  FROM t;\n"
+                                 "SELECT 1;\n"
+                                 "CREATE FUNCTION f() RETURNS int AS $$\n"
+                                 "BEGIN\n"
+                                 "  IF x THEN\n"
+                                 "    RETURN 1;\n"
+                                 "  END IF;\n"
+                                 "  RETURN 2;\n"
+                                 "END\n"
+                                 "$$ LANGUAGE plpgsql;\n"
+                                 "/* multi\n"
+                                 "   line */\n"
+                                 "SELECT 2;"));
+        e.SendScintilla(QsciScintillaBase::SCI_COLOURISE, 0, -1);
+
+        // Folding the function hides its body.
+        e.SendScintilla(QsciScintillaBase::SCI_FOLDLINE, 4UL, 0L);
+        QVERIFY(!e.SendScintilla(QsciScintillaBase::SCI_GETLINEVISIBLE, 7UL));
+        QVERIFY(e.SendScintilla(QsciScintillaBase::SCI_GETLINEVISIBLE, 12UL));
+
+        // An edit that only changes structure refolds the lines below it.
+        e.SendScintilla(QsciScintillaBase::SCI_FOLDALL, 1UL); // Expand everything.
+        e.insertAt(QStringLiteral("SELECT ("), 12, 0);
+        e.SendScintilla(QsciScintillaBase::SCI_COLOURISE, 0, -1);
+        QVERIFY(depth(13) > 1);
+        QVERIFY(depth(14) > 0);
+    }
+
     void lineStateRoundTrip()
     {
         sql::LexState s;
@@ -197,6 +276,53 @@ private Q_SLOTS:
         QCOMPARE(popup->current()->label, QStringLiteral("customer_id"));
         QTest::keyClick(&e, Qt::Key_Tab);
         QCOMPARE(e.text(), QStringLiteral("SELECT customer_id FROM orders"));
+    }
+
+    void semanticHighlighting()
+    {
+        auto snapshot = std::make_shared<catalog::Snapshot>();
+        snapshot->searchPath = {QStringLiteral("public")};
+        snapshot->schemas = {QStringLiteral("public")};
+        snapshot->relations = {{1,
+                                QStringLiteral("public"),
+                                QStringLiteral("orders"),
+                                'r',
+                                {{QStringLiteral("total"), QStringLiteral("numeric")}}}};
+
+        SqlEditor e;
+        e.setSnapshotProvider([snapshot] { return snapshot; });
+        e.resize(600, 400);
+        e.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&e));
+        e.setText(QStringLiteral("SELECT o.total, o.nope FROM orders o JOIN ordrs x ON true;\n"
+                                 "DO $$ x = 'py' # c $$ LANGUAGE plpython3u;"));
+        e.refreshSemantics();
+        QTRY_VERIFY(!e.semanticSpans().empty());
+
+        using K = catalog::SemanticSpan::Kind;
+        auto has = [&](const char *text, K kind) {
+            const qsizetype pos = find(e, text);
+            return e.SendScintilla(QsciScintillaBase::SCI_INDICATORVALUEAT,
+                                   static_cast<unsigned long>(SqlEditor::indicatorFor(kind)),
+                                   static_cast<long>(pos))
+                != 0;
+        };
+        QVERIFY(has("total", K::Column));
+        QVERIFY(has("nope", K::UnknownColumn));
+        QVERIFY(has("orders", K::Relation));
+        QVERIFY(has("ordrs", K::UnknownRelation));
+        QVERIFY(has("'py'", K::ForeignString));
+        QVERIFY(has("# c", K::ForeignComment));
+        QVERIFY(has("x = ", K::ForeignText));
+        QVERIFY(!has("SELECT", K::Relation));
+
+        QVERIFY(e.explanationAt(find(e, "total")).contains(QLatin1String("numeric")));
+        QVERIFY(e.explanationAt(find(e, "ordrs")).contains(QLatin1String("Not in the catalog")));
+
+        // Errors from the server explain themselves too.
+        e.markError(find(e, "JOIN"), QStringLiteral("syntax error at or near JOIN"));
+        QCOMPARE(e.explanationAt(find(e, "JOIN") + 1),
+                 QStringLiteral("syntax error at or near JOIN"));
     }
 
     void errorMarks()

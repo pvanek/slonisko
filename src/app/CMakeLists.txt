@@ -29,6 +29,9 @@ add_library(slonisko_ui STATIC
     ResultPanel.h
     ResultView.cpp
     ResultView.h
+    SaveChangesDialog.cpp
+    SaveChangesDialog.h
+    SaveChangesDialog.ui
     Session.cpp
     Session.h
     SqlEditor.cpp

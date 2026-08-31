@@ -4,6 +4,7 @@
 #pragma once
 
 #include "pg/Connection.h"
+#include "sql/PsqlVariables.h"
 
 #include <QElapsedTimer>
 #include <QPointer>
@@ -47,10 +48,14 @@ public:
     void run();
     void explain(bool analyze);
     void cancel();
+    // Writes the result's edits back to its table; confirm shows the SQL first.
+    void saveChanges(bool confirm = true);
     bool isRunning() const { return m_current.has_value(); }
 
     // Stops a query once it returned this many rows.
     void setRowLimit(int rows) { m_rowLimit = rows; }
+    // psql variables set by \set in this editor, like in a psql session.
+    const sql::PsqlVariables &variables() const { return m_variables; }
 
 Q_SIGNALS:
     void titleChanged();
@@ -59,14 +64,24 @@ Q_SIGNALS:
 private:
     struct Job
     {
-        enum class Kind { Statement, Explain, Silent };
+        enum class Kind {
+            Statement,
+            Explain,
+            Silent,
+            EditInfo, // Looks up the table a result can be edited in.
+            Dml, // Saves one edit; must change exactly one row.
+        };
         Kind kind = Kind::Statement;
         QByteArray sql;
         std::optional<QByteArray> copyData;
         qsizetype offset = -1; // In the document, to mark errors; -1 for none.
         int prefixChars = 0; // Characters added before the user's text, like EXPLAIN.
+        // Where psql variables were put into the user's text.
+        std::vector<sql::PsqlVariables::Replacement> replacements;
         bool always = false; // Runs even after an error, like ROLLBACK.
+        bool onFailure = false; // Runs only after an error.
         bool analyze = false;
+        QString message; // Logged when it succeeds.
     };
 
     void updateSessions();
@@ -78,7 +93,10 @@ private:
     void onFinished();
     void onConnectionState(pg::Connection::State state);
     void finishAll();
-    void markError(const Job &job, int position);
+    void lookUpEditTarget();
+    // Replaces psql variables in a statement, noting the ones not set.
+    QByteArray substitute(const QByteArray &sql, Job &job);
+    void markError(const Job &job, int position, const QString &message);
     static QString preview(const QByteArray &sql);
 
     ConnectionBrowser *m_browser = nullptr;
@@ -105,6 +123,10 @@ private:
     QByteArray m_commandTag;
     bool m_limited = false; // Cancelled at the row limit.
     int m_rowLimit = 100'000;
+    sql::PsqlVariables m_variables;
+    std::optional<Job>
+        m_lastQuery; // The statement whose rows are shown, to run again after saving.
+    std::vector<pg::Result> m_editInfo;
 };
 
 } // namespace slonisko

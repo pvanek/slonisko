@@ -5,6 +5,7 @@
 
 #include "Qsci.h"
 #include "catalog/Completion.h"
+#include "catalog/Semantic.h"
 
 #include <QFutureWatcher>
 #include <QTimer>
@@ -50,7 +51,7 @@ public:
 
     // Underlines the token at a byte position as an error, until the text
     // changes or clearErrors() is called.
-    void markError(qsizetype pos);
+    void markError(qsizetype pos, const QString &message = {});
     void clearErrors();
     bool hasErrorAt(qsizetype pos) const;
 
@@ -68,12 +69,25 @@ public:
 
     static constexpr int StatementIndicator = 8;
     static constexpr int ErrorIndicator = 9;
+    // Semantic highlighting: one indicator per SemanticSpan::Kind, from here
+    // on, in that order. Later ones are drawn over earlier ones.
+    static constexpr int FirstSemanticIndicator = 10;
+    static int indicatorFor(catalog::SemanticSpan::Kind kind);
+
+    // Analyzes the visible statements again, e.g. after the catalog changed.
+    void refreshSemantics();
+    const std::vector<catalog::SemanticSpan> &semanticSpans() const { return m_semantic; }
+    // What hovering over a position explains: a name's detail or an error.
+    QString explanationAt(qsizetype pos) const;
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
 
 private:
+    void analyzeVisible();
+    void applySemantics();
+    void setupSemanticIndicators();
     void showCompletion();
     void applyCompletion(const catalog::CompletionItem &item);
 
@@ -100,6 +114,12 @@ private:
     qsizetype m_statementStart = 0; // Of the statement the completion is for.
     bool m_explicitRequest = false;
     catalog::Completion m_completion; // The one on show.
+
+    QTimer m_semanticTimer;
+    QFutureWatcher<std::vector<catalog::SemanticSpan>> m_semanticWatcher;
+    quint64 m_semanticRevision = 0;
+    std::vector<catalog::SemanticSpan> m_semantic;
+    std::vector<std::pair<std::pair<qsizetype, qsizetype>, QString>> m_errors; // Range, message.
 };
 
 } // namespace slonisko
