@@ -43,6 +43,9 @@ public:
     QString errorMessage() const { return m_error; }
     int serverVersion() const;
     int backendPid() const;
+    // PQTRANS_IDLE, PQTRANS_INTRANS, PQTRANS_INERROR and so on;
+    // PQTRANS_UNKNOWN when not connected.
+    PGTransactionStatusType transactionStatus() const;
 
     // Sends sql, which may hold several statements, over the simple query
     // protocol. Each statement's result arrives through resultReady(), rows in

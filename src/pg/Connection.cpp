@@ -85,6 +85,11 @@ int Connection::serverVersion() const
     return m_conn ? PQserverVersion(m_conn.get()) : 0;
 }
 
+PGTransactionStatusType Connection::transactionStatus() const
+{
+    return m_conn ? PQtransactionStatus(m_conn.get()) : PQTRANS_UNKNOWN;
+}
+
 int Connection::backendPid() const
 {
     return m_conn ? PQbackendPID(m_conn.get()) : 0;

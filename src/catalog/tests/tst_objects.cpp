@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Petr Vanek
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "catalog/Completion.h"
 #include "catalog/Monitoring.h"
 #include "catalog/Objects.h"
 #include "pg/QueryRunner.h"
@@ -180,6 +181,42 @@ private Q_SLOTS:
                 QVERIFY2(o.ok(), qPrintable(folderTitle(f) + QStringLiteral(": ") + o.error));
             }
         }
+    }
+
+    void snapshot()
+    {
+        const QueryOutcome o = run(snapshotQuery());
+        QVERIFY2(o.ok(), qPrintable(o.error));
+        const SnapshotPtr s = parseSnapshot(o.results, m_connection.serverVersion());
+        QVERIFY(s);
+        QVERIFY(s->searchPath.contains(QStringLiteral("pg_catalog")));
+        // The setup set search_path to the test schema.
+        QVERIFY(s->searchPath.contains(QString::fromUtf8(Schema)));
+        QVERIFY(s->hasSchema(QString::fromUtf8(Schema)));
+
+        const Relation *t = s->findRelation(QString::fromUtf8(Schema), QStringLiteral("t"));
+        QVERIFY(t);
+        QCOMPARE(t->kind, 'r');
+        QCOMPARE(t->columns.size(), 2u); // Not the dropped one.
+        QCOMPARE(t->columns[1].name, QStringLiteral("name"));
+        QCOMPARE(t->columns[1].type, QStringLiteral("text"));
+        QCOMPARE(s->findRelation(QString::fromUtf8(Schema), QStringLiteral("v"))->kind, 'v');
+        QVERIFY(s->findRelation({}, QStringLiteral("pg_class"))); // Via search_path.
+
+        const auto add = std::ranges::find(s->functions, QStringLiteral("add"), &Function::name);
+        QVERIFY(add != s->functions.end());
+        QCOMPARE(add->arguments, QStringLiteral("a integer, b integer"));
+        QCOMPARE(add->result, QStringLiteral("integer"));
+        QVERIFY(std::ranges::any_of(
+            s->types, [](const Type &ty) { return ty.name == QLatin1String("integer"); }));
+        QVERIFY(std::ranges::any_of(
+            s->types, [](const Type &ty) { return ty.name.endsWith(QLatin1String("mood")); }));
+        QVERIFY(std::ranges::none_of(
+            s->types, [](const Type &ty) { return ty.name == QLatin1String("integer[]"); }));
+
+        // And completion over it.
+        const QByteArray sql = "SELECT n FROM " + Schema + ".t";
+        QCOMPARE(complete(sql, 8, *s).items.front().label, QStringLiteral("name"));
     }
 
     void monitoringQueriesRun()

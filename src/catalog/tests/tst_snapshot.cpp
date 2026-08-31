@@ -17,9 +17,9 @@ private Q_SLOTS:
         Snapshot s;
         s.searchPath = {QStringLiteral("app"), QStringLiteral("public")};
         s.relations = {
-            {1, QStringLiteral("public"), QStringLiteral("orders"), 'r'},
-            {2, QStringLiteral("app"), QStringLiteral("orders"), 'v'},
-            {3, QStringLiteral("public"), QStringLiteral("customers"), 'r'},
+            {1, QStringLiteral("public"), QStringLiteral("orders"), 'r', {}},
+            {2, QStringLiteral("app"), QStringLiteral("orders"), 'v', {}},
+            {3, QStringLiteral("public"), QStringLiteral("customers"), 'r', {}},
         };
 
         QCOMPARE(s.findRelation({}, QStringLiteral("orders"))->oid, 2u);

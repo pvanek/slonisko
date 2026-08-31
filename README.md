@@ -14,8 +14,8 @@ Status: early development. Nothing works yet.
 |-----------------|---------------------|----------------------------------------------------------|
 | `src/pg`        | `Slonisko::Pg`      | Async connection, queries, cancel, query queue, SSH tunnel |
 | `src/config`    | `Slonisko::Config`  | Connection profiles, passwords (system wallet)           |
-| `src/sql`       | `Slonisko::Sql`     | Statement splitting, parse-tree analysis                 |
-| `src/catalog`   | `Slonisko::Catalog` | Object browser and monitoring queries, snapshots         |
+| `src/sql`       | `Slonisko::Sql`     | PostgreSQL lexer and keywords, statement splitting       |
+| `src/catalog`   | `Slonisko::Catalog` | Browser and monitoring queries, EXPLAIN plans, catalog snapshots, completion |
 | `src/app`       | `slonisko`          | The GUI                                                  |
 
 Each library keeps its Qt Test unit tests in its own `tests/` subdirectory.
@@ -30,6 +30,9 @@ can be tested without a display.
 - Qt 6.5+ (Core, Widgets, Test)
 - libpq 17+ (client library only; any supported server version works)
 - libpg_query
+- [QScintilla](https://riverbankcomputing.com/software/qscintilla) for Qt 6. When no
+  system copy is found (or with `-DSLONISKO_BUNDLED_QSCINTILLA=ON`), CMake downloads
+  and builds a pinned copy, as on Windows and macOS.
 - Optional: [QtKeychain](https://github.com/frankosterfeld/qtkeychain) for Qt 6, to keep
   passwords in the system wallet (Secret Service, KWallet, macOS Keychain, Windows
   Credential Manager). Without it they are stored in plain text in the settings file.
@@ -38,7 +41,7 @@ can be tested without a display.
 On openSUSE Tumbleweed:
 
 ```sh
-sudo zypper install cmake gcc-c++ qt6-base-devel postgresql17-devel qtkeychain-qt6-devel
+sudo zypper install cmake gcc-c++ qt6-base-devel postgresql17-devel qtkeychain-qt6-devel qscintilla-qt6-devel
 ```
 
 libpg_query is usually not packaged. Either build it from source and point

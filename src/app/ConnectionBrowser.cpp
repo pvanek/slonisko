@@ -18,6 +18,7 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
+#include <algorithm>
 #include <memory>
 
 namespace slonisko {
@@ -26,10 +27,10 @@ using config::PasswordMode;
 using NodeType = BrowserModel::NodeType;
 using Secret = config::PasswordStore::Secret;
 
-ConnectionBrowser::ConnectionBrowser(QSettings &settings, QWidget *parent)
+ConnectionBrowser::ConnectionBrowser(QSettings &settings, bool useWallet, QWidget *parent)
     : QWidget(parent), m_profiles(settings),
-      m_passwords(new config::PasswordStore(settings, true, this)), m_model(new BrowserModel(this)),
-      m_view(new QTreeView(this))
+      m_passwords(new config::PasswordStore(settings, useWallet, this)),
+      m_model(new BrowserModel(this)), m_view(new QTreeView(this))
 {
     m_model->setProfiles(m_profiles.load());
 
@@ -94,6 +95,11 @@ void ConnectionBrowser::createActions()
                           [this] { disconnectProfile(currentProfile()); });
     m_refresh = action(QStringLiteral("view-refresh"), tr("&Refresh"),
                        &ConnectionBrowser::refreshCurrent);
+    m_openEditor = action(QStringLiteral("document-new"), tr("Open SQL &Editor"), [this] {
+        QString database;
+        if (Session *s = currentSession(&database))
+            Q_EMIT editorRequested(s, database);
+    });
     m_refresh->setShortcut(QKeySequence::Refresh);
     m_refresh->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_delete->setShortcut(QKeySequence::Delete);
@@ -117,6 +123,32 @@ void ConnectionBrowser::updateActions()
     m_connect->setEnabled(!id.isNull() && !busy);
     m_disconnect->setEnabled(busy);
     m_refresh->setEnabled(s && s->state() == Session::State::Connected);
+    m_openEditor->setEnabled(s && s->state() == Session::State::Connected);
+}
+
+std::vector<Session *> ConnectionBrowser::connectedSessions() const
+{
+    std::vector<Session *> out;
+    for (const auto &[id, session] : m_sessions) {
+        if (session->state() == Session::State::Connected)
+            out.push_back(session);
+    }
+    std::ranges::sort(out, [](const Session *a, const Session *b) {
+        return a->profile().displayName().compare(b->profile().displayName(), Qt::CaseInsensitive)
+            < 0;
+    });
+    return out;
+}
+
+Session *ConnectionBrowser::currentSession(QString *database) const
+{
+    const QModelIndex index = m_view->currentIndex();
+    Session *s = m_model->sessionOf(index);
+    if (!s || s->state() != Session::State::Connected)
+        return nullptr;
+    if (database)
+        *database = index.data(BrowserModel::DatabaseRole).toString();
+    return s;
 }
 
 void ConnectionBrowser::showContextMenu(const QPoint &pos)
@@ -131,6 +163,9 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
             menu.addAction(m_connect);
             menu.addAction(m_disconnect);
         }
+        if (m_openEditor->isEnabled()
+            && (type == NodeType::Connection || type == NodeType::Database))
+            menu.addAction(m_openEditor);
         if (m_refresh->isEnabled())
             menu.addAction(m_refresh);
         if (type == NodeType::Connection) {
@@ -212,11 +247,13 @@ void ConnectionBrowser::disconnectProfile(const QUuid &id)
     session->close();
     session->deleteLater();
     updateActions();
+    Q_EMIT sessionsChanged();
 }
 
 void ConnectionBrowser::onSessionStateChanged(const QUuid &id, Session::State state)
 {
     updateActions();
+    Q_EMIT sessionsChanged();
     const Session *session = m_model->session(id);
     if (state == Session::State::Connected) {
         m_view->expand(m_model->profileIndex(id));

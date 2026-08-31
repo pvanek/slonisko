@@ -512,6 +512,41 @@ ALTER TABLE ONLY public.orders
             }));
     }
 
+    void currentStatement_data()
+    {
+        QTest::addColumn<QByteArray>("script");
+        QTest::addColumn<int>("pos");
+        QTest::addColumn<int>("expected");
+
+        const QByteArray two = "SELECT 1;\n\nSELECT 2;  -- x\n";
+        QTest::newRow("inside the first") << two << 3 << 0;
+        QTest::newRow("at the start") << two << 0 << 0;
+        QTest::newRow("on the semicolon") << two << 8 << 0;
+        QTest::newRow("after the semicolon") << two << 9 << 0;
+        QTest::newRow("empty line between") << two << 10 << -1;
+        QTest::newRow("start of the second") << two << 11 << 1;
+        QTest::newRow("in the trailing comment") << two << 25 << 1;
+        QTest::newRow("empty script") << QByteArray() << 0 << -1;
+
+        const QByteArray indented = "SELECT 1;\n    SELECT 2;";
+        QTest::newRow("before an indented one") << indented << 11 << 1;
+
+        const QByteArray sameLine = "SELECT 1; SELECT 2;";
+        QTest::newRow("between on one line prefers the one before") << sameLine << 9 << 0;
+
+        const QByteArray copy = "COPY t FROM stdin;\n1\n2\n\\.\nSELECT 1;";
+        QTest::newRow("COPY data runs the COPY") << copy << 20 << 0;
+        QTest::newRow("after the data") << copy << 30 << 2;
+    }
+
+    void currentStatement()
+    {
+        QFETCH(QByteArray, script);
+        QFETCH(int, pos);
+        QFETCH(int, expected);
+        QCOMPARE(slonisko::sql::statementAt(script, splitStatements(script), pos), expected);
+    }
+
     // A typical file with several kinds of statements.
     void script()
     {

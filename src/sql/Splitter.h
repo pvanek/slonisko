@@ -46,4 +46,11 @@ struct StatementSpan
 // on text being edited. Spans are returned in script order.
 std::vector<StatementSpan> splitStatements(const QByteArray &utf8Script);
 
+// The span "run the current statement" means for a cursor at byte pos: the
+// one the cursor is in (including its semicolon), else the one ending or
+// starting on the cursor's line, preferring the one before. For inline COPY
+// data, the COPY statement. Returns an index into spans, or -1.
+int statementAt(const QByteArray &utf8Script, const std::vector<StatementSpan> &spans,
+                qsizetype pos);
+
 } // namespace slonisko::sql

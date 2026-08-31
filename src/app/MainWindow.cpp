@@ -4,15 +4,17 @@
 #include "MainWindow.h"
 
 #include "ConnectionBrowser.h"
+#include "EditorTab.h"
+#include "ResultPanel.h"
 #include "ResultView.h"
+#include "SqlEditor.h"
 
 #include <QApplication>
 #include <QCloseEvent>
-#include <QFontDatabase>
 #include <QMenuBar>
 #include <QMessageBox>
-#include <QPlainTextEdit>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
 
@@ -21,8 +23,8 @@ namespace slonisko {
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_mainSplitter(new QSplitter(Qt::Horizontal, this)),
       m_workSplitter(new QSplitter(Qt::Vertical, m_mainSplitter)),
-      m_browser(new ConnectionBrowser(m_settings, m_mainSplitter)),
-      m_editors(new QTabWidget(m_workSplitter)), m_results(new ResultView(m_workSplitter))
+      m_browser(new ConnectionBrowser(m_settings, true, m_mainSplitter)),
+      m_editors(new QTabWidget(m_workSplitter)), m_results(new QStackedWidget(m_workSplitter))
 {
     m_mainSplitter->addWidget(m_browser);
     m_mainSplitter->addWidget(m_workSplitter);
@@ -36,17 +38,28 @@ MainWindow::MainWindow(QWidget *parent)
     m_editors->setDocumentMode(true);
     m_editors->setTabsClosable(true);
     m_editors->setMovable(true);
-    connect(m_editors, &QTabWidget::tabCloseRequested, this, [this](int i) {
-        delete m_editors->widget(i);
-        if (m_editors->count() == 0)
-            newEditor();
+    connect(m_editors, &QTabWidget::tabCloseRequested, this, &MainWindow::closeEditor);
+    connect(m_editors, &QTabWidget::currentChanged, this, [this] {
+        if (EditorTab *tab = currentEditor()) {
+            m_results->setCurrentWidget(tab->resultPanel());
+            tab->editor()->setFocus();
+        }
     });
-    newEditor();
 
-    connect(m_browser, &ConnectionBrowser::monitoringRequested, m_results, &ResultView::run);
+    connect(m_browser, &ConnectionBrowser::editorRequested, this,
+            [this](Session *s, const QString &database) { newEditor(s, database); });
+    connect(m_browser, &ConnectionBrowser::monitoringRequested, this,
+            [this](pg::QueryRunner *runner, const QString &title, const QByteArray &sql) {
+                EditorTab *tab = currentEditor();
+                if (!tab)
+                    tab = newEditor();
+                tab->resultPanel()->results()->run(runner, title, sql);
+                tab->resultPanel()->showResults();
+            });
 
     setupMenus();
     statusBar();
+    newEditor();
 
     resize(1280, 800);
     m_mainSplitter->setSizes({320, 960});
@@ -57,7 +70,51 @@ MainWindow::MainWindow(QWidget *parent)
         m_settings.value(QStringLiteral("window/workSplitter")).toByteArray());
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow()
+{
+    // Close the editors first: while the tab widget deletes its pages it
+    // would report the remaining, half-destroyed ones as current.
+    m_editors->disconnect(this);
+    while (m_editors->count() > 0)
+        delete m_editors->widget(0);
+}
+
+EditorTab *MainWindow::currentEditor() const
+{
+    return qobject_cast<EditorTab *>(m_editors->currentWidget());
+}
+
+EditorTab *MainWindow::newEditor(Session *session, const QString &database)
+{
+    auto *tab = new EditorTab(m_browser, tr("Script %1").arg(++m_editorCount));
+    m_results->addWidget(tab->resultPanel());
+    const int index = m_editors->addTab(tab, tab->title());
+    connect(tab, &EditorTab::titleChanged, this,
+            [this, tab] { m_editors->setTabText(m_editors->indexOf(tab), tab->title()); });
+
+    QString db = database;
+    if (!session)
+        session = m_browser->currentSession(&db);
+    if (!session && !m_browser->connectedSessions().empty())
+        session = m_browser->connectedSessions().front();
+    if (session)
+        tab->setSession(session, db);
+
+    m_editors->setCurrentIndex(index);
+    tab->editor()->setFocus();
+    return tab;
+}
+
+void MainWindow::closeEditor(int index)
+{
+    auto *tab = qobject_cast<EditorTab *>(m_editors->widget(index));
+    if (!tab)
+        return;
+    m_editors->removeTab(index);
+    delete tab; // Also deletes its result panel.
+    if (m_editors->count() == 0)
+        newEditor();
+}
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
@@ -71,7 +128,7 @@ void MainWindow::setupMenus()
 {
     QMenu *file = menuBar()->addMenu(tr("&File"));
     file->addAction(m_browser->newConnectionAction());
-    QAction *editor = file->addAction(tr("New &Editor"), this, &MainWindow::newEditor);
+    QAction *editor = file->addAction(tr("New SQL &Editor"), this, [this] { newEditor(); });
     editor->setShortcut(QKeySequence::New);
     file->addSeparator();
     QAction *quit = file->addAction(tr("&Quit"), this, &QWidget::close);
@@ -80,16 +137,6 @@ void MainWindow::setupMenus()
     QMenu *help = menuBar()->addMenu(tr("&Help"));
     help->addAction(tr("&About Slonisko"), this, &MainWindow::showAbout);
     help->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
-}
-
-void MainWindow::newEditor()
-{
-    // A placeholder until the real SQL editor exists.
-    auto *editor = new QPlainTextEdit;
-    editor->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
-    editor->setPlaceholderText(tr("SQL editor: not implemented yet."));
-    const int i = m_editors->addTab(editor, tr("Script %1").arg(m_editors->count() + 1));
-    m_editors->setCurrentIndex(i);
 }
 
 void MainWindow::showAbout()

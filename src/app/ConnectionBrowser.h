@@ -28,7 +28,9 @@ class ConnectionBrowser : public QWidget
     Q_OBJECT
 
 public:
-    explicit ConnectionBrowser(QSettings &settings, QWidget *parent = nullptr);
+    // useWallet false keeps passwords in the settings file, e.g. in tests.
+    explicit ConnectionBrowser(QSettings &settings, bool useWallet = true,
+                               QWidget *parent = nullptr);
     ~ConnectionBrowser() override;
 
     BrowserModel *model() const { return m_model; }
@@ -38,7 +40,16 @@ public:
     void connectProfile(const QUuid &id);
     void disconnectProfile(const QUuid &id);
 
+    std::vector<Session *> connectedSessions() const;
+    // The session of the selected node, and its database (empty: the
+    // profile's), or null.
+    Session *currentSession(QString *database = nullptr) const;
+
 Q_SIGNALS:
+    // A session connected or went away.
+    void sessionsChanged();
+    // "Open SQL Editor" on a connection or database.
+    void editorRequested(slonisko::Session *session, const QString &database);
     // A DBA or System Info item was opened.
     void monitoringRequested(pg::QueryRunner *runner, const QString &title, const QByteArray &sql);
 
@@ -82,6 +93,7 @@ private:
     QAction *m_connect = nullptr;
     QAction *m_disconnect = nullptr;
     QAction *m_refresh = nullptr;
+    QAction *m_openEditor = nullptr;
 };
 
 } // namespace slonisko

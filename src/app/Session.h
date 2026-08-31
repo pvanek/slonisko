@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "catalog/Snapshot.h"
 #include "config/ConnectionProfile.h"
 #include "pg/Connection.h"
 #include "pg/QueryRunner.h"
@@ -11,6 +12,7 @@
 #include <QObject>
 
 #include <map>
+#include <set>
 
 namespace slonisko {
 
@@ -43,12 +45,27 @@ public:
     void open();
     void close();
 
+    // A conninfo for a connection of one's own to a database (empty: the
+    // profile's), through the session's SSH tunnel if it has one. Only valid
+    // while connected.
+    QByteArray conninfo(const QString &database = {}) const
+    {
+        return m_profile.conninfo(m_credentials.password, database, m_endpoint);
+    }
+
     // Runs queries in a database; empty means the profile's own. Returns null
     // unless connected.
     pg::QueryRunner *runner(const QString &database = {});
 
+    // Catalog data for completion in a database (empty: the profile's).
+    // Loaded from the server on first use, so null at first; kept in memory
+    // only, until reloadSnapshot() or disconnecting.
+    catalog::SnapshotPtr snapshot(const QString &database = {});
+    void reloadSnapshot(const QString &database = {});
+
 Q_SIGNALS:
     void stateChanged(slonisko::Session::State state);
+    void snapshotChanged(const QString &database);
 
 private:
     struct Database
@@ -71,6 +88,8 @@ private:
     pg::SshTunnel *m_tunnel = nullptr;
     config::Endpoint m_endpoint; // The tunnel's local end, if any.
     std::map<QString, Database> m_databases;
+    std::map<QString, catalog::SnapshotPtr> m_snapshots;
+    std::set<QString> m_loadingSnapshots;
 };
 
 } // namespace slonisko

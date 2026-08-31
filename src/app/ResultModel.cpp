@@ -7,6 +7,8 @@
 #include <QGuiApplication>
 #include <QPalette>
 
+#include <algorithm>
+
 namespace slonisko {
 
 namespace {
@@ -33,39 +35,71 @@ bool isNumeric(Oid type)
 
 } // namespace
 
-void ResultModel::setResult(const pg::Result &result)
+void ResultModel::clear()
 {
     beginResetModel();
-    m_result = result;
-    m_numeric.assign(std::size_t(m_result.columnCount()), false);
-    for (int c = 0; c < m_result.columnCount(); ++c)
-        m_numeric[std::size_t(c)] = isNumeric(m_result.columnType(c));
+    m_chunks.clear();
+    m_firstRow.clear();
+    m_rows = 0;
+    m_numeric.clear();
     endResetModel();
+}
+
+void ResultModel::append(const pg::Result &result)
+{
+    if (result.isNull() || result.columnCount() == 0)
+        return;
+    if (m_chunks.empty()) {
+        beginResetModel();
+        m_chunks.push_back(result);
+        m_firstRow.push_back(0);
+        m_rows = result.rowCount();
+        m_numeric.assign(std::size_t(result.columnCount()), false);
+        for (int c = 0; c < result.columnCount(); ++c)
+            m_numeric[std::size_t(c)] = isNumeric(result.columnType(c));
+        endResetModel();
+        return;
+    }
+    if (result.rowCount() == 0)
+        return;
+    beginInsertRows({}, m_rows, m_rows + result.rowCount() - 1);
+    m_chunks.push_back(result);
+    m_firstRow.push_back(m_rows);
+    m_rows += result.rowCount();
+    endInsertRows();
+}
+
+std::pair<const pg::Result *, int> ResultModel::locate(int row) const
+{
+    const auto it = std::upper_bound(m_firstRow.begin(), m_firstRow.end(), row);
+    const auto chunk = std::size_t(it - m_firstRow.begin()) - 1;
+    return {&m_chunks[chunk], row - m_firstRow[chunk]};
 }
 
 int ResultModel::rowCount(const QModelIndex &parent) const
 {
-    return parent.isValid() || m_result.isNull() ? 0 : m_result.rowCount();
+    return parent.isValid() ? 0 : m_rows;
 }
 
 int ResultModel::columnCount(const QModelIndex &parent) const
 {
-    return parent.isValid() || m_result.isNull() ? 0 : m_result.columnCount();
+    return parent.isValid() || m_chunks.empty() ? 0 : m_chunks.front().columnCount();
 }
 
 QVariant ResultModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid())
         return {};
-    const int row = index.row();
+    const auto [chunk, row] = locate(index.row());
+    const pg::Result &result = *chunk;
     const int column = index.column();
-    const bool null = m_result.isNull(row, column);
+    const bool null = result.isNull(row, column);
 
     switch (role) {
     case Qt::DisplayRole: {
         if (null)
             return QStringLiteral("NULL");
-        QString text = QString::fromUtf8(m_result.value(row, column));
+        QString text = QString::fromUtf8(result.value(row, column));
         if (text.size() > MaxCellLength)
             text = text.left(MaxCellLength) + QChar(0x2026);
         return text.replace(QLatin1Char('\n'), QChar(0x21B5));
@@ -73,7 +107,7 @@ QVariant ResultModel::data(const QModelIndex &index, int role) const
     case Qt::ToolTipRole:
         return null
             ? QVariant()
-            : QVariant(QString::fromUtf8(m_result.value(row, column).left(4 * MaxCellLength)));
+            : QVariant(QString::fromUtf8(result.value(row, column).left(4 * MaxCellLength)));
     case Qt::TextAlignmentRole:
         return m_numeric[std::size_t(column)] ? QVariant(Qt::AlignRight | Qt::AlignVCenter)
                                               : QVariant(Qt::AlignLeft | Qt::AlignVCenter);
@@ -98,7 +132,7 @@ QVariant ResultModel::headerData(int section, Qt::Orientation orientation, int r
         return {};
     if (orientation == Qt::Vertical)
         return section + 1;
-    return m_result.columnName(section);
+    return m_chunks.empty() ? QVariant() : m_chunks.front().columnName(section);
 }
 
 } // namespace slonisko

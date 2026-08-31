@@ -392,4 +392,40 @@ std::vector<StatementSpan> splitStatements(const QByteArray &utf8Script)
     return Splitter(utf8Script).run();
 }
 
+int statementAt(const QByteArray &utf8Script, const std::vector<StatementSpan> &spans,
+                qsizetype pos)
+{
+    const QByteArrayView text(utf8Script);
+    auto sameLine = [&](qsizetype a, qsizetype b) {
+        const qsizetype from = std::min(a, b);
+        const qsizetype to = std::min(std::max(a, b), text.size());
+        return text.sliced(from, to - from).indexOf('\n') < 0;
+    };
+    auto owner = [&](int i) {
+        // Inline data belongs to the COPY before it.
+        return spans[std::size_t(i)].kind == StatementSpan::Kind::CopyData && i > 0 ? i - 1 : i;
+    };
+
+    int before = -1;
+    for (int i = 0; i < int(spans.size()); ++i) {
+        const StatementSpan &s = spans[std::size_t(i)];
+        qsizetype end = s.offset + s.length;
+        if (s.kind == StatementSpan::Kind::Sql && s.terminated) // Include the semicolon.
+            end = std::min(text.size(), text.indexOf(';', end) + 1);
+        if (pos >= s.offset && pos <= end)
+            return owner(i);
+        if (end <= pos)
+            before = i;
+    }
+    if (before >= 0) {
+        const StatementSpan &s = spans[std::size_t(before)];
+        if (sameLine(s.offset + s.length, pos))
+            return owner(before);
+    }
+    const int after = before + 1;
+    if (after < int(spans.size()) && sameLine(pos, spans[std::size_t(after)].offset))
+        return owner(after);
+    return -1;
+}
+
 } // namespace slonisko::sql

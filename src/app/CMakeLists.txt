@@ -7,24 +7,39 @@ add_library(slonisko_ui STATIC
     BrowserDelegate.h
     BrowserModel.cpp
     BrowserModel.h
+    CompletionPopup.cpp
+    CompletionPopup.h
     ConnectionBrowser.cpp
     ConnectionBrowser.h
     ConnectionDialog.cpp
     ConnectionDialog.h
     ConnectionDialog.ui
+    EditorTab.cpp
+    EditorTab.h
     Icons.cpp
     Icons.h
     MainWindow.cpp
     MainWindow.h
+    PlanView.cpp
+    PlanView.h
+    Qsci.h
     ResultModel.cpp
     ResultModel.h
+    ResultPanel.cpp
+    ResultPanel.h
     ResultView.cpp
     ResultView.h
     Session.cpp
-    Session.h)
+    Session.h
+    SqlEditor.cpp
+    SqlEditor.h
+    SqlLexer.cpp
+    SqlLexer.h)
 target_include_directories(slonisko_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(slonisko_ui PUBLIC
     Qt6::Widgets
+    Qt6::Concurrent
+    QScintilla::QScintilla
     Slonisko::Pg
     Slonisko::Config
     Slonisko::Sql

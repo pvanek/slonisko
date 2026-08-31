@@ -20,7 +20,7 @@ option(SLONISKO_WERROR "Treat compiler warnings as errors" OFF)
 option(SLONISKO_WITH_KEYCHAIN
     "Store passwords in the system wallet via QtKeychain when it is available" ON)
 
-set(SLONISKO_QT_COMPONENTS Core Network Gui Widgets)
+set(SLONISKO_QT_COMPONENTS Concurrent Core Network Gui Widgets)
 if(SLONISKO_BUILD_TESTS)
     list(APPEND SLONISKO_QT_COMPONENTS Test)
 endif()
@@ -31,6 +31,7 @@ qt_standard_project_setup(REQUIRES 6.5)
 # libpq 17+: chunked rows mode and the non-blocking cancel API.
 find_package(PostgreSQL 17 REQUIRED)
 include(SloniskoPgQuery)
+include(SloniskoQScintilla)
 
 if(SLONISKO_WITH_KEYCHAIN)
     find_package(Qt6Keychain CONFIG QUIET)

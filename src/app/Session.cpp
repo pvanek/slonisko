@@ -76,6 +76,35 @@ pg::QueryRunner *Session::runner(const QString &database)
     return it != m_databases.end() ? it->second.runner : addDatabase(name).runner;
 }
 
+catalog::SnapshotPtr Session::snapshot(const QString &database)
+{
+    const QString name = database.isEmpty() ? m_profile.database : database;
+    const auto it = m_snapshots.find(name);
+    if (it != m_snapshots.end())
+        return it->second;
+    reloadSnapshot(name);
+    return nullptr;
+}
+
+void Session::reloadSnapshot(const QString &database)
+{
+    const QString name = database.isEmpty() ? m_profile.database : database;
+    pg::QueryRunner *r = runner(name);
+    if (!r || m_loadingSnapshots.contains(name))
+        return;
+    m_loadingSnapshots.insert(name);
+    const int version = serverVersion();
+    r->run(catalog::snapshotQuery(), this, [this, name, version](const pg::QueryOutcome &outcome) {
+        m_loadingSnapshots.erase(name);
+        if (!outcome.ok())
+            return; // Completion goes without; the next reload may work.
+        if (catalog::SnapshotPtr loaded = catalog::parseSnapshot(outcome.results, version)) {
+            m_snapshots[name] = std::move(loaded);
+            Q_EMIT snapshotChanged(name);
+        }
+    });
+}
+
 void Session::openMainConnection()
 {
     Database &main = addDatabase(m_profile.database);
@@ -137,6 +166,8 @@ void Session::closeConnections()
         m_tunnel = nullptr;
     }
     m_endpoint = {};
+    m_snapshots.clear();
+    m_loadingSnapshots.clear();
 }
 
 } // namespace slonisko

@@ -8,6 +8,8 @@
 #include <QPointer>
 #include <QWidget>
 
+#include <functional>
+
 class QLabel;
 class QStackedWidget;
 class QTableView;
@@ -17,7 +19,8 @@ namespace slonisko {
 
 class ResultModel;
 
-// Shows the rows of a query, or its error.
+// Shows the rows of a query, or its error. Either runs the query itself
+// (run()), or is fed by whoever runs it (begin(), append(), finish()).
 class ResultView : public QWidget
 {
     Q_OBJECT
@@ -28,16 +31,25 @@ public:
     // Runs sql and shows its last result. Refresh runs it again.
     void run(pg::QueryRunner *runner, const QString &title, const QByteArray &sql);
 
+    void begin(const QString &title);
+    void append(const pg::Result &result);
+    void finish(const QString &status);
+    void showError(const QString &message);
+    void showMessage(const QString &text);
+    // What the Run Again button does; none disables it.
+    void setRerun(std::function<void()> rerun);
+
     ResultModel *model() const { return m_model; }
+    QTableView *table() const { return m_table; }
     bool isRunning() const { return m_running; }
 
 Q_SIGNALS:
     void finished();
 
 private:
-    void rerun();
+    void rerunQuery();
     void showOutcome(const pg::QueryOutcome &outcome, qint64 elapsedMs);
-    void showMessage(const QString &text, bool error);
+    void setMessage(const QString &text, bool error);
 
     QLabel *m_title = nullptr;
     QLabel *m_status = nullptr;
@@ -47,10 +59,12 @@ private:
     QLabel *m_message = nullptr;
     ResultModel *m_model = nullptr;
 
+    std::function<void()> m_rerun;
     QPointer<pg::QueryRunner> m_runner;
     QByteArray m_sql;
     quint64 m_generation = 0; // Ignores results of queries run before the latest one.
     bool m_running = false;
+    bool m_sized = false; // Columns sized to their contents once rows arrived.
 };
 
 } // namespace slonisko

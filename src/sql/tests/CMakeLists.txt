@@ -2,3 +2,4 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 slonisko_add_test(tst_splitter Slonisko::Sql)
+slonisko_add_test(tst_lexer Slonisko::Sql)
