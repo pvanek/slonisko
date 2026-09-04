@@ -5,6 +5,7 @@
 #include "pg/SshTunnel.h"
 
 #include <QApplication>
+#include <QIcon>
 
 int main(int argc, char *argv[])
 {
@@ -17,6 +18,13 @@ int main(int argc, char *argv[])
     QApplication::setApplicationDisplayName(QStringLiteral("Slonisko"));
     QApplication::setApplicationVersion(QStringLiteral(SLONISKO_VERSION));
     QApplication::setOrganizationName(QStringLiteral("slonisko"));
+    // Lets Wayland shells match windows with slonisko.desktop and its icon.
+    QGuiApplication::setDesktopFileName(QStringLiteral("slonisko"));
+
+    QIcon icon;
+    for (const int size : {16, 22, 24, 32, 48, 64, 128, 256, 512})
+        icon.addFile(QStringLiteral(":/icons/slonisko-%1.png").arg(size), QSize(size, size));
+    QApplication::setWindowIcon(icon);
 
     slonisko::MainWindow window;
     window.show();

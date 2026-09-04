@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Slonisko
+GenericName=PostgreSQL Client
+Comment=Query and manage PostgreSQL databases
+Exec=slonisko
+Icon=slonisko
+Terminal=false
+Categories=Development;Database;Qt;
+Keywords=PostgreSQL;SQL;database;psql;
