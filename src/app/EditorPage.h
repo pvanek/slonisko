@@ -9,7 +9,7 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QPointer>
-#include <QWidget>
+#include "WorkspacePage.h"
 
 #include <deque>
 #include <optional>
@@ -28,13 +28,13 @@ class SqlEditor;
 // A SQL editor with a connection of its own to one of the connected
 // sessions. Its results go to a ResultPanel, which the main window shows
 // below the editors.
-class EditorTab : public QWidget
+class EditorPage : public WorkspacePage
 {
     Q_OBJECT
 
 public:
-    EditorTab(ConnectionBrowser *browser, const QString &name, QWidget *parent = nullptr);
-    ~EditorTab() override;
+    EditorPage(ConnectionBrowser *browser, const QString &name, QWidget *parent = nullptr);
+    ~EditorPage() override;
 
     SqlEditor *editor() const { return m_editor; }
     ResultPanel *resultPanel() const { return m_panel; }
@@ -42,9 +42,9 @@ public:
     Session *session() const { return m_session; }
     QString database() const { return m_database; }
     // The file name (or the tab's name), * when modified, and the connection.
-    QString title() const;
+    QString title() const override;
     // The connection's color, if its profile has one.
-    QColor color() const;
+    QColor color() const override;
 
     // Files. Text is read and written as UTF-8, with the file's line endings.
     QString filePath() const { return m_filePath; }
@@ -58,6 +58,7 @@ public:
     bool saveAs();
     // Before closing: asks to save changes. False to keep the tab open.
     bool maybeSave();
+    bool maybeClose() override { return maybeSave(); }
 
     // Connects the editor to a database of a session; null disconnects.
     void setSession(Session *session, const QString &database = {});
@@ -75,7 +76,6 @@ public:
     const sql::PsqlVariables &variables() const { return m_variables; }
 
 Q_SIGNALS:
-    void titleChanged();
     void runningChanged(bool running);
 
 private:

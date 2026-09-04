@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Petr Vanek
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "EditorTab.h"
+#include "EditorPage.h"
 
 #include "ConnectionBrowser.h"
 #include "Icons.h"
@@ -24,6 +24,7 @@
 #include <QMessageBox>
 #include <QSaveFile>
 #include <QSettings>
+#include <QSplitter>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -40,9 +41,9 @@ qsizetype bytesBefore(const QByteArray &text, int position)
 
 } // namespace
 
-EditorTab::EditorTab(ConnectionBrowser *browser, const QString &name, QWidget *parent)
-    : QWidget(parent), m_browser(browser), m_name(name), m_editor(new SqlEditor(this)),
-      m_panel(new ResultPanel), m_target(new QComboBox(this)), m_status(new QLabel(this)),
+EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget *parent)
+    : WorkspacePage(parent), m_browser(browser), m_name(name), m_editor(new SqlEditor(this)),
+      m_panel(new ResultPanel(this)), m_target(new QComboBox(this)), m_status(new QLabel(this)),
       m_connection(new pg::Connection(this))
 {
     auto action
@@ -57,19 +58,19 @@ EditorTab::EditorTab(ConnectionBrowser *browser, const QString &name, QWidget *p
               return a;
           };
     m_run = action(QStringLiteral("media-playback-start"), tr("&Run Statement"),
-                   QKeySequence(Qt::CTRL | Qt::Key_Return), &EditorTab::run);
+                   QKeySequence(Qt::CTRL | Qt::Key_Return), &EditorPage::run);
     m_explain = action(QStringLiteral("view-list-tree"), tr("&Explain"),
                        QKeySequence(Qt::CTRL | Qt::Key_E), [this] { explain(false); });
     m_explainAnalyze
         = action(QStringLiteral("chronometer"), tr("Explain &Analyze"),
                  QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] { explain(true); });
     m_cancel = action(QStringLiteral("process-stop"), tr("&Cancel"),
-                      QKeySequence(Qt::CTRL | Qt::Key_Period), &EditorTab::cancel);
+                      QKeySequence(Qt::CTRL | Qt::Key_Period), &EditorPage::cancel);
     // Ctrl+Enter on the keypad too.
     auto *enter = new QAction(this);
     enter->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Enter));
     enter->setShortcutContext(Qt::WidgetWithChildrenShortcut);
-    connect(enter, &QAction::triggered, this, &EditorTab::run);
+    connect(enter, &QAction::triggered, this, &EditorPage::run);
     addAction(enter);
 
     m_target->setSizeAdjustPolicy(QComboBox::AdjustToContents);
@@ -94,15 +95,22 @@ EditorTab::EditorTab(ConnectionBrowser *browser, const QString &name, QWidget *p
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(toolbar);
-    layout->addWidget(m_editor);
+    // The editor above its results, in one page.
+    auto *splitter = new QSplitter(Qt::Vertical, this);
+    splitter->setChildrenCollapsible(false);
+    splitter->addWidget(m_editor);
+    splitter->addWidget(m_panel);
+    splitter->setStretchFactor(0, 3);
+    splitter->setStretchFactor(1, 2);
+    layout->addWidget(splitter);
 
-    connect(m_connection, &pg::Connection::resultReady, this, &EditorTab::onResult);
-    connect(m_connection, &pg::Connection::queryFinished, this, &EditorTab::onFinished);
-    connect(m_connection, &pg::Connection::stateChanged, this, &EditorTab::onConnectionState);
+    connect(m_connection, &pg::Connection::resultReady, this, &EditorPage::onResult);
+    connect(m_connection, &pg::Connection::queryFinished, this, &EditorPage::onFinished);
+    connect(m_connection, &pg::Connection::stateChanged, this, &EditorPage::onConnectionState);
     connect(m_connection, &pg::Connection::notice, this,
             [this](const QString &message) { m_panel->log(message); });
-    connect(m_browser, &ConnectionBrowser::sessionsChanged, this, &EditorTab::updateSessions);
-    connect(m_editor, &QsciScintilla::modificationChanged, this, &EditorTab::titleChanged);
+    connect(m_browser, &ConnectionBrowser::sessionsChanged, this, &EditorPage::updateSessions);
+    connect(m_editor, &QsciScintilla::modificationChanged, this, &EditorPage::titleChanged);
     connect(m_panel->results(), &ResultView::saveRequested, this, [this] { saveChanges(); });
     m_editor->setSnapshotProvider(
         [this] { return m_session ? m_session->snapshot(m_database) : catalog::SnapshotPtr(); });
@@ -111,13 +119,12 @@ EditorTab::EditorTab(ConnectionBrowser *browser, const QString &name, QWidget *p
     updateActions();
 }
 
-EditorTab::~EditorTab()
+EditorPage::~EditorPage()
 {
     m_connection->disconnect(this);
-    delete m_panel; // Lives in the main window's result area, not in this widget.
 }
 
-QString EditorTab::title() const
+QString EditorPage::title() const
 {
     QString name = m_filePath.isEmpty() ? m_name : QFileInfo(m_filePath).fileName();
     if (isModified())
@@ -130,22 +137,22 @@ QString EditorTab::title() const
     return name + QStringLiteral(" · ") + m_session->profile().displayName() + db;
 }
 
-QColor EditorTab::color() const
+QColor EditorPage::color() const
 {
     return m_session ? QColor::fromString(m_session->profile().color) : QColor();
 }
 
-bool EditorTab::isModified() const
+bool EditorPage::isModified() const
 {
     return m_editor->isModified();
 }
 
-bool EditorTab::isBlank() const
+bool EditorPage::isBlank() const
 {
     return m_filePath.isEmpty() && !isModified() && m_editor->length() == 0;
 }
 
-bool EditorTab::openFile(const QString &path, QString *error)
+bool EditorPage::openFile(const QString &path, QString *error)
 {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) {
@@ -166,7 +173,7 @@ bool EditorTab::openFile(const QString &path, QString *error)
     return true;
 }
 
-bool EditorTab::saveFile(const QString &path, QString *error)
+bool EditorPage::saveFile(const QString &path, QString *error)
 {
     // Written to a temporary file first, so a failed save leaves the old one.
     QSaveFile file(path);
@@ -183,7 +190,7 @@ bool EditorTab::saveFile(const QString &path, QString *error)
     return true;
 }
 
-bool EditorTab::save()
+bool EditorPage::save()
 {
     if (m_filePath.isEmpty())
         return saveAs();
@@ -194,7 +201,7 @@ bool EditorTab::save()
     return false;
 }
 
-bool EditorTab::saveAs()
+bool EditorPage::saveAs()
 {
     QSettings settings;
     const QString dir = m_filePath.isEmpty()
@@ -212,7 +219,7 @@ bool EditorTab::saveAs()
     return false;
 }
 
-bool EditorTab::maybeSave()
+bool EditorPage::maybeSave()
 {
     if (!isModified())
         return true;
@@ -225,7 +232,7 @@ bool EditorTab::maybeSave()
     return answer == QMessageBox::Discard;
 }
 
-void EditorTab::setSession(Session *session, const QString &database)
+void EditorPage::setSession(Session *session, const QString &database)
 {
     if (isRunning())
         cancel();
@@ -252,7 +259,7 @@ void EditorTab::setSession(Session *session, const QString &database)
     Q_EMIT titleChanged();
 }
 
-void EditorTab::updateSessions()
+void EditorPage::updateSessions()
 {
     // A session that went away takes the editor's connection with it: its
     // SSH tunnel is gone.
@@ -282,7 +289,7 @@ void EditorTab::updateSessions()
     updateTargetColor();
 }
 
-void EditorTab::updateTargetColor()
+void EditorPage::updateTargetColor()
 {
     // Tints the combo box with the connection's color, so it is clear at a
     // glance which server (production!) this editor talks to.
@@ -302,7 +309,7 @@ void EditorTab::updateTargetColor()
     m_target->setProperty("connectionColor", c);
 }
 
-void EditorTab::updateActions()
+void EditorPage::updateActions()
 {
     const bool ready = m_connection->state() == pg::Connection::State::Ready && !isRunning();
     m_run->setEnabled(ready);
@@ -311,7 +318,7 @@ void EditorTab::updateActions()
     m_cancel->setEnabled(isRunning());
 }
 
-void EditorTab::updateStatus()
+void EditorPage::updateStatus()
 {
     QString text;
     switch (m_connection->state()) {
@@ -350,7 +357,7 @@ void EditorTab::updateStatus()
                                 : QString());
 }
 
-void EditorTab::onConnectionState(pg::Connection::State state)
+void EditorPage::onConnectionState(pg::Connection::State state)
 {
     if (state == pg::Connection::State::Ready && !isRunning()) {
         m_panel->log(tr("Connected to %1.").arg(title()));
@@ -370,7 +377,7 @@ void EditorTab::onConnectionState(pg::Connection::State state)
 
 // Running.
 
-void EditorTab::run()
+void EditorPage::run()
 {
     if (m_connection->state() != pg::Connection::State::Ready || isRunning())
         return;
@@ -401,7 +408,7 @@ void EditorTab::run()
     start(std::move(jobs));
 }
 
-void EditorTab::explain(bool analyze)
+void EditorPage::explain(bool analyze)
 {
     if (m_connection->state() != pg::Connection::State::Ready || isRunning())
         return;
@@ -451,13 +458,13 @@ void EditorTab::explain(bool analyze)
     start(std::move(jobs));
 }
 
-void EditorTab::cancel()
+void EditorPage::cancel()
 {
     if (isRunning() && m_connection->cancel())
         m_panel->log(tr("Cancelling…"));
 }
 
-void EditorTab::start(std::deque<Job> jobs)
+void EditorPage::start(std::deque<Job> jobs)
 {
     m_editor->clearErrors();
     m_jobs = std::move(jobs);
@@ -466,7 +473,7 @@ void EditorTab::start(std::deque<Job> jobs)
     Q_EMIT runningChanged(true);
 }
 
-void EditorTab::startNext()
+void EditorPage::startNext()
 {
     while (!m_jobs.empty()) {
         const Job &next = m_jobs.front();
@@ -498,7 +505,7 @@ void EditorTab::startNext()
     updateStatus();
 }
 
-void EditorTab::onResult(const pg::Result &result)
+void EditorPage::onResult(const pg::Result &result)
 {
     if (!m_current)
         return;
@@ -562,7 +569,7 @@ void EditorTab::onResult(const pg::Result &result)
     }
 }
 
-void EditorTab::onFinished()
+void EditorPage::onFinished()
 {
     if (!m_current)
         return;
@@ -619,7 +626,7 @@ void EditorTab::onFinished()
     startNext();
 }
 
-void EditorTab::lookUpEditTarget()
+void EditorPage::lookUpEditTarget()
 {
     QString reason;
     ResultModel *model = m_panel->results()->model();
@@ -637,7 +644,7 @@ void EditorTab::lookUpEditTarget()
     m_jobs.push_front(std::move(info));
 }
 
-void EditorTab::saveChanges(bool confirm)
+void EditorPage::saveChanges(bool confirm)
 {
     ResultModel *model = m_panel->results()->model();
     if (!model->hasChanges() || !model->isEditable() || isRunning()
@@ -692,7 +699,7 @@ void EditorTab::saveChanges(bool confirm)
     start(std::move(jobs));
 }
 
-void EditorTab::finishAll()
+void EditorPage::finishAll()
 {
     m_jobs.clear();
     m_current.reset();
@@ -701,7 +708,7 @@ void EditorTab::finishAll()
     Q_EMIT runningChanged(false);
 }
 
-void EditorTab::markError(const Job &job, int position, const QString &message)
+void EditorPage::markError(const Job &job, int position, const QString &message)
 {
     if (job.offset < 0)
         return;
@@ -712,7 +719,7 @@ void EditorTab::markError(const Job &job, int position, const QString &message)
     m_editor->markError(job.offset + original, message);
 }
 
-QByteArray EditorTab::substitute(const QByteArray &sql, Job &job)
+QByteArray EditorPage::substitute(const QByteArray &sql, Job &job)
 {
     QStringList unset;
     const QByteArray out = m_variables.substitute(sql, &job.replacements, &unset);
@@ -721,7 +728,7 @@ QByteArray EditorTab::substitute(const QByteArray &sql, Job &job)
     return out;
 }
 
-QString EditorTab::preview(const QByteArray &sql)
+QString EditorPage::preview(const QByteArray &sql)
 {
     QString text = QString::fromUtf8(sql).simplified();
     if (text.size() > 60)

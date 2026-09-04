@@ -4,12 +4,14 @@
 #include "MainWindow.h"
 
 #include "ConnectionBrowser.h"
-#include "EditorTab.h"
+#include "EditorPage.h"
 #include "FileBrowser.h"
 #include "Icons.h"
 #include "ResultModel.h"
+#include "ResultPage.h"
 #include "ResultPanel.h"
 #include "ResultView.h"
+#include "Session.h"
 #include "SqlEditor.h"
 
 #include <QApplication>
@@ -19,7 +21,6 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSplitter>
-#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
 
@@ -27,11 +28,9 @@ namespace slonisko {
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_mainSplitter(new QSplitter(Qt::Horizontal, this)),
-      m_workSplitter(new QSplitter(Qt::Vertical, m_mainSplitter)),
       m_left(new QTabWidget(m_mainSplitter)),
       m_browser(new ConnectionBrowser(m_settings, true, m_left)),
-      m_files(new FileBrowser(m_settings, m_left)), m_editors(new QTabWidget(m_workSplitter)),
-      m_results(new QStackedWidget(m_workSplitter))
+      m_files(new FileBrowser(m_settings, m_left)), m_pages(new QTabWidget(m_mainSplitter))
 {
     m_left->setDocumentMode(true);
     m_left->setTabPosition(QTabWidget::West);
@@ -43,36 +42,25 @@ MainWindow::MainWindow(QWidget *parent)
             [this](int i) { m_settings.setValue(QStringLiteral("window/leftTab"), i); });
     connect(m_files, &FileBrowser::fileActivated, this,
             [this](const QString &path) { openFile(path); });
+
     m_mainSplitter->addWidget(m_left);
-    m_mainSplitter->addWidget(m_workSplitter);
+    m_mainSplitter->addWidget(m_pages);
     m_mainSplitter->setStretchFactor(1, 1);
-    m_workSplitter->addWidget(m_editors);
-    m_workSplitter->addWidget(m_results);
-    m_workSplitter->setStretchFactor(0, 3);
-    m_workSplitter->setStretchFactor(1, 2);
     setCentralWidget(m_mainSplitter);
 
-    m_editors->setDocumentMode(true);
-    m_editors->setTabsClosable(true);
-    m_editors->setMovable(true);
-    connect(m_editors, &QTabWidget::tabCloseRequested, this, &MainWindow::closeEditor);
-    connect(m_editors, &QTabWidget::currentChanged, this, [this] {
-        if (EditorTab *tab = currentEditor()) {
-            m_results->setCurrentWidget(tab->resultPanel());
-            tab->editor()->setFocus();
-        }
+    m_pages->setDocumentMode(true);
+    m_pages->setTabsClosable(true);
+    m_pages->setMovable(true);
+    connect(m_pages, &QTabWidget::tabCloseRequested, this, &MainWindow::closePage);
+    connect(m_pages, &QTabWidget::currentChanged, this, [this] {
+        updateActions();
+        if (EditorPage *editor = currentEditor())
+            editor->editor()->setFocus();
     });
 
     connect(m_browser, &ConnectionBrowser::editorRequested, this,
             [this](Session *s, const QString &database) { newEditor(s, database); });
-    connect(m_browser, &ConnectionBrowser::monitoringRequested, this,
-            [this](pg::QueryRunner *runner, const QString &title, const QByteArray &sql) {
-                EditorTab *tab = currentEditor();
-                if (!tab)
-                    tab = newEditor();
-                tab->resultPanel()->results()->run(runner, title, sql);
-                tab->resultPanel()->showResults();
-            });
+    connect(m_browser, &ConnectionBrowser::monitoringRequested, this, &MainWindow::showResult);
 
     setupMenus();
     statusBar();
@@ -83,77 +71,127 @@ MainWindow::MainWindow(QWidget *parent)
     restoreGeometry(m_settings.value(QStringLiteral("window/geometry")).toByteArray());
     m_mainSplitter->restoreState(
         m_settings.value(QStringLiteral("window/mainSplitter")).toByteArray());
-    m_workSplitter->restoreState(
-        m_settings.value(QStringLiteral("window/workSplitter")).toByteArray());
 }
 
 MainWindow::~MainWindow()
 {
-    // Close the editors first: while the tab widget deletes its pages it
-    // would report the remaining, half-destroyed ones as current.
-    m_editors->disconnect(this);
-    while (m_editors->count() > 0)
-        delete m_editors->widget(0);
+    // Close the pages first: while the tab widget deletes them it would
+    // report the remaining, half-destroyed ones as current.
+    m_pages->disconnect(this);
+    while (m_pages->count() > 0)
+        delete m_pages->widget(0);
 }
 
-EditorTab *MainWindow::currentEditor() const
+WorkspacePage *MainWindow::currentPage() const
 {
-    return qobject_cast<EditorTab *>(m_editors->currentWidget());
+    return qobject_cast<WorkspacePage *>(m_pages->currentWidget());
 }
 
-EditorTab *MainWindow::newEditor(Session *session, const QString &database)
+EditorPage *MainWindow::currentEditor() const
 {
-    auto *tab = new EditorTab(m_browser, tr("Script %1").arg(++m_editorCount));
-    m_results->addWidget(tab->resultPanel());
-    const int index = m_editors->addTab(tab, tab->title());
-    connect(tab, &EditorTab::titleChanged, this, [this, tab] { updateTab(tab); });
+    return qobject_cast<EditorPage *>(m_pages->currentWidget());
+}
 
+QList<WorkspacePage *> MainWindow::pages() const
+{
+    QList<WorkspacePage *> out;
+    for (int i = 0; i < m_pages->count(); ++i) {
+        if (auto *page = qobject_cast<WorkspacePage *>(m_pages->widget(i)))
+            out << page;
+    }
+    return out;
+}
+
+void MainWindow::addPage(WorkspacePage *page)
+{
+    m_pages->addTab(page, page->title());
+    connect(page, &WorkspacePage::titleChanged, this, [this, page] { updateTab(page); });
+    updateTab(page);
+    m_pages->setCurrentWidget(page);
+}
+
+void MainWindow::updateTab(WorkspacePage *page)
+{
+    const int index = m_pages->indexOf(page);
+    if (index < 0)
+        return;
+    m_pages->setTabText(index, page->title());
+    m_pages->setTabToolTip(index, page->toolTip());
+    const QColor color = page->color();
+    m_pages->setTabIcon(index, color.isValid() ? Icons::connection(color.name(), true) : QIcon());
+}
+
+void MainWindow::updateActions()
+{
+    const bool editor = currentEditor() != nullptr;
+    m_save->setEnabled(editor);
+    m_saveAs->setEnabled(editor);
+}
+
+EditorPage *MainWindow::newEditor(Session *session, const QString &database)
+{
+    auto *page = new EditorPage(m_browser, tr("Script %1").arg(++m_editorCount));
     QString db = database;
     if (!session)
         session = m_browser->currentSession(&db);
     if (!session && !m_browser->connectedSessions().empty())
         session = m_browser->connectedSessions().front();
     if (session)
-        tab->setSession(session, db);
-
-    updateTab(tab);
-    m_editors->setCurrentIndex(index);
-    tab->editor()->setFocus();
-    return tab;
+        page->setSession(session, db);
+    addPage(page);
+    page->editor()->setFocus();
+    return page;
 }
 
-void MainWindow::updateTab(EditorTab *tab)
-{
-    const int index = m_editors->indexOf(tab);
-    if (index < 0)
-        return;
-    m_editors->setTabText(index, tab->title());
-    m_editors->setTabToolTip(index, tab->filePath());
-    const QColor color = tab->color();
-    m_editors->setTabIcon(index, color.isValid() ? Icons::connection(color.name(), true) : QIcon());
-}
-
-EditorTab *MainWindow::openFile(const QString &path)
+EditorPage *MainWindow::openFile(const QString &path)
 {
     // Already open: just show it.
     const QString absolute = QFileInfo(path).absoluteFilePath();
-    for (int i = 0; i < m_editors->count(); ++i) {
-        auto *open = qobject_cast<EditorTab *>(m_editors->widget(i));
+    for (WorkspacePage *page : pages()) {
+        auto *open = qobject_cast<EditorPage *>(page);
         if (open && open->filePath() == absolute) {
-            m_editors->setCurrentIndex(i);
+            m_pages->setCurrentWidget(open);
             return open;
         }
     }
-    EditorTab *tab = currentEditor();
-    if (!tab || !tab->isBlank())
-        tab = newEditor(tab ? tab->session() : nullptr, tab ? tab->database() : QString());
+    EditorPage *editor = currentEditor();
+    if (!editor || !editor->isBlank())
+        editor = newEditor(editor ? editor->session() : nullptr,
+                           editor ? editor->database() : QString());
     QString error;
-    if (!tab->openFile(path, &error)) {
+    if (!editor->openFile(path, &error)) {
         QMessageBox::warning(this, tr("Open File"), tr("Could not open %1:\n%2").arg(path, error));
         return nullptr;
     }
-    m_editors->setCurrentWidget(tab);
-    return tab;
+    m_pages->setCurrentWidget(editor);
+    return editor;
+}
+
+ResultPage *MainWindow::showResult(Session *session, const QString &title, const QByteArray &sql)
+{
+    for (WorkspacePage *page : pages()) {
+        auto *result = qobject_cast<ResultPage *>(page);
+        if (result && result->session() == session && result->sql() == sql) {
+            m_pages->setCurrentWidget(result);
+            result->refresh();
+            return result;
+        }
+    }
+    auto *page = new ResultPage(session, title, sql);
+    addPage(page);
+    return page;
+}
+
+bool MainWindow::closePage(int index)
+{
+    auto *page = qobject_cast<WorkspacePage *>(m_pages->widget(index));
+    if (!page || !page->maybeClose())
+        return false;
+    m_pages->removeTab(index);
+    delete page;
+    if (m_pages->count() == 0)
+        newEditor();
+    return true;
 }
 
 void MainWindow::openFile()
@@ -170,45 +208,30 @@ void MainWindow::openFile()
 
 void MainWindow::saveCurrent()
 {
-    EditorTab *tab = currentEditor();
-    if (!tab)
+    EditorPage *editor = currentEditor();
+    if (!editor)
         return;
     // In the result grid, with edits pending, Save means those.
-    ResultView *results = tab->resultPanel()->results();
+    ResultView *results = editor->resultPanel()->results();
     const QWidget *focus = QApplication::focusWidget();
     if (focus && results->isAncestorOf(focus) && results->model()->hasChanges()) {
-        tab->saveChanges();
+        editor->saveChanges();
         return;
     }
-    tab->save();
-}
-
-void MainWindow::closeEditor(int index)
-{
-    auto *tab = qobject_cast<EditorTab *>(m_editors->widget(index));
-    if (!tab || !tab->maybeSave())
-        return;
-    m_editors->removeTab(index);
-    delete tab; // Also deletes its result panel.
-    if (m_editors->count() == 0)
-        newEditor();
+    editor->save();
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    for (int i = 0; i < m_editors->count(); ++i) {
-        auto *tab = qobject_cast<EditorTab *>(m_editors->widget(i));
-        if (tab && tab->isModified()) {
-            m_editors->setCurrentIndex(i);
-            if (!tab->maybeSave()) {
-                event->ignore();
-                return;
-            }
+    for (WorkspacePage *page : pages()) {
+        m_pages->setCurrentWidget(page);
+        if (!page->maybeClose()) {
+            event->ignore();
+            return;
         }
     }
     m_settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
     m_settings.setValue(QStringLiteral("window/mainSplitter"), m_mainSplitter->saveState());
-    m_settings.setValue(QStringLiteral("window/workSplitter"), m_workSplitter->saveState());
     event->accept();
 }
 
@@ -222,17 +245,17 @@ void MainWindow::setupMenus()
     QAction *open = file->addAction(QIcon::fromTheme(QStringLiteral("document-open")),
                                     tr("&Open File…"), this, qOverload<>(&MainWindow::openFile));
     open->setShortcut(QKeySequence::Open);
-    QAction *save = file->addAction(QIcon::fromTheme(QStringLiteral("document-save")), tr("&Save"),
-                                    this, &MainWindow::saveCurrent);
-    save->setShortcut(QKeySequence::Save);
-    QAction *saveAs = file->addAction(QIcon::fromTheme(QStringLiteral("document-save-as")),
-                                      tr("Save &As…"), this, [this] {
-                                          if (EditorTab *tab = currentEditor())
-                                              tab->saveAs();
-                                      });
-    saveAs->setShortcut(QKeySequence::SaveAs);
-    QAction *close = file->addAction(tr("&Close Editor"), this,
-                                     [this] { closeEditor(m_editors->currentIndex()); });
+    m_save = file->addAction(QIcon::fromTheme(QStringLiteral("document-save")), tr("&Save"), this,
+                             &MainWindow::saveCurrent);
+    m_save->setShortcut(QKeySequence::Save);
+    m_saveAs = file->addAction(QIcon::fromTheme(QStringLiteral("document-save-as")),
+                               tr("Save &As…"), this, [this] {
+                                   if (EditorPage *page = currentEditor())
+                                       page->saveAs();
+                               });
+    m_saveAs->setShortcut(QKeySequence::SaveAs);
+    QAction *close
+        = file->addAction(tr("&Close Tab"), this, [this] { closePage(m_pages->currentIndex()); });
     close->setShortcut(QKeySequence::Close);
     file->addSeparator();
     QAction *quit = file->addAction(tr("&Quit"), this, &QWidget::close);

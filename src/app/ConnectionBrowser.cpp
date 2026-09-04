@@ -198,9 +198,7 @@ void ConnectionBrowser::onActivated(const QModelIndex &index)
         const auto &query = catalog::monitoringQueries()[std::size_t(
             index.data(BrowserModel::MonitoringRole).toInt())];
         if (s && s->runner())
-            Q_EMIT monitoringRequested(
-                s->runner(), s->profile().displayName() + QStringLiteral(": ") + query.title,
-                query.sql(s->serverVersion()));
+            Q_EMIT monitoringRequested(s, query.title, query.sql(s->serverVersion()));
         break;
     }
     default:

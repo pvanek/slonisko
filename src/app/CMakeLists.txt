@@ -14,8 +14,8 @@ add_library(slonisko_ui STATIC
     ConnectionDialog.cpp
     ConnectionDialog.h
     ConnectionDialog.ui
-    EditorTab.cpp
-    EditorTab.h
+    EditorPage.cpp
+    EditorPage.h
     FileBrowser.cpp
     FileBrowser.h
     Icons.cpp
@@ -29,6 +29,8 @@ add_library(slonisko_ui STATIC
     ResultModel.h
     ResultPanel.cpp
     ResultPanel.h
+    ResultPage.cpp
+    ResultPage.h
     ResultView.cpp
     ResultView.h
     SaveChangesDialog.cpp
@@ -39,7 +41,8 @@ add_library(slonisko_ui STATIC
     SqlEditor.cpp
     SqlEditor.h
     SqlLexer.cpp
-    SqlLexer.h)
+    SqlLexer.h
+    WorkspacePage.h)
 target_include_directories(slonisko_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(slonisko_ui PUBLIC
     Qt6::Widgets

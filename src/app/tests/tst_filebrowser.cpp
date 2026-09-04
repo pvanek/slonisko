@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Petr Vanek
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "EditorTab.h"
+#include "EditorPage.h"
 #include "FileBrowser.h"
 #include "MainWindow.h"
 #include "Session.h"
@@ -133,10 +133,10 @@ private Q_SLOTS:
         QVERIFY(left);
         QCOMPARE(left->tabPosition(), QTabWidget::West);
         const QString path = m_dir.filePath(QStringLiteral("a.sql"));
-        EditorTab *first = w.openFile(path);
+        EditorPage *first = w.openFile(path);
         QVERIFY(first);
         QCOMPARE(first->editor()->utf8Text(), QByteArray("SELECT 1;\n"));
-        EditorTab *again = w.openFile(path);
+        EditorPage *again = w.openFile(path);
         QCOMPARE(again, first); // Already open: the same tab.
         QCOMPARE(w.currentEditor(), first);
     }

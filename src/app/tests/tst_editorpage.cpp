@@ -3,7 +3,8 @@
 
 #include "ConnectionBrowser.h"
 #include "MainWindow.h"
-#include "EditorTab.h"
+#include "ResultPage.h"
+#include "EditorPage.h"
 #include "PlanView.h"
 #include "ResultModel.h"
 #include "ResultPanel.h"
@@ -13,6 +14,8 @@
 #include "TestServer.h"
 
 #include <QComboBox>
+#include <QSplitter>
+#include <QTabWidget>
 #include <QFile>
 #include <QPlainTextEdit>
 #include <QSettings>
@@ -24,7 +27,7 @@
 
 using namespace slonisko;
 
-class TestEditorTab : public QObject
+class TestEditorPage : public QObject
 {
     Q_OBJECT
 
@@ -44,7 +47,7 @@ private Q_SLOTS:
 
     void init()
     {
-        m_tab = std::make_unique<EditorTab>(m_browser.get(), QStringLiteral("Script"));
+        m_tab = std::make_unique<EditorPage>(m_browser.get(), QStringLiteral("Script"));
         m_tab->setSession(m_session.get());
         QTRY_COMPARE(m_tab->connection()->state(), pg::Connection::State::Ready);
         QVERIFY(m_tab->title().contains(QLatin1String("Test")));
@@ -328,7 +331,7 @@ private Q_SLOTS:
         QCOMPARE(saved.readAll(), QStringLiteral("SELECT 'žluťoučký';\n").toUtf8());
 
         // Opened elsewhere, the same text; not modified.
-        EditorTab other(m_browser.get(), QStringLiteral("Other"));
+        EditorPage other(m_browser.get(), QStringLiteral("Other"));
         QVERIFY(other.openFile(path, &error));
         QCOMPARE(other.editor()->utf8Text(), QStringLiteral("SELECT 'žluťoučký';\n").toUtf8());
         QVERIFY(!other.isModified());
@@ -371,6 +374,64 @@ private Q_SLOTS:
 
         m_tab->setSession(nullptr);
         QVERIFY(!combo->property("connectionColor").value<QColor>().isValid());
+    }
+
+    void editorAndResultsAreOnePage()
+    {
+        // The result panel lives inside the editor page, below the editor.
+        QVERIFY(m_tab->isAncestorOf(m_tab->resultPanel()));
+        auto *splitter = m_tab->findChild<QSplitter *>();
+        QVERIFY(splitter);
+        QCOMPARE(splitter->widget(0), m_tab->editor());
+        QCOMPARE(splitter->widget(1), static_cast<QWidget *>(m_tab->resultPanel()));
+    }
+
+    void resultPages()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        QCOMPARE(w.pages().size(), 1); // The first editor.
+
+        const QByteArray sql = "SELECT g FROM generate_series(1, 5) g";
+        ResultPage *page = w.showResult(m_session.get(), QStringLiteral("Five"), sql);
+        QCOMPARE(w.currentPage(), page);
+        QVERIFY(!w.currentEditor()); // Not an editor: Save does not apply.
+        QCOMPARE(page->title(), QStringLiteral("Five"));
+        QTRY_COMPARE(page->results()->model()->rowCount(), 5);
+        QVERIFY(!page->results()->model()->isEditable());
+
+        // The same query again: the same page, shown and run again.
+        w.newEditor(m_session.get());
+        QCOMPARE(w.pages().size(), 3);
+        QCOMPARE(w.showResult(m_session.get(), QStringLiteral("Five"), sql), page);
+        QCOMPARE(w.currentPage(), page);
+        QCOMPARE(w.pages().size(), 3);
+
+        // Another query: a page of its own.
+        ResultPage *other = w.showResult(m_session.get(), QStringLiteral("One"), "SELECT 1");
+        QVERIFY(other != page);
+        QCOMPARE(w.pages().size(), 4);
+
+        // Closing pages; the last one closed brings a fresh editor.
+        auto *tabs = qobject_cast<QTabWidget *>(page->parentWidget()->parentWidget());
+        QVERIFY(tabs);
+        while (tabs->count() > 1)
+            QVERIFY(w.closePage(0));
+        QVERIFY(w.closePage(0));
+        QCOMPARE(w.pages().size(), 1);
+        QVERIFY(w.currentEditor());
+    }
+
+    void monitoringOpensResultPage()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        Q_EMIT w.browser()->monitoringRequested(m_session.get(), QStringLiteral("Sessions"),
+                                                "SELECT pid FROM pg_stat_activity");
+        auto *page = qobject_cast<ResultPage *>(w.currentPage());
+        QVERIFY(page);
+        QCOMPARE(page->title(), QStringLiteral("Sessions"));
+        QTRY_VERIFY(page->results()->model()->rowCount() > 0);
     }
 
     // Regression: closing the window with several editors crashed.
@@ -424,8 +485,8 @@ private:
     std::optional<QSettings> m_settings;
     std::unique_ptr<ConnectionBrowser> m_browser;
     std::unique_ptr<Session> m_session;
-    std::unique_ptr<EditorTab> m_tab;
+    std::unique_ptr<EditorPage> m_tab;
 };
 
-QTEST_MAIN(TestEditorTab)
-#include "tst_editortab.moc"
+QTEST_MAIN(TestEditorPage)
+#include "tst_editorpage.moc"

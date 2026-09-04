@@ -51,7 +51,8 @@ Q_SIGNALS:
     // "Open SQL Editor" on a connection or database.
     void editorRequested(slonisko::Session *session, const QString &database);
     // A DBA or System Info item was opened.
-    void monitoringRequested(pg::QueryRunner *runner, const QString &title, const QByteArray &sql);
+    void monitoringRequested(slonisko::Session *session, const QString &title,
+                             const QByteArray &sql);
 
 private:
     void createActions();
