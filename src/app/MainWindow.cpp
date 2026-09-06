@@ -7,6 +7,8 @@
 #include "EditorPage.h"
 #include "FileBrowser.h"
 #include "Icons.h"
+#include "PageTabWidget.h"
+#include "PageWindow.h"
 #include "ResultModel.h"
 #include "ResultPage.h"
 #include "ResultPanel.h"
@@ -30,7 +32,7 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_mainSplitter(new QSplitter(Qt::Horizontal, this)),
       m_left(new QTabWidget(m_mainSplitter)),
       m_browser(new ConnectionBrowser(m_settings, true, m_left)),
-      m_files(new FileBrowser(m_settings, m_left)), m_pages(new QTabWidget(m_mainSplitter))
+      m_files(new FileBrowser(m_settings, m_left)), m_pages(new PageTabWidget(m_mainSplitter))
 {
     m_left->setDocumentMode(true);
     m_left->setTabPosition(QTabWidget::West);
@@ -48,15 +50,14 @@ MainWindow::MainWindow(QWidget *parent)
     m_mainSplitter->setStretchFactor(1, 1);
     setCentralWidget(m_mainSplitter);
 
-    m_pages->setDocumentMode(true);
-    m_pages->setTabsClosable(true);
-    m_pages->setMovable(true);
-    connect(m_pages, &QTabWidget::tabCloseRequested, this, &MainWindow::closePage);
+    m_pages->setMain(true);
+    watchTabs(m_pages);
     connect(m_pages, &QTabWidget::currentChanged, this, [this] {
-        updateActions();
-        if (EditorPage *editor = currentEditor())
+        if (EditorPage *editor = qobject_cast<EditorPage *>(m_pages->currentWidget()))
             editor->editor()->setFocus();
     });
+    // Save and the like follow the active window.
+    connect(qApp, &QApplication::focusChanged, this, &MainWindow::updateActions);
 
     connect(m_browser, &ConnectionBrowser::editorRequested, this,
             [this](Session *s, const QString &database) { newEditor(s, database); });
@@ -75,50 +76,125 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-    // Close the pages first: while the tab widget deletes them it would
+    // Close the pages first: while the tab widgets delete them they would
     // report the remaining, half-destroyed ones as current.
+    disconnect(qApp, nullptr, this, nullptr);
+    for (PageWindow *window : std::as_const(m_windows)) {
+        window->tabs()->disconnect(this);
+        delete window;
+    }
     m_pages->disconnect(this);
     while (m_pages->count() > 0)
         delete m_pages->widget(0);
 }
 
+void MainWindow::watchTabs(PageTabWidget *tabs)
+{
+    connect(tabs, &QTabWidget::tabCloseRequested, this, [this, tabs](int index) {
+        closePage(qobject_cast<WorkspacePage *>(tabs->widget(index)));
+    });
+    connect(tabs, &QTabWidget::currentChanged, this, &MainWindow::updateActions);
+    connect(tabs, &PageTabWidget::detachRequested, this,
+            [this](WorkspacePage *page) { detachPage(page); });
+    connect(tabs, &PageTabWidget::moveToMainRequested, this,
+            [this](WorkspacePage *page) { movePage(page, m_pages); });
+}
+
 WorkspacePage *MainWindow::currentPage() const
 {
-    return qobject_cast<WorkspacePage *>(m_pages->currentWidget());
+    // A page window, if one is active; else this window.
+    for (PageWindow *window : m_windows) {
+        if (window->isActiveWindow())
+            return window->tabs()->currentPage();
+    }
+    return m_pages->currentPage();
 }
 
 EditorPage *MainWindow::currentEditor() const
 {
-    return qobject_cast<EditorPage *>(m_pages->currentWidget());
+    return qobject_cast<EditorPage *>(currentPage());
 }
 
 QList<WorkspacePage *> MainWindow::pages() const
 {
-    QList<WorkspacePage *> out;
-    for (int i = 0; i < m_pages->count(); ++i) {
-        if (auto *page = qobject_cast<WorkspacePage *>(m_pages->widget(i)))
-            out << page;
-    }
+    QList<WorkspacePage *> out = m_pages->pages();
+    for (const PageWindow *window : m_windows)
+        out += window->tabs()->pages();
     return out;
+}
+
+QList<PageWindow *> MainWindow::pageWindows() const
+{
+    return m_windows;
+}
+
+PageTabWidget *MainWindow::tabsOf(const WorkspacePage *page) const
+{
+    if (m_pages->indexOf(page) >= 0)
+        return m_pages;
+    for (PageWindow *window : m_windows) {
+        if (window->tabs()->indexOf(page) >= 0)
+            return window->tabs();
+    }
+    return nullptr;
 }
 
 void MainWindow::addPage(WorkspacePage *page)
 {
-    m_pages->addTab(page, page->title());
+    m_pages->addPage(page);
     connect(page, &WorkspacePage::titleChanged, this, [this, page] { updateTab(page); });
-    updateTab(page);
-    m_pages->setCurrentWidget(page);
 }
 
 void MainWindow::updateTab(WorkspacePage *page)
 {
-    const int index = m_pages->indexOf(page);
-    if (index < 0)
+    if (PageTabWidget *tabs = tabsOf(page))
+        tabs->updatePage(page);
+    for (PageWindow *window : std::as_const(m_windows)) {
+        if (window->tabs()->currentPage() == page)
+            window->setWindowTitle(page->title());
+    }
+}
+
+PageWindow *MainWindow::detachPage(WorkspacePage *page)
+{
+    PageTabWidget *from = tabsOf(page);
+    if (!from)
+        return nullptr;
+    // A window of its own, independent of this one: its own taskbar entry,
+    // free to go behind it or to another screen. This window deletes it.
+    auto *window = new PageWindow;
+    window->setWindowIcon(windowIcon());
+    m_windows << window;
+    watchTabs(window->tabs());
+    // Emptied: the window goes, later, as it may be handling a click of its own.
+    connect(window->tabs(), &PageTabWidget::emptied, window, &QObject::deleteLater);
+    connect(window, &QObject::destroyed, this, [this, window] {
+        m_windows.removeAll(window);
+        updateActions();
+    });
+
+    from->takePage(page);
+    window->tabs()->addPage(page);
+    window->setWindowTitle(page->title());
+    // Smaller than this window and offset from its corner, cascading, so
+    // this one stays in sight behind it.
+    const QRect main = frameGeometry();
+    window->resize(QSize(main.width() * 3 / 5, main.height() * 3 / 5).expandedTo(QSize(500, 350)));
+    const int step = 40 * int(m_windows.size());
+    window->move(main.topLeft() + QPoint(80 + step, 80 + step));
+    window->show();
+    return window;
+}
+
+void MainWindow::movePage(WorkspacePage *page, PageTabWidget *to)
+{
+    PageTabWidget *from = tabsOf(page);
+    if (!from || from == to)
         return;
-    m_pages->setTabText(index, page->title());
-    m_pages->setTabToolTip(index, page->toolTip());
-    const QColor color = page->color();
-    m_pages->setTabIcon(index, color.isValid() ? Icons::connection(color.name(), true) : QIcon());
+    from->takePage(page);
+    to->addPage(page);
+    to->window()->raise();
+    to->window()->activateWindow();
 }
 
 void MainWindow::updateActions()
@@ -150,7 +226,7 @@ EditorPage *MainWindow::openFile(const QString &path)
     for (WorkspacePage *page : pages()) {
         auto *open = qobject_cast<EditorPage *>(page);
         if (open && open->filePath() == absolute) {
-            m_pages->setCurrentWidget(open);
+            showPage(open);
             return open;
         }
     }
@@ -172,7 +248,7 @@ ResultPage *MainWindow::showResult(Session *session, const QString &title, const
     for (WorkspacePage *page : pages()) {
         auto *result = qobject_cast<ResultPage *>(page);
         if (result && result->session() == session && result->sql() == sql) {
-            m_pages->setCurrentWidget(result);
+            showPage(result);
             result->refresh();
             return result;
         }
@@ -184,14 +260,29 @@ ResultPage *MainWindow::showResult(Session *session, const QString &title, const
 
 bool MainWindow::closePage(int index)
 {
-    auto *page = qobject_cast<WorkspacePage *>(m_pages->widget(index));
-    if (!page || !page->maybeClose())
+    return closePage(qobject_cast<WorkspacePage *>(m_pages->widget(index)));
+}
+
+bool MainWindow::closePage(WorkspacePage *page)
+{
+    PageTabWidget *tabs = page ? tabsOf(page) : nullptr;
+    if (!tabs || !page->maybeClose())
         return false;
-    m_pages->removeTab(index);
+    tabs->takePage(page);
     delete page;
+    // This window always has something to work in; page windows just go.
     if (m_pages->count() == 0)
         newEditor();
     return true;
+}
+
+void MainWindow::showPage(WorkspacePage *page)
+{
+    if (PageTabWidget *tabs = tabsOf(page)) {
+        tabs->setCurrentWidget(page);
+        tabs->window()->raise();
+        tabs->window()->activateWindow();
+    }
 }
 
 void MainWindow::openFile()
@@ -224,7 +315,7 @@ void MainWindow::saveCurrent()
 void MainWindow::closeEvent(QCloseEvent *event)
 {
     for (WorkspacePage *page : pages()) {
-        m_pages->setCurrentWidget(page);
+        showPage(page);
         if (!page->maybeClose()) {
             event->ignore();
             return;
@@ -232,6 +323,12 @@ void MainWindow::closeEvent(QCloseEvent *event)
     }
     m_settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
     m_settings.setValue(QStringLiteral("window/mainSplitter"), m_mainSplitter->saveState());
+    // The page windows go with this one; their pages agreed above.
+    for (PageWindow *window : std::as_const(m_windows)) {
+        window->tabs()->disconnect(this);
+        window->hide();
+        window->deleteLater();
+    }
     event->accept();
 }
 
@@ -254,9 +351,11 @@ void MainWindow::setupMenus()
                                        page->saveAs();
                                });
     m_saveAs->setShortcut(QKeySequence::SaveAs);
-    QAction *close
-        = file->addAction(tr("&Close Tab"), this, [this] { closePage(m_pages->currentIndex()); });
+    QAction *close = file->addAction(tr("&Close Tab"), this, [this] { closePage(currentPage()); });
     close->setShortcut(QKeySequence::Close);
+    // Page windows have no menus: these work there too.
+    for (QAction *action : {open, m_save, m_saveAs, close})
+        action->setShortcutContext(Qt::ApplicationShortcut);
     file->addSeparator();
     QAction *quit = file->addAction(tr("&Quit"), this, &QWidget::close);
     quit->setShortcut(QKeySequence::Quit);

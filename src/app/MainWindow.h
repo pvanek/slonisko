@@ -15,6 +15,8 @@ namespace slonisko {
 class ConnectionBrowser;
 class EditorPage;
 class FileBrowser;
+class PageTabWidget;
+class PageWindow;
 class ResultPage;
 class Session;
 class WorkspacePage;
@@ -32,10 +34,23 @@ public:
     ConnectionBrowser *browser() const { return m_browser; }
     FileBrowser *files() const { return m_files; }
 
+    // The current page of the active window: this one or a page window.
     WorkspacePage *currentPage() const;
     // The current page if it is an editor.
     EditorPage *currentEditor() const;
+    // All pages, in this window and in page windows.
     QList<WorkspacePage *> pages() const;
+    QList<PageWindow *> pageWindows() const;
+    // Where a page is shown, or null.
+    PageTabWidget *tabsOf(const WorkspacePage *page) const;
+
+    // Moves a page to a new window of its own, next to this one.
+    PageWindow *detachPage(WorkspacePage *page);
+    // Moves a page into other tabs, e.g. back into this window's.
+    void movePage(WorkspacePage *page, PageTabWidget *to);
+    PageTabWidget *mainTabs() const { return m_pages; }
+    // Brings a page to the front, in whichever window it is.
+    void showPage(WorkspacePage *page);
 
     // Adds a page to the work area and shows it; the window owns it then.
     void addPage(WorkspacePage *page);
@@ -49,12 +64,14 @@ public:
     ResultPage *showResult(Session *session, const QString &title, const QByteArray &sql);
     // Closes a page, if it agrees (an editor may ask to save).
     bool closePage(int index);
+    bool closePage(WorkspacePage *page);
 
 protected:
     void closeEvent(QCloseEvent *event) override;
 
 private:
     void setupMenus();
+    void watchTabs(PageTabWidget *tabs);
     void updateTab(WorkspacePage *page);
     void updateActions();
     void openFile();
@@ -66,7 +83,8 @@ private:
     QTabWidget *m_left = nullptr; // Connections and files.
     ConnectionBrowser *m_browser = nullptr;
     FileBrowser *m_files = nullptr;
-    QTabWidget *m_pages = nullptr; // The work area.
+    PageTabWidget *m_pages = nullptr; // The work area.
+    QList<PageWindow *> m_windows; // Pages dragged out of it.
     QAction *m_save = nullptr;
     QAction *m_saveAs = nullptr;
     int m_editorCount = 0;

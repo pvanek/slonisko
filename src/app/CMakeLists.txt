@@ -22,6 +22,10 @@ add_library(slonisko_ui STATIC
     Icons.h
     MainWindow.cpp
     MainWindow.h
+    PageTabWidget.cpp
+    PageTabWidget.h
+    PageWindow.cpp
+    PageWindow.h
     PlanView.cpp
     PlanView.h
     Qsci.h
