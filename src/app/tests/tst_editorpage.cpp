@@ -12,12 +12,15 @@
 #include "Session.h"
 #include "SqlEditor.h"
 #include "TestServer.h"
+#include "config/PasswordStore.h"
+#include "config/ProfileStore.h"
 
 #include <QComboBox>
 #include <QSplitter>
 #include <QTableView>
 #include <QTabWidget>
 #include <QFile>
+#include <QLabel>
 #include <QPlainTextEdit>
 #include <QSettings>
 #include <QStandardPaths>
@@ -494,7 +497,253 @@ private Q_SLOTS:
         QVERIFY(!m_tab->session());
     }
 
+    void commitsBeforeClosing()
+    {
+        QString asked;
+        bool couldCommit = false;
+        m_tab->setTransactionPrompt([&](const QString &question, bool canCommit) {
+            asked = question;
+            couldCommit = canCommit;
+            return EditorPage::TransactionChoice::Commit;
+        });
+        QVERIFY(m_tab->maybeClose()); // Nothing open: no question.
+        QVERIFY(asked.isEmpty());
+
+        runSql("BEGIN");
+        runSql("CREATE TABLE tx_committed (i int)");
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_INTRANS);
+        QVERIFY(m_tab->maybeClose());
+        QVERIFY(couldCommit);
+        QVERIFY(asked.contains(QLatin1String("transaction open")));
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_IDLE);
+        QCOMPARE(tableCount("tx_committed"), 1);
+        runSql("DROP TABLE tx_committed");
+    }
+
+    void cancelKeepsTransaction()
+    {
+        m_tab->setTransactionPrompt(
+            [](const QString &, bool) { return EditorPage::TransactionChoice::Cancel; });
+        runSql("BEGIN");
+        QVERIFY(!m_tab->maybeClose());
+        QVERIFY(!m_tab->changeConnection(nullptr));
+        QCOMPARE(m_tab->session(), m_session.get());
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_INTRANS);
+        runSql("ROLLBACK");
+    }
+
+    void switchingRollsBack()
+    {
+        m_tab->setTransactionPrompt(
+            [](const QString &, bool) { return EditorPage::TransactionChoice::RollBack; });
+        runSql("BEGIN");
+        runSql("CREATE TABLE tx_rolled_back (i int)");
+        QVERIFY(m_tab->changeConnection(nullptr));
+        QVERIFY(!m_tab->session());
+        m_tab->setSession(m_session.get());
+        QTRY_COMPARE(m_tab->connection()->state(), pg::Connection::State::Ready);
+        QCOMPARE(tableCount("tx_rolled_back"), 0);
+    }
+
+    void failedTransactionCannotCommit()
+    {
+        std::optional<bool> couldCommit;
+        m_tab->setTransactionPrompt([&](const QString &, bool canCommit) {
+            couldCommit = canCommit;
+            return EditorPage::TransactionChoice::Commit; // Not offered; refused.
+        });
+        runSql("BEGIN");
+        runSql("SELECT 1/0");
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_INERROR);
+        QVERIFY(!m_tab->maybeClose());
+        QCOMPARE(couldCommit, std::optional<bool>(false));
+        runSql("ROLLBACK");
+    }
+
+    void failedCommitKeepsPage()
+    {
+        m_tab->setTransactionPrompt(
+            [](const QString &, bool) { return EditorPage::TransactionChoice::Commit; });
+        runSql("BEGIN");
+        runSql("CREATE TEMP TABLE tx_deferred (i int UNIQUE DEFERRABLE INITIALLY DEFERRED)");
+        runSql("INSERT INTO tx_deferred VALUES (1), (1)");
+        QVERIFY(!m_tab->maybeClose()); // COMMIT fails on the deferred check.
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_IDLE);
+        QVERIFY(messages().contains(QLatin1String("duplicate key")));
+    }
+
+    void runningStatementIsStopped()
+    {
+        std::optional<bool> couldCommit;
+        m_tab->setTransactionPrompt([&](const QString &, bool canCommit) {
+            couldCommit = canCommit;
+            return EditorPage::TransactionChoice::RollBack;
+        });
+        setText("SELECT pg_sleep(30)");
+        m_tab->editor()->setModified(false);
+        m_tab->run();
+        QVERIFY(m_tab->isRunning());
+        QVERIFY(m_tab->maybeClose());
+        QCOMPARE(couldCommit, std::optional<bool>(false));
+    }
+
+    void transactionActions()
+    {
+        auto action = [&](const char *text) {
+            for (QAction *a : m_tab->actions())
+                if (a->text().remove(QLatin1Char('&')) == QLatin1String(text))
+                    return a;
+            return static_cast<QAction *>(nullptr);
+        };
+        QAction *begin = action("Begin");
+        QAction *commit = action("Commit");
+        QAction *rollback = action("Rollback");
+        QVERIFY(begin && commit && rollback);
+        auto enabled = [&] {
+            return QList<bool> {begin->isEnabled(), commit->isEnabled(), rollback->isEnabled()};
+        };
+        auto wait = [&] { QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000)); };
+        QCOMPARE(enabled(), (QList<bool> {true, false, false}));
+        QLabel *indicator = m_tab->transactionIndicator();
+        QVERIFY(!indicator->isEnabled());
+        QVERIFY(indicator->toolTip().contains(QLatin1String("Not in transaction")));
+        QVERIFY(!indicator->pixmap().isNull());
+
+        // Results on show stay there.
+        runSql("SELECT 42");
+        begin->trigger();
+        QVERIFY(m_tab->isRunning());
+        QCOMPARE(enabled(), (QList<bool> {false, false, false}));
+        wait();
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_INTRANS);
+        QCOMPARE(enabled(), (QList<bool> {false, true, true}));
+        QCOMPARE(model()->index(0, 0).data().toString(), QStringLiteral("42"));
+        QVERIFY(indicator->isEnabled());
+        QVERIFY(indicator->toolTip().contains(QLatin1String("In transaction")));
+
+        runSql("CREATE TABLE tx_toolbar (i int)");
+        commit->trigger();
+        wait();
+        QCOMPARE(m_tab->connection()->transactionStatus(), PQTRANS_IDLE);
+        QCOMPARE(enabled(), (QList<bool> {true, false, false}));
+        QCOMPARE(tableCount("tx_toolbar"), 1);
+        QVERIFY(messages().contains(QLatin1String("Committed.")));
+
+        // Statements typed in the editor count the same.
+        runSql("BEGIN");
+        QCOMPARE(enabled(), (QList<bool> {false, true, true}));
+        runSql("DROP TABLE tx_toolbar");
+        runSql("SELECT 1/0");
+        QCOMPARE(enabled(), (QList<bool> {false, false, true})); // Failed: only roll back.
+        QVERIFY(indicator->isEnabled());
+        QVERIFY(indicator->toolTip().contains(QLatin1String("failed")));
+        rollback->trigger();
+        wait();
+        QCOMPARE(enabled(), (QList<bool> {true, false, false}));
+        QCOMPARE(tableCount("tx_toolbar"), 1);
+        runSql("DROP TABLE tx_toolbar");
+
+        m_tab->setSession(nullptr);
+        QCOMPARE(enabled(), (QList<bool> {false, false, false}));
+        QVERIFY(!indicator->isEnabled());
+    }
+
+    void sessionCountsBusyEditors()
+    {
+        QCOMPARE(m_session->busyConnections(), 0);
+        runSql("BEGIN");
+        QCOMPARE(m_session->busyConnections(), 1);
+        runSql("ROLLBACK");
+        QCOMPARE(m_session->busyConnections(), 0);
+        m_tab.reset();
+        QCOMPARE(m_session->busyConnections(), 0); // A closed editor is forgotten.
+    }
+
+    void disconnectAsksAboutTransactions()
+    {
+        QSettings settings(m_dir.filePath(QStringLiteral("disconnect.ini")), QSettings::IniFormat);
+        config::ConnectionProfile profile = m_server->profile;
+        config::ProfileStore(settings).save(profile);
+        config::PasswordStore passwords(settings, false);
+        bool written = false;
+        passwords.write(profile.id, config::PasswordStore::Secret::Postgres, m_server->password,
+                        this, [&](bool) { written = true; });
+        QTRY_VERIFY(written);
+        ConnectionBrowser browser(settings, false);
+        browser.connectProfile(profile.id);
+        QTRY_COMPARE(browser.connectedSessions().size(), size_t(1));
+        Session *session = browser.connectedSessions().front();
+
+        EditorPage editor(&browser, QStringLiteral("Tx"));
+        editor.setSession(session);
+        QTRY_COMPARE(editor.connection()->state(), pg::Connection::State::Ready);
+        editor.editor()->setText(QStringLiteral("BEGIN"));
+        editor.run();
+        QVERIFY(QTest::qWaitFor([&] { return !editor.isRunning(); }, 10'000));
+
+        QString asked;
+        bool answer = false;
+        browser.setConfirm([&](const QString &question) {
+            asked = question;
+            return answer;
+        });
+        QVERIFY(!browser.disconnectProfile(profile.id));
+        QVERIFY(asked.contains(QLatin1String("1 editor")));
+        QCOMPARE(browser.connectedSessions().size(), size_t(1));
+        QCOMPARE(editor.connection()->transactionStatus(), PQTRANS_INTRANS);
+
+        answer = true;
+        QVERIFY(browser.disconnectProfile(profile.id));
+        QVERIFY(browser.connectedSessions().empty());
+        QCOMPARE(editor.connection()->state(), pg::Connection::State::Disconnected);
+    }
+
+    void resultPageHasOwnConnection()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        ResultPage *page
+            = w.showResult(m_session.get(), QStringLiteral("Slow"), "SELECT pg_sleep(30)");
+        QVERIFY(page->connection());
+        QVERIFY(page->connection() != m_session->runner()->connection());
+        QTRY_VERIFY(page->results()->isRunning());
+
+        // The shared connection is not held up meanwhile.
+        bool done = false;
+        m_session->runner()->run("SELECT 1", this, [&](const pg::QueryOutcome &) { done = true; });
+        QTRY_VERIFY_WITH_TIMEOUT(done, 5'000);
+
+        // Stop cancels it.
+        page->results()->stop();
+        QTRY_VERIFY_WITH_TIMEOUT(!page->results()->isRunning(), 5'000);
+
+        // Disconnecting the session closes the page's connection.
+        auto session = std::make_unique<Session>(m_server->profile,
+                                                 Session::Credentials {m_server->password, {}});
+        session->open();
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        ResultPage *other = w.showResult(session.get(), QStringLiteral("One"), "SELECT 1");
+        QTRY_COMPARE(other->results()->model()->rowCount(), 1);
+        session->close();
+        QCOMPARE(other->connection()->state(), pg::Connection::State::Disconnected);
+    }
+
 private:
+    void runSql(const char *sql)
+    {
+        setText(sql);
+        runAndWait();
+        m_tab->editor()->setModified(false); // No "save the script?" in the way.
+    }
+
+    int tableCount(const char *name)
+    {
+        setText((QByteArray("SELECT count(*) FROM pg_class WHERE relname = '") + name + "'")
+                    .constData());
+        runAndWait();
+        return model()->index(0, 0).data().toInt();
+    }
+
     void setText(const char *text)
     {
         m_tab->editor()->setText(QString::fromUtf8(text));

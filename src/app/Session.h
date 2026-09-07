@@ -10,6 +10,7 @@
 #include "pg/SshTunnel.h"
 
 #include <QObject>
+#include <QPointer>
 
 #include <map>
 #include <set>
@@ -63,6 +64,12 @@ public:
     catalog::SnapshotPtr snapshot(const QString &database = {});
     void reloadSnapshot(const QString &database = {});
 
+    // Editors' connections of their own through this session. Disconnecting
+    // the session ends them, rolling back what they have open.
+    void attach(pg::Connection *connection);
+    // How many of those are in a transaction or running a statement.
+    int busyConnections() const;
+
 Q_SIGNALS:
     void stateChanged(slonisko::Session::State state);
     void snapshotChanged(const QString &database);
@@ -90,6 +97,7 @@ private:
     std::map<QString, Database> m_databases;
     std::map<QString, catalog::SnapshotPtr> m_snapshots;
     std::set<QString> m_loadingSnapshots;
+    QList<QPointer<pg::Connection>> m_attached;
 };
 
 } // namespace slonisko

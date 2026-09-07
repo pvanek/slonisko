@@ -23,6 +23,34 @@ Each library keeps its Qt Test unit tests in its own `tests/` subdirectory.
 Only `src/app` may depend on Qt Widgets. The libraries stay headless so they
 can be tested without a display.
 
+## Connections and transactions
+
+Connecting a saved profile opens a *session*: one SSH tunnel, if the profile
+has one, shared by all of the session's connections. Each part of the UI then
+uses connections as follows.
+
+| Who                            | Connection                               | Transactions |
+|--------------------------------|------------------------------------------|--------------|
+| SQL editor page                | Its own, one per editor                  | Yours: autocommit until you run `BEGIN` (or press Begin); open until you commit or roll back, by statement or toolbar button |
+| Explain Analyze in an editor   | The editor's                             | Wrapped in `BEGIN`/`ROLLBACK`, or a savepoint inside an open transaction, so it changes nothing |
+| Saving edited result rows      | The editor's                             | `BEGIN`/`COMMIT`, or a savepoint inside an open transaction; all rows or none |
+| Result page (DBA Tools, System Info) | Its own, one per page              | Autocommit; a running query can be stopped |
+| Object tree, completion, semantic highlighting | The session's, shared, one per database | Autocommit; its queries run one after another |
+
+So N editors and M result pages on one profile use N + M + 1 connections,
+plus one for each further database the object tree browses.
+
+- Editors are isolated from each other and from the tree: what one editor has
+  not committed, nothing else sees. That includes completion and highlighting,
+  which learn about new tables only once their DDL is committed.
+- An open transaction is never lost silently. Closing an editor or the window,
+  or switching the editor to another connection, asks whether to commit or
+  roll back (a failed transaction can only be rolled back), and a running
+  statement is stopped only if you say so. If the commit fails, the editor
+  stays open with the error in Messages.
+- Disconnecting a profile asks first if any of its editors has a transaction
+  open or a statement running; disconnecting rolls those back.
+
 ## Requirements
 
 - CMake 3.25+

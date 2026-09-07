@@ -23,8 +23,9 @@ namespace slonisko {
 
 ResultView::ResultView(QWidget *parent)
     : QWidget(parent), m_title(new QLabel(this)), m_status(new QLabel(this)),
-      m_refresh(new QToolButton(this)), m_stack(new QStackedWidget(this)),
-      m_table(new QTableView(this)), m_message(new QLabel(this)), m_model(new ResultModel(this))
+      m_refresh(new QToolButton(this)), m_stop(new QToolButton(this)),
+      m_stack(new QStackedWidget(this)), m_table(new QTableView(this)), m_message(new QLabel(this)),
+      m_model(new ResultModel(this))
 {
     QFont bold = m_title->font();
     bold.setBold(true);
@@ -41,6 +42,13 @@ ResultView::ResultView(QWidget *parent)
     addAction(m_rerunAction);
     connect(m_rerunAction, &QAction::triggered, this, &ResultView::refresh);
     m_refresh->setDefaultAction(m_rerunAction);
+    // Stop: while a query this view runs itself is running.
+    m_stop->setIcon(QIcon::fromTheme(QStringLiteral("process-stop")));
+    m_stop->setText(tr("Stop"));
+    m_stop->setToolTip(tr("Stop the query"));
+    m_stop->setAutoRaise(true);
+    m_stop->hide();
+    connect(m_stop, &QToolButton::clicked, this, &ResultView::stop);
 
     // Editing: only shown when the result can be written back.
     m_editLabel = new QLabel(this);
@@ -91,6 +99,7 @@ ResultView::ResultView(QWidget *parent)
     header->addWidget(m_editLabel);
     header->addWidget(m_editBar);
     header->addWidget(m_status);
+    header->addWidget(m_stop);
     header->addWidget(m_refresh);
 
     m_table->setModel(m_model);
@@ -182,6 +191,7 @@ void ResultView::rerunQuery()
     m_running = true;
     m_rerunAction->setEnabled(false);
     m_status->setText(tr("Running…"));
+    m_stop->show();
 
     QElapsedTimer timer;
     timer.start();
@@ -223,9 +233,16 @@ void ResultView::append(const pg::Result &result)
         m_table->resizeColumnsToContents(); // Headers only.
 }
 
+void ResultView::stop()
+{
+    if (m_running && m_runner && m_runner->connection())
+        m_runner->connection()->cancel();
+}
+
 void ResultView::finish(const QString &status)
 {
     m_running = false;
+    m_stop->hide();
     m_rerunAction->setEnabled(bool(m_rerun));
     m_status->setText(status);
     Q_EMIT finished();
@@ -233,6 +250,7 @@ void ResultView::finish(const QString &status)
 
 void ResultView::showError(const QString &message)
 {
+    m_stop->hide();
     setMessage(message, true);
 }
 

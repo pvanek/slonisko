@@ -17,6 +17,8 @@
 
 #include <QAction>
 #include <QComboBox>
+#include <QEventLoop>
+#include <QPushButton>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -25,7 +27,9 @@
 #include <QSaveFile>
 #include <QSettings>
 #include <QSplitter>
+#include <QStyle>
 #include <QToolBar>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace slonisko {
@@ -44,15 +48,17 @@ qsizetype bytesBefore(const QByteArray &text, int position)
 EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget *parent)
     : WorkspacePage(parent), m_browser(browser), m_name(name), m_editor(new SqlEditor(this)),
       m_panel(new ResultPanel(this)), m_target(new QComboBox(this)), m_status(new QLabel(this)),
-      m_connection(new pg::Connection(this))
+      m_transaction(new QLabel(this)), m_connection(new pg::Connection(this))
 {
     auto action
         = [this](const QString &icon, const QString &text, const QKeySequence &key, auto slot) {
               auto *a = new QAction(QIcon::fromTheme(icon), text, this);
               a->setShortcut(key);
               a->setShortcutContext(Qt::WidgetWithChildrenShortcut);
-              a->setToolTip(QStringLiteral("%1 (%2)").arg(QString(text).remove(QLatin1Char('&')),
-                                                          key.toString(QKeySequence::NativeText)));
+              const QString plain = QString(text).remove(QLatin1Char('&'));
+              a->setToolTip(key.isEmpty() ? plain
+                                          : QStringLiteral("%1 (%2)").arg(
+                                                plain, key.toString(QKeySequence::NativeText)));
               connect(a, &QAction::triggered, this, slot);
               addAction(a);
               return a;
@@ -66,6 +72,12 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
                  QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] { explain(true); });
     m_cancel = action(QStringLiteral("process-stop"), tr("&Cancel"),
                       QKeySequence(Qt::CTRL | Qt::Key_Period), &EditorPage::cancel);
+    m_begin = action({}, tr("&Begin"), {}, &EditorPage::begin);
+    m_begin->setToolTip(tr("Begin a transaction"));
+    m_commit = action({}, tr("C&ommit"), {}, &EditorPage::commit);
+    m_commit->setToolTip(tr("Commit the transaction"));
+    m_rollback = action({}, tr("Ro&llback"), {}, &EditorPage::rollback);
+    m_rollback->setToolTip(tr("Roll the transaction back"));
     // Ctrl+Enter on the keypad too.
     auto *enter = new QAction(this);
     enter->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Enter));
@@ -77,7 +89,8 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     m_target->setToolTip(tr("Connection this editor runs statements on"));
     connect(m_target, &QComboBox::activated, this, [this](int index) {
         const auto session = m_target->itemData(index, Qt::UserRole).value<QPointer<Session>>();
-        setSession(session, m_target->itemData(index, Qt::UserRole + 1).toString());
+        if (!changeConnection(session, m_target->itemData(index, Qt::UserRole + 1).toString()))
+            updateSessions(); // Cancelled: show the connection it stays on.
     });
 
     auto *toolbar = new QToolBar(this);
@@ -89,7 +102,14 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     toolbar->addAction(m_explainAnalyze);
     toolbar->addAction(m_cancel);
     toolbar->addSeparator();
+    toolbar->addWidget(m_transaction);
     toolbar->addWidget(m_status);
+    // Next to the state they change; words, as there are no fitting icons.
+    for (QAction *a : {m_begin, m_commit, m_rollback}) {
+        toolbar->addAction(a);
+        if (auto *button = qobject_cast<QToolButton *>(toolbar->widgetForAction(a)))
+            button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    }
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -232,6 +252,86 @@ bool EditorPage::maybeSave()
     return answer == QMessageBox::Discard;
 }
 
+bool EditorPage::changeConnection(Session *session, const QString &database)
+{
+    if (session == m_session && database == m_database)
+        return true;
+    if (!maybeEndTransaction(tr("switching the connection")))
+        return false;
+    setSession(session, database);
+    return true;
+}
+
+bool EditorPage::maybeEndTransaction(const QString &doing)
+{
+    const PGTransactionStatusType status = m_connection->transactionStatus();
+    const bool running = isRunning();
+    const bool open = status == PQTRANS_INTRANS || status == PQTRANS_INERROR;
+    if (!running && !open)
+        return true;
+
+    const bool canCommit = !running && status == PQTRANS_INTRANS;
+    const QString question = running ? tr("A statement is still running in %1. Stop it before %2? "
+                                          "Anything it changed is rolled back.")
+                                           .arg(title(), doing)
+        : canCommit
+        ? tr("%1 has a transaction open. Commit it before %2, or roll it back?").arg(title(), doing)
+        : tr("The transaction in %1 has failed; it is rolled back before %2.").arg(title(), doing);
+
+    TransactionChoice choice = TransactionChoice::Cancel;
+    if (m_prompt) {
+        choice = m_prompt(question, canCommit);
+    } else {
+        QMessageBox box(QMessageBox::Question, tr("Open Transaction"), question,
+                        QMessageBox::NoButton, this);
+        QPushButton *commit
+            = canCommit ? box.addButton(tr("&Commit"), QMessageBox::AcceptRole) : nullptr;
+        QPushButton *rollBack = box.addButton(
+            running ? tr("&Stop and Roll Back") : tr("&Roll Back"), QMessageBox::DestructiveRole);
+        box.addButton(QMessageBox::Cancel);
+        box.setDefaultButton(QMessageBox::Cancel);
+        box.exec();
+        choice = box.clickedButton() == commit ? TransactionChoice::Commit
+            : box.clickedButton() == rollBack  ? TransactionChoice::RollBack
+                                               : TransactionChoice::Cancel;
+    }
+
+    switch (choice) {
+    case TransactionChoice::Cancel:
+        return false;
+    case TransactionChoice::RollBack:
+        // Closing the connection rolls it back on the server.
+        if (running)
+            cancel();
+        m_jobs.clear();
+        m_panel->log(tr("Rolled back before %1.").arg(doing));
+        return true;
+    case TransactionChoice::Commit:
+        break;
+    }
+    if (!canCommit)
+        return false;
+
+    // Commit, and wait for it: what happens next depends on whether it worked.
+    const Job commit = transactionJob("COMMIT", tr("Committed before %1.").arg(doing));
+    QEventLoop wait;
+    connect(this, &EditorPage::runningChanged, &wait, [&wait](bool busy) {
+        if (!busy)
+            wait.quit();
+    });
+    start(std::deque<Job> {commit});
+    if (isRunning())
+        wait.exec();
+    if (m_failed || m_connection->transactionStatus() != PQTRANS_IDLE) {
+        m_panel->showMessages();
+        if (!m_prompt)
+            QMessageBox::warning(this, tr("Commit Failed"),
+                                 tr("The transaction could not be committed; see Messages."));
+        return false;
+    }
+    return true;
+}
+
 void EditorPage::setSession(Session *session, const QString &database)
 {
     if (isRunning())
@@ -245,6 +345,7 @@ void EditorPage::setSession(Session *session, const QString &database)
     m_session = session;
     m_database = database;
     if (m_session) {
+        m_session->attach(m_connection);
         // New catalog data: completion takes it as it comes; colors need a nudge.
         connect(m_session, &Session::snapshotChanged, this, [this](const QString &db) {
             if (db == (m_database.isEmpty() ? m_session->profile().database : m_database))
@@ -316,6 +417,10 @@ void EditorPage::updateActions()
     m_explain->setEnabled(ready);
     m_explainAnalyze->setEnabled(ready);
     m_cancel->setEnabled(isRunning());
+    const PGTransactionStatusType status = m_connection->transactionStatus();
+    m_begin->setEnabled(ready && status == PQTRANS_IDLE);
+    m_commit->setEnabled(ready && status == PQTRANS_INTRANS);
+    m_rollback->setEnabled(ready && (status == PQTRANS_INTRANS || status == PQTRANS_INERROR));
 }
 
 void EditorPage::updateStatus()
@@ -335,26 +440,29 @@ void EditorPage::updateStatus()
         text = tr("Running…");
         break;
     case pg::Connection::State::Ready:
-        switch (m_connection->transactionStatus()) {
-        case PQTRANS_INTRANS:
-            text = tr("In transaction");
-            break;
-        case PQTRANS_INERROR:
-            text = tr("Transaction failed: roll back");
-            break;
-        default:
-            text = tr("Idle");
-            break;
-        }
-        break;
+        break; // The transaction indicator says the rest.
     }
     m_status->setText(text);
-    m_status->setStyleSheet(m_connection->transactionStatus() == PQTRANS_INERROR
-                                    || m_connection->state() == pg::Connection::State::Failed
+    m_status->setStyleSheet(m_connection->state() == pg::Connection::State::Failed
                                 ? QStringLiteral("color: #c62828;")
-                                : m_connection->transactionStatus() == PQTRANS_INTRANS
-                                ? QStringLiteral("color: #b26a00;")
                                 : QString());
+
+    // Still in the transaction while a statement runs in it.
+    const PGTransactionStatusType status = m_connection->transactionStatus();
+    const bool failed = status == PQTRANS_INERROR;
+    const bool open = failed || status == PQTRANS_INTRANS || status == PQTRANS_ACTIVE;
+    const int size
+        = m_transaction->style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, m_transaction);
+    m_transaction->setPixmap(
+        Icons::transaction(failed).pixmap(QSize(size, size), m_transaction->devicePixelRatioF()));
+    // Enabled only in a transaction: disabled, the label greys it out. Its
+    // tooltip shows either way.
+    m_transaction->setEnabled(open);
+    m_transaction->setToolTip(failed     ? tr("Transaction failed: roll it back")
+                                  : open ? tr("In transaction: commit or roll it back")
+                                  : m_connection->state() == pg::Connection::State::Ready
+                                  ? tr("Not in transaction (autocommit)")
+                                  : tr("Not in transaction"));
 }
 
 void EditorPage::onConnectionState(pg::Connection::State state)
@@ -456,6 +564,34 @@ void EditorPage::explain(bool analyze)
     m_panel->plan()->showMessage(tr("Explaining…"));
     m_panel->showPlan();
     start(std::move(jobs));
+}
+
+void EditorPage::begin()
+{
+    if (m_begin->isEnabled())
+        start({transactionJob("BEGIN", tr("Transaction started."))});
+}
+
+void EditorPage::commit()
+{
+    if (m_commit->isEnabled())
+        start({transactionJob("COMMIT", tr("Committed."))});
+}
+
+void EditorPage::rollback()
+{
+    if (m_rollback->isEnabled())
+        start({transactionJob("ROLLBACK", tr("Rolled back."))});
+}
+
+EditorPage::Job EditorPage::transactionJob(const QByteArray &sql, const QString &message)
+{
+    Job job;
+    job.kind = Job::Kind::Silent;
+    job.sql = sql;
+    job.message = message;
+    job.mayChangeCatalog = sql == "COMMIT";
+    return job;
 }
 
 void EditorPage::cancel()
@@ -633,6 +769,8 @@ void EditorPage::onFinished()
     }
     if (!job.message.isEmpty() && !m_failed)
         m_panel->log(job.message);
+    if (job.mayChangeCatalog && m_session && !m_failed)
+        m_session->reloadSnapshot(m_database);
     startNext();
 }
 

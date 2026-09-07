@@ -105,6 +105,27 @@ void Session::reloadSnapshot(const QString &database)
     });
 }
 
+void Session::attach(pg::Connection *connection)
+{
+    m_attached.removeAll(nullptr);
+    if (!m_attached.contains(connection))
+        m_attached << connection;
+}
+
+int Session::busyConnections() const
+{
+    int busy = 0;
+    for (const QPointer<pg::Connection> &c : m_attached) {
+        if (!c)
+            continue;
+        const PGTransactionStatusType status = c->transactionStatus();
+        if (c->state() == pg::Connection::State::Busy || status == PQTRANS_INTRANS
+            || status == PQTRANS_INERROR || status == PQTRANS_ACTIVE)
+            ++busy;
+    }
+    return busy;
+}
+
 void Session::openMainConnection()
 {
     Database &main = addDatabase(m_profile.database);

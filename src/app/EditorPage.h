@@ -12,6 +12,7 @@
 #include "WorkspacePage.h"
 
 #include <deque>
+#include <functional>
 #include <optional>
 
 class QAction;
@@ -58,7 +59,21 @@ public:
     bool saveAs();
     // Before closing: asks to save changes. False to keep the tab open.
     bool maybeSave();
-    bool maybeClose() override { return maybeSave(); }
+    bool maybeClose() override { return maybeSave() && maybeEndTransaction(tr("closing it")); }
+
+    // What to do with an open transaction before the connection goes.
+    enum class TransactionChoice { Commit, RollBack, Cancel };
+    // Asks the user; canCommit is false for a failed transaction or a
+    // running statement. Tests answer instead of a message box.
+    using TransactionPrompt
+        = std::function<TransactionChoice(const QString &question, bool canCommit)>;
+    void setTransactionPrompt(TransactionPrompt prompt) { m_prompt = std::move(prompt); }
+    // Before the connection closes: an open transaction is committed or
+    // rolled back as the user says, a running statement stopped. False if
+    // the user cancelled, or committing failed.
+    bool maybeEndTransaction(const QString &doing);
+    // Switches to another connection, asking about an open transaction first.
+    bool changeConnection(Session *session, const QString &database = {});
 
     // Connects the editor to a database of a session; null disconnects.
     void setSession(Session *session, const QString &database = {});
@@ -66,9 +81,16 @@ public:
     void run();
     void explain(bool analyze);
     void cancel();
+    // Transaction control, as if BEGIN, COMMIT or ROLLBACK were run, but
+    // leaving the results on show.
+    void begin();
+    void commit();
+    void rollback();
     // Writes the result's edits back to its table; confirm shows the SQL first.
     void saveChanges(bool confirm = true);
     bool isRunning() const { return m_current.has_value(); }
+    // The toolbar's transaction indicator: grey (disabled) outside one.
+    QLabel *transactionIndicator() const { return m_transaction; }
 
     // Stops a query once it returned this many rows.
     void setRowLimit(int rows) { m_rowLimit = rows; }
@@ -99,12 +121,14 @@ private:
         bool onFailure = false; // Runs only after an error.
         bool analyze = false;
         QString message; // Logged when it succeeds.
+        bool mayChangeCatalog = false; // Reload completion data after it: a COMMIT of unknown DDL.
     };
 
     void updateSessions();
     void updateTargetColor();
     void updateActions();
     void updateStatus();
+    static Job transactionJob(const QByteArray &sql, const QString &message);
     void start(std::deque<Job> jobs);
     void startNext();
     void onResult(const pg::Result &result);
@@ -124,10 +148,14 @@ private:
     ResultPanel *m_panel = nullptr;
     QComboBox *m_target = nullptr;
     QLabel *m_status = nullptr;
+    QLabel *m_transaction = nullptr;
     QAction *m_run = nullptr;
     QAction *m_explain = nullptr;
     QAction *m_explainAnalyze = nullptr;
     QAction *m_cancel = nullptr;
+    QAction *m_begin = nullptr;
+    QAction *m_commit = nullptr;
+    QAction *m_rollback = nullptr;
 
     QPointer<Session> m_session;
     QString m_database;
@@ -143,6 +171,7 @@ private:
     bool m_limited = false; // Cancelled at the row limit.
     int m_rowLimit = 100'000;
     sql::PsqlVariables m_variables;
+    TransactionPrompt m_prompt;
     std::optional<Job>
         m_lastQuery; // The statement whose rows are shown, to run again after saving.
     std::vector<pg::Result> m_editInfo;

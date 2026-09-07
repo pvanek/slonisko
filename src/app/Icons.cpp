@@ -6,8 +6,11 @@
 #include <QApplication>
 #include <QHash>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPixmap>
 #include <QStyle>
+
+#include <algorithm>
 
 namespace slonisko::Icons {
 
@@ -91,6 +94,45 @@ QIcon monitoring()
 QIcon error()
 {
     return themed(QStringLiteral("dialog-error"), QStyle::SP_MessageBoxCritical);
+}
+
+QIcon transaction(bool failed)
+{
+    // No icon theme has one, so it is drawn.
+    static QIcon cache[2];
+    QIcon &icon = cache[failed];
+    if (!icon.isNull())
+        return icon;
+
+    const QColor base = failed ? QColor(0xc6, 0x28, 0x28) : QColor(0xe0, 0x8a, 0x00);
+    for (const int size : {16, 22, 32, 48}) {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const qreal pen = std::max(1.0, size / 16.0);
+        painter.setPen(QPen(base.darker(150), pen));
+
+        // A cylinder: body, then its top, and a band halfway down.
+        const qreal left = size * 0.18, right = size * 0.82, top = size * 0.12,
+                    bottom = size * 0.88;
+        const qreal lid = size * 0.22; // Height of the elliptic ends.
+        QPainterPath body;
+        body.moveTo(left, top + lid / 2);
+        body.lineTo(left, bottom - lid / 2);
+        body.arcTo(QRectF(left, bottom - lid, right - left, lid), 180, 180);
+        body.lineTo(right, top + lid / 2);
+        body.arcTo(QRectF(left, top, right - left, lid), 0, -180);
+        painter.setBrush(base);
+        painter.drawPath(body);
+        painter.setBrush(base.lighter(140));
+        painter.drawEllipse(QRectF(left, top, right - left, lid));
+        painter.setBrush(Qt::NoBrush);
+        const qreal middle = (top + bottom) / 2 - lid / 2;
+        painter.drawArc(QRectF(left, middle, right - left, lid), 180 * 16, 180 * 16);
+        icon.addPixmap(pixmap);
+    }
+    return icon;
 }
 
 } // namespace slonisko::Icons

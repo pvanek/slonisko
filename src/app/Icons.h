@@ -16,5 +16,8 @@ QIcon object(catalog::ObjectKind kind);
 QIcon folder();
 QIcon monitoring();
 QIcon error();
+// A database with work in progress: amber while a transaction is open, red
+// when it failed; greyed out (disabled), no transaction.
+QIcon transaction(bool failed);
 
 } // namespace slonisko::Icons

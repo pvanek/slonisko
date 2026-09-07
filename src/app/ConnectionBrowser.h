@@ -38,7 +38,14 @@ public:
     QAction *newConnectionAction() const { return m_new; }
 
     void connectProfile(const QUuid &id);
-    void disconnectProfile(const QUuid &id);
+    // Disconnects, first asking if editors on the connection have
+    // transactions open or statements running. False if the user said no.
+    bool disconnectProfile(const QUuid &id, bool ask = true);
+    // How to ask; tests answer instead of a message box.
+    void setConfirm(std::function<bool(const QString &question)> confirm)
+    {
+        m_confirm = std::move(confirm);
+    }
 
     std::vector<Session *> connectedSessions() const;
     // The session of the selected node, and its database (empty: the
@@ -95,6 +102,7 @@ private:
     QAction *m_disconnect = nullptr;
     QAction *m_refresh = nullptr;
     QAction *m_openEditor = nullptr;
+    std::function<bool(const QString &)> m_confirm;
 };
 
 } // namespace slonisko

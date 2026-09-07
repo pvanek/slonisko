@@ -43,6 +43,8 @@ public:
     ResultModel *model() const { return m_model; }
     QTableView *table() const { return m_table; }
     bool isRunning() const { return m_running; }
+    // Cancels the running query, if it is one this view runs itself.
+    void stop();
 
 Q_SIGNALS:
     void finished();
@@ -59,6 +61,7 @@ private:
     QLabel *m_title = nullptr;
     QLabel *m_status = nullptr;
     QToolButton *m_refresh = nullptr;
+    QToolButton *m_stop = nullptr;
     QStackedWidget *m_stack = nullptr;
     QTableView *m_table = nullptr;
     QLabel *m_message = nullptr;

@@ -13,6 +13,11 @@ namespace slonisko {
 class ResultView;
 class Session;
 
+namespace pg {
+class Connection;
+class QueryRunner;
+}
+
 // A query's rows on their own, like the DBA and System Info views. Runs the
 // query on the session's own connection; Run Again refreshes it.
 class ResultPage : public WorkspacePage
@@ -29,6 +34,8 @@ public:
     Session *session() const { return m_session; }
     QByteArray sql() const { return m_sql; }
     ResultView *results() const { return m_view; }
+    // Its own, so it neither waits for nor holds up the object browser.
+    pg::Connection *connection() const { return m_connection; }
     // Runs the query again.
     void refresh();
 
@@ -37,6 +44,8 @@ private:
     QString m_title;
     QByteArray m_sql;
     ResultView *m_view = nullptr;
+    pg::Connection *m_connection = nullptr;
+    pg::QueryRunner *m_runner = nullptr;
 };
 
 } // namespace slonisko

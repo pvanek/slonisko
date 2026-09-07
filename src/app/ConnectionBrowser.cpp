@@ -223,7 +223,7 @@ void ConnectionBrowser::connectProfile(const QUuid &id)
         const config::ConnectionProfile *profile = m_model->profile(id);
         if (!resolved || !profile)
             return; // Cancelled, or the profile was deleted meanwhile.
-        disconnectProfile(id); // Drops a failed session, if any.
+        disconnectProfile(id, false); // Drops a failed session, if any.
         auto *session = new Session(*profile, *resolved, this);
         m_sessions[id] = session;
         connect(session, &Session::stateChanged, this,
@@ -234,12 +234,26 @@ void ConnectionBrowser::connectProfile(const QUuid &id)
     });
 }
 
-void ConnectionBrowser::disconnectProfile(const QUuid &id)
+bool ConnectionBrowser::disconnectProfile(const QUuid &id, bool ask)
 {
     const auto it = m_sessions.find(id);
     if (it == m_sessions.end())
-        return;
+        return true;
     Session *session = it->second;
+    if (const int busy = session->busyConnections(); ask && busy > 0) {
+        const QString question = tr("%n editor(s) on %1 have a transaction open or a statement "
+                                    "running. Disconnecting rolls "
+                                    "them back. Disconnect anyway?",
+                                    nullptr, busy)
+                                     .arg(session->profile().displayName());
+        const bool yes = m_confirm
+            ? m_confirm(question)
+            : QMessageBox::warning(this, tr("Disconnect"), question,
+                                   QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel)
+                == QMessageBox::Yes;
+        if (!yes)
+            return false;
+    }
     m_sessions.erase(it);
     session->disconnect(this);
     m_model->setSession(id, nullptr);
@@ -247,6 +261,7 @@ void ConnectionBrowser::disconnectProfile(const QUuid &id)
     session->deleteLater();
     updateActions();
     Q_EMIT sessionsChanged();
+    return true;
 }
 
 void ConnectionBrowser::onSessionStateChanged(const QUuid &id, Session::State state)
@@ -437,7 +452,8 @@ void ConnectionBrowser::deleteConnection()
             tr("Delete the connection %1 and its saved passwords?").arg(current->displayName()))
         != QMessageBox::Yes)
         return;
-    disconnectProfile(id);
+    if (!disconnectProfile(id))
+        return;
     m_passwords->remove(id, Secret::Postgres);
     m_passwords->remove(id, Secret::Ssh);
     m_profiles.remove(id);
