@@ -42,6 +42,7 @@ add_library(slonisko_ui STATIC
     SaveChangesDialog.ui
     Session.cpp
     Session.h
+    Shortcuts.h
     SqlEditor.cpp
     SqlEditor.h
     SqlLexer.cpp

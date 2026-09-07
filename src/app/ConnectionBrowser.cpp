@@ -6,6 +6,7 @@
 #include "BrowserDelegate.h"
 #include "BrowserModel.h"
 #include "ConnectionDialog.h"
+#include "Shortcuts.h"
 #include "catalog/Monitoring.h"
 
 #include <QAction>
@@ -100,7 +101,7 @@ void ConnectionBrowser::createActions()
         if (Session *s = currentSession(&database))
             Q_EMIT editorRequested(s, database);
     });
-    m_refresh->setShortcut(QKeySequence::Refresh);
+    m_refresh->setShortcuts(Shortcuts::refresh());
     m_refresh->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_delete->setShortcut(QKeySequence::Delete);
     m_delete->setShortcutContext(Qt::WidgetWithChildrenShortcut);

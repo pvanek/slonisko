@@ -15,6 +15,7 @@
 
 #include <QComboBox>
 #include <QSplitter>
+#include <QTableView>
 #include <QTabWidget>
 #include <QFile>
 #include <QPlainTextEdit>
@@ -374,6 +375,39 @@ private Q_SLOTS:
 
         m_tab->setSession(nullptr);
         QVERIFY(!combo->property("connectionColor").value<QColor>().isValid());
+    }
+
+    void refreshShortcuts()
+    {
+        setText("SELECT clock_timestamp()::text;");
+        runAndWait();
+        const QString first = model()->index(0, 0).data().toString();
+        QTableView *table = m_tab->resultPanel()->results()->table();
+        m_tab->window()->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_tab->window()));
+        m_tab->editor()->setText(QStringLiteral("-- something else entirely"));
+
+        // F5 in the results runs their query again, whatever the editor holds now.
+        table->setFocus();
+        QTest::keyClick(table, Qt::Key_F5);
+        QTRY_VERIFY(model()->rowCount() == 1 && model()->index(0, 0).data().toString() != first);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+
+        const QString second = model()->index(0, 0).data().toString();
+        QTest::keyClick(table, Qt::Key_R, Qt::ControlModifier);
+        QTRY_VERIFY(model()->rowCount() == 1 && model()->index(0, 0).data().toString() != second);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+
+        // A statement without rows leaves nothing to run again.
+        setText("SELECT 1 WHERE false; CREATE TEMP TABLE nothing_to_show (a int);");
+        m_tab->editor()->selectAll();
+        runAndWait();
+        const int before = model()->rowCount();
+        m_tab->resultPanel()->results()->setFocus();
+        QTest::keyClick(m_tab->resultPanel()->results(), Qt::Key_F5);
+        QTest::qWait(200);
+        QVERIFY(!m_tab->isRunning());
+        QCOMPARE(model()->rowCount(), before);
     }
 
     void editorAndResultsAreOnePage()

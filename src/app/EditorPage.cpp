@@ -549,7 +549,14 @@ void EditorPage::onResult(const pg::Result &result)
             && result.columnCount() > 0) {
             if (!m_rowsShown) {
                 m_rowsShown = true;
-                m_panel->results()->setRerun({});
+                // Run Again runs this statement again, as it was sent. The
+                // editor text may have changed since: no error marks then.
+                Job again = job;
+                again.offset = -1;
+                m_panel->results()->setRerun([this, again] {
+                    if (m_connection->state() == pg::Connection::State::Ready && !isRunning())
+                        start(std::deque<Job> {again});
+                });
                 m_panel->results()->begin(preview(job.sql));
             }
             m_panel->results()->append(result);
@@ -599,11 +606,14 @@ void EditorPage::onFinished()
             m_panel->results()->finish(
                 m_limited ? tr("First %n row(s), %1 ms", nullptr, int(m_rows)).arg(ms)
                           : tr("%n row(s), %1 ms", nullptr, int(m_rows)).arg(ms));
-        else if (!m_failed)
+        else if (!m_failed) {
+            // What is shown now is not a query's rows: nothing to run again.
+            m_panel->results()->setRerun({});
             m_panel->results()->showMessage(
                 m_commandTag.isEmpty()
                     ? tr("Done in %1 ms.").arg(ms)
                     : tr("%1 in %2 ms.").arg(QString::fromUtf8(m_commandTag)).arg(ms));
+        }
         // Rows from one table can be edited; find out which, and its key.
         if (m_rowsShown && !m_failed) {
             m_lastQuery = job;

@@ -4,6 +4,7 @@
 #include "ResultView.h"
 
 #include "ResultModel.h"
+#include "Shortcuts.h"
 
 #include <QAction>
 #include <QElapsedTimer>
@@ -12,6 +13,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMessageBox>
 #include <QStackedWidget>
 #include <QTableView>
 #include <QToolButton>
@@ -30,11 +32,15 @@ ResultView::ResultView(QWidget *parent)
     m_refresh->setIcon(QIcon::fromTheme(QStringLiteral("view-refresh")));
     m_refresh->setToolTip(tr("Run again"));
     m_refresh->setAutoRaise(true);
-    m_refresh->setEnabled(false);
-    connect(m_refresh, &QToolButton::clicked, this, [this] {
-        if (m_rerun)
-            m_rerun();
-    });
+    // Run again: the button, F5 and Ctrl+R (Cmd+R on macOS) while in here.
+    m_rerunAction
+        = new QAction(QIcon::fromTheme(QStringLiteral("view-refresh")), tr("Run Again"), this);
+    m_rerunAction->setShortcuts(Shortcuts::refresh());
+    m_rerunAction->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    m_rerunAction->setEnabled(false);
+    addAction(m_rerunAction);
+    connect(m_rerunAction, &QAction::triggered, this, &ResultView::refresh);
+    m_refresh->setDefaultAction(m_rerunAction);
 
     // Editing: only shown when the result can be written back.
     m_editLabel = new QLabel(this);
@@ -153,6 +159,19 @@ void ResultView::run(pg::QueryRunner *runner, const QString &title, const QByteA
     rerunQuery();
 }
 
+void ResultView::refresh()
+{
+    if (!m_rerun || m_running)
+        return;
+    if (m_model->hasChanges()
+        && QMessageBox::question(this, tr("Run Again"),
+                                 tr("Running the query again discards the changes not saved yet."),
+                                 QMessageBox::Discard | QMessageBox::Cancel)
+            != QMessageBox::Discard)
+        return;
+    m_rerun();
+}
+
 void ResultView::rerunQuery()
 {
     if (!m_runner) {
@@ -161,7 +180,7 @@ void ResultView::rerunQuery()
     }
     const quint64 generation = ++m_generation;
     m_running = true;
-    m_refresh->setEnabled(false);
+    m_rerunAction->setEnabled(false);
     m_status->setText(tr("Running…"));
 
     QElapsedTimer timer;
@@ -192,7 +211,7 @@ void ResultView::begin(const QString &title)
     m_model->clear();
     m_sized = false;
     m_running = true;
-    m_refresh->setEnabled(false);
+    m_rerunAction->setEnabled(false);
     m_status->setText(tr("Running…"));
     m_stack->setCurrentWidget(m_table);
 }
@@ -207,7 +226,7 @@ void ResultView::append(const pg::Result &result)
 void ResultView::finish(const QString &status)
 {
     m_running = false;
-    m_refresh->setEnabled(bool(m_rerun));
+    m_rerunAction->setEnabled(bool(m_rerun));
     m_status->setText(status);
     Q_EMIT finished();
 }
@@ -225,7 +244,7 @@ void ResultView::showMessage(const QString &text)
 void ResultView::setRerun(std::function<void()> rerun)
 {
     m_rerun = std::move(rerun);
-    m_refresh->setEnabled(bool(m_rerun) && !m_running);
+    m_rerunAction->setEnabled(bool(m_rerun) && !m_running);
 }
 
 void ResultView::setMessage(const QString &text, bool error)

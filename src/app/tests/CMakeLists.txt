@@ -6,6 +6,7 @@ slonisko_add_db_test(tst_browser slonisko_ui)
 slonisko_add_test(tst_sqleditor slonisko_ui)
 slonisko_add_test(tst_filebrowser slonisko_ui)
 slonisko_add_test(tst_pagewindows slonisko_ui)
+slonisko_add_test(tst_shortcuts slonisko_ui)
 slonisko_add_db_test(tst_editorpage slonisko_ui)
-set_property(TEST tst_connectiondialog tst_browser tst_sqleditor tst_editorpage tst_filebrowser tst_pagewindows APPEND PROPERTY
+set_property(TEST tst_connectiondialog tst_browser tst_sqleditor tst_editorpage tst_filebrowser tst_pagewindows tst_shortcuts APPEND PROPERTY
     ENVIRONMENT QT_QPA_PLATFORM=offscreen)

@@ -54,6 +54,7 @@ private:
     void showOutcome(const pg::QueryOutcome &outcome, qint64 elapsedMs);
     void setMessage(const QString &text, bool error);
     void updateEditing();
+    void refresh();
 
     QLabel *m_title = nullptr;
     QLabel *m_status = nullptr;
@@ -69,6 +70,7 @@ private:
     QAction *m_setNull = nullptr;
     QAction *m_save = nullptr;
     QAction *m_discard = nullptr;
+    QAction *m_rerunAction = nullptr;
 
     std::function<void()> m_rerun;
     QPointer<pg::QueryRunner> m_runner;
