@@ -89,6 +89,11 @@ SqlLexer::SqlLexer(QObject *parent) : QsciLexerCustom(parent)
     m_dark = QGuiApplication::palette().color(QPalette::Base).lightness() < 128;
 }
 
+void SqlLexer::refreshPalette()
+{
+    m_dark = QGuiApplication::palette().color(QPalette::Base).lightness() < 128;
+}
+
 QString SqlLexer::description(int style) const
 {
     switch (style) {

@@ -7,6 +7,7 @@
 #include "SqlLexer.h"
 #include "sql/Splitter.h"
 
+#include <QEvent>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QKeyEvent>
@@ -35,26 +36,20 @@ SqlEditor::SqlEditor(QWidget *parent)
     updateMarginWidth();
 
     setFolding(BoxedTreeFoldStyle, 2);
+    // Scintilla puts the text right against the fold margin; give it air.
+    send(SCI_SETMARGINLEFT, 0, 9);
     setIndentationsUseTabs(false);
     setTabWidth(4);
     setAutoIndent(true);
     setBraceMatching(SloppyBraceMatch);
     setCaretLineVisible(true);
-    const QPalette palette = QGuiApplication::palette();
-    const bool dark = palette.color(QPalette::Base).lightness() < 128;
-    setCaretLineBackgroundColor(dark ? QColor(255, 255, 255, 18) : QColor(0, 0, 0, 10));
-    setCaretForegroundColor(palette.color(QPalette::Text));
-    setMatchedBraceBackgroundColor(dark ? QColor(80, 80, 40) : QColor(255, 240, 160));
+    applyTheme();
     SendScintilla(SCI_SETMULTIPLESELECTION, 1);
     SendScintilla(SCI_SETADDITIONALSELECTIONTYPING, 1);
 
     // The statement Run would execute: a faint box.
     SendScintilla(SCI_INDICSETSTYLE, StatementIndicator, INDIC_FULLBOX);
-    SendScintilla(SCI_INDICSETFORE, StatementIndicator,
-                  dark ? QColor(120, 160, 255) : QColor(60, 110, 220));
-    SendScintilla(SCI_INDICSETALPHA, StatementIndicator, dark ? 22 : 14);
     SendScintilla(SCI_INDICSETUNDER, StatementIndicator, 1);
-
     SendScintilla(SCI_INDICSETSTYLE, ErrorIndicator, INDIC_SQUIGGLEPIXMAP);
     SendScintilla(SCI_INDICSETFORE, ErrorIndicator, QColor(220, 40, 40));
 
@@ -403,6 +398,52 @@ QString SqlEditor::explanationAt(qsizetype pos) const
             return s.detail;
     }
     return {};
+}
+
+void SqlEditor::changeEvent(QEvent *event)
+{
+    QsciScintilla::changeEvent(event);
+    if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange)
+        applyTheme();
+}
+
+void SqlEditor::applyTheme()
+{
+    // The syntax colors come from the lexer's defaults, so it goes first.
+    m_lexer->refreshPalette();
+    setLexer(m_lexer);
+    setupSemanticIndicators();
+
+    const QPalette colors = palette();
+    const QColor base = colors.color(QPalette::Base);
+    const QColor text = colors.color(QPalette::Text);
+    const bool dark = base.lightness() < 128;
+
+    SendScintilla(SCI_INDICSETFORE, StatementIndicator,
+                  dark ? QColor(120, 160, 255) : QColor(60, 110, 220));
+    SendScintilla(SCI_INDICSETALPHA, StatementIndicator, dark ? 22 : 14);
+    setCaretLineBackgroundColor(dark ? QColor(255, 255, 255, 18) : QColor(0, 0, 0, 10));
+    setCaretForegroundColor(text);
+    setMatchedBraceBackgroundColor(dark ? QColor(80, 80, 40) : QColor(255, 240, 160));
+
+    auto mix = [](const QColor &a, const QColor &b, float part) {
+        return QColor::fromRgbF(a.redF() * (1 - part) + b.redF() * part,
+                                a.greenF() * (1 - part) + b.greenF() * part,
+                                a.blueF() * (1 - part) + b.blueF() * part);
+    };
+    // The margins: the window color over the editor's own, numbers muted.
+    const QColor marginBack = mix(base, colors.color(QPalette::Window), 0.65f);
+    const QColor marginText = mix(base, text, 0.55f);
+    setMarginsBackgroundColor(marginBack);
+    setMarginsForegroundColor(marginText);
+    // Without this the fold margin keeps Scintilla's white-and-grey pattern.
+    setFoldMarginColors(marginBack, marginBack);
+    for (int marker = int(SC_MARKNUM_FOLDEREND); marker <= int(SC_MARKNUM_FOLDEROPEN); ++marker) {
+        // The boxes and lines are the marker's background, their plus and
+        // minus signs its foreground.
+        SendScintilla(SCI_MARKERSETBACK, marker, marginText);
+        SendScintilla(SCI_MARKERSETFORE, marker, marginBack);
+    }
 }
 
 void SqlEditor::updateMarginWidth()

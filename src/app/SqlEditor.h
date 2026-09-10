@@ -83,6 +83,7 @@ public:
 protected:
     void keyPressEvent(QKeyEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
+    void changeEvent(QEvent *event) override;
 
 private:
     void analyzeVisible();
@@ -99,6 +100,8 @@ private:
     }
     void updateStatementMark();
     void updateMarginWidth();
+    // Margin, fold and caret colors from the current palette.
+    void applyTheme();
     std::vector<ScriptPiece> pieces(qsizetype from, qsizetype to) const;
 
     SqlLexer *m_lexer = nullptr;

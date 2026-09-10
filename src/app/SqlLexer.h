@@ -54,6 +54,8 @@ public:
     // The palette, shared with the semantic highlighting.
     static QColor color(int style, bool dark);
     bool isDark() const { return m_dark; }
+    // Re-reads the application palette, e.g. after a theme change.
+    void refreshPalette();
 
     // Folding. A line's fold level is its depth at the start of the line:
     // constructs the lexer state leaves open (comments, strings, bodies)
