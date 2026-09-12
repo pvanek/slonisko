@@ -136,11 +136,11 @@ void SqlEditor::showCompletion()
 
     bool show = !c.items.empty() && c.context != catalog::Completion::Context::None;
     if (show && !m_explicitRequest) {
-        // Unasked, only once a word is under way (or after a dot), and not
-        // when the word is already complete.
+        // Unasked, only once enough of a word is there to narrow the list
+        // down (or after a dot), and not when the word is already complete.
         const QByteArray text = utf8Text();
         const bool afterDot = m_requestCursor > 0 && text[m_requestCursor - 1] == '.';
-        show = (c.prefix.size() >= 2 || afterDot)
+        show = (c.prefix.size() >= AutoCompleteChars || afterDot)
             && !(c.items.size() == 1
                  && c.items.front().label.compare(c.prefix, Qt::CaseInsensitive) == 0);
     }

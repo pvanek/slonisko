@@ -15,6 +15,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QStackedWidget>
+#include <QStyleOptionHeader>
 #include <QTableView>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -107,15 +108,16 @@ ResultView::ResultView(QWidget *parent)
     m_table->setSelectionBehavior(QAbstractItemView::SelectItems);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->verticalHeader()->setDefaultSectionSize(m_table->fontMetrics().height() + 6);
-    connect(m_model, &ResultModel::rowsInserted, this, [this] {
-        if (!m_sized) {
-            m_sized = true;
-            m_table->resizeColumnsToContents();
-            // Keep very wide columns, like query texts, from taking all the space.
-            for (int c = 0; c < m_model->columnCount(); ++c)
-                m_table->setColumnWidth(c, std::min(m_table->columnWidth(c), 400));
-        }
-    });
+    // The first chunk brings the columns and resets the model; later ones
+    // insert rows. Either way the columns are sized once, when rows are there.
+    auto sizeOnce = [this] {
+        if (m_sized || !m_model->hasColumns())
+            return;
+        m_sized = m_model->rowCount() > 0; // Headers alone: size again with the rows.
+        sizeColumns();
+    };
+    connect(m_model, &ResultModel::modelReset, this, sizeOnce);
+    connect(m_model, &ResultModel::rowsInserted, this, sizeOnce);
 
     m_message->setWordWrap(true);
     m_message->setAlignment(Qt::AlignTop | Qt::AlignLeft);
@@ -229,8 +231,34 @@ void ResultView::begin(const QString &title)
 void ResultView::append(const pg::Result &result)
 {
     m_model->append(result);
-    if (!m_sized && m_model->hasColumns() && m_model->rowCount() == 0)
-        m_table->resizeColumnsToContents(); // Headers only.
+}
+
+void ResultView::sizeColumns()
+{
+    m_table->resizeColumnsToContents();
+    for (int column = 0; column < m_model->columnCount(); ++column) {
+        // Contents only up to a point: a JSON document or a query text would
+        // otherwise push every other column off the view. The header's own
+        // text always fits, though, since a column nobody can name is of no use.
+        const int head = std::min(headerWidth(column), MaxHeaderWidth);
+        const int contents = std::min(m_table->columnWidth(column), MaxContentWidth);
+        m_table->setColumnWidth(column, std::max(head, contents));
+    }
+}
+
+int ResultView::headerWidth(int column) const
+{
+    QHeaderView *header = m_table->horizontalHeader();
+    // sectionSizeHint() would include the data; this is the label alone.
+    QStyleOptionHeader option;
+    option.initFrom(header);
+    option.section = column;
+    option.orientation = Qt::Horizontal;
+    option.text = m_model->headerData(column, Qt::Horizontal).toString();
+    const QSize text = header->fontMetrics().size(0, option.text);
+    return header->style()
+        ->sizeFromContents(QStyle::CT_HeaderSection, &option, text, header)
+        .width();
 }
 
 void ResultView::stop()

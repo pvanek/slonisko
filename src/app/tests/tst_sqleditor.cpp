@@ -257,12 +257,12 @@ private Q_SLOTS:
         QVERIFY(!popup->isVisible());
         QCOMPARE(e.text(), QStringLiteral("SELECT o.total FROM orders o"));
 
-        // Typing filters; a single letter alone does not pop up the list.
+        // Typing filters; two letters alone do not pop up the list.
         e.setText(QString());
-        QTest::keyClicks(&e, QStringLiteral("SELECT * FROM o"));
+        QTest::keyClicks(&e, QStringLiteral("SELECT * FROM or"));
         QTest::qWait(300);
         QVERIFY(!popup->isVisible());
-        QTest::keyClicks(&e, QStringLiteral("r"));
+        QTest::keyClicks(&e, QStringLiteral("d"));
         QTRY_VERIFY(popup->isVisible());
         QCOMPARE(popup->current()->label, QStringLiteral("orders"));
         QTest::keyClick(&e, Qt::Key_Escape);

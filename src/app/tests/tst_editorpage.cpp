@@ -20,6 +20,7 @@
 #include <QTableView>
 #include <QTabWidget>
 #include <QFile>
+#include <QHeaderView>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QSettings>
@@ -585,6 +586,28 @@ private Q_SLOTS:
         QVERIFY(m_tab->isRunning());
         QVERIFY(m_tab->maybeClose());
         QCOMPARE(couldCommit, std::optional<bool>(false));
+    }
+
+    void columnWidths()
+    {
+        runSql("SELECT repeat('x', 400) AS a_very_long_column_name_for_a_narrow_value, "
+               "1 AS n, to_jsonb(repeat('z', 400)) AS j");
+        QCOMPARE(model()->rowCount(), 1);
+        QTableView *table = m_tab->resultPanel()->results()->table();
+        QHeaderView *header = table->horizontalHeader();
+        QCOMPARE(model()->columnCount(), 3);
+        for (int c = 0; c < model()->columnCount(); ++c) {
+            // The header's text is never cut off, and no column hogs the view.
+            const QString name = model()->headerData(c, Qt::Horizontal).toString();
+            QVERIFY2(table->columnWidth(c) >= header->fontMetrics().horizontalAdvance(name),
+                     qPrintable(QStringLiteral("column %1 is too narrow for its name").arg(c)));
+            QVERIFY(table->columnWidth(c) <= 600);
+        }
+        // Long values are cut off at the content limit, and the long name
+        // makes its own column wider than the number under it.
+        QVERIFY(table->columnWidth(0) <= 400);
+        QVERIFY(table->columnWidth(2) <= 400);
+        QVERIFY(table->columnWidth(0) > table->columnWidth(1));
     }
 
     void transactionActions()

@@ -86,6 +86,9 @@ protected:
     void changeEvent(QEvent *event) override;
 
 private:
+    // Letters to type before the list appears by itself; a dot shows it at once.
+    static constexpr qsizetype AutoCompleteChars = 3;
+
     void analyzeVisible();
     void applySemantics();
     void setupSemanticIndicators();

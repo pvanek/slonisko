@@ -14,7 +14,9 @@
 #include <QSet>
 
 #include <algorithm>
+#include <limits>
 #include <optional>
+#include <vector>
 
 namespace slonisko::catalog {
 
@@ -680,6 +682,65 @@ private:
 
 } // namespace
 
+namespace {
+
+// How well typed matches candidate, ignoring which tier they are in: 0 to
+// 100. Matches are looked for in every position, not greedily, so a later
+// run of letters can win over an early stray one: "leapa" takes "lea" and
+// "pa" out of "learning_package" rather than stopping at the first "a".
+int alignmentQuality(const QString &typed, const QString &candidate)
+{
+    constexpr int Match = 16; // Any letter in the right order.
+    constexpr int WordStart = 18; // learning_[p]ackage, Order[I]tems.
+    constexpr int Consecutive = 12; // Right after the previous match.
+    constexpr int GapPenalty = 2; // Per letter skipped, up to the bonuses.
+    constexpr int MaxPerChar = Match + WordStart + Consecutive;
+
+    const qsizetype n = typed.size(), m = candidate.size();
+    auto wordStart = [&](qsizetype i) {
+        if (i == 0)
+            return true;
+        const QChar before = candidate[i - 1];
+        return before == QLatin1Char('_') || before == QLatin1Char(' ')
+            || before == QLatin1Char('.') || (candidate[i].isUpper() && before.isLower());
+    };
+
+    // best[j]: the best score for the typed letters so far, the last of them
+    // matched at candidate[j]. Unreachable positions stay at NoMatch.
+    constexpr int NoMatch = std::numeric_limits<int>::min() / 2;
+    std::vector<int> best(std::size_t(m), NoMatch), previous(std::size_t(m), NoMatch);
+    for (qsizetype i = 0; i < n; ++i) {
+        previous.swap(best);
+        std::ranges::fill(best, NoMatch);
+        // The best of the previous letter's matches, as it moves right.
+        int carried = NoMatch;
+        for (qsizetype j = 0; j < m; ++j) {
+            if (j > 0) {
+                if (carried > NoMatch)
+                    carried -= GapPenalty;
+                carried = std::max(carried, i == 0 ? 0 : previous[std::size_t(j - 1)]);
+            } else if (i == 0) {
+                carried = 0;
+            }
+            if (candidate[j].toLower() != typed[i].toLower() || carried <= NoMatch)
+                continue;
+            int score = carried + Match;
+            if (wordStart(j))
+                score += WordStart;
+            if (i > 0 && j > 0 && previous[std::size_t(j - 1)] > NoMatch
+                && previous[std::size_t(j - 1)] == carried)
+                score += Consecutive; // The letter before it matched too.
+            best[std::size_t(j)] = score;
+        }
+    }
+    const auto top = std::ranges::max_element(best);
+    if (top == best.end() || *top <= NoMatch)
+        return 0;
+    return std::clamp(100 * *top / int(MaxPerChar * n), 1, 100);
+}
+
+} // namespace
+
 int fuzzyScore(const QString &typed, const QString &candidate)
 {
     if (typed.isEmpty())
@@ -689,6 +750,10 @@ int fuzzyScore(const QString &typed, const QString &candidate)
     if (c.startsWith(t))
         return std::max(800, 1000 - int(c.size() - t.size()));
 
+    const int quality = alignmentQuality(t, candidate);
+    if (quality == 0)
+        return 0; // Not even out of order: no match at all.
+
     // Word starts: after _, space or . and at camelCase humps.
     auto wordStart = [&](qsizetype i) {
         if (i == 0)
@@ -697,34 +762,26 @@ int fuzzyScore(const QString &typed, const QString &candidate)
         return before == QLatin1Char('_') || before == QLatin1Char(' ')
             || before == QLatin1Char('.') || (candidate[i].isUpper() && before.isLower());
     };
-
-    // Greedy subsequence match, preferring word starts.
-    qsizetype pos = 0;
-    int starts = 0;
-    int gaps = 0;
+    // An acronym, every letter starting a word: cnm for customer_name.
+    qsizetype at = 0;
+    bool acronym = true;
     for (const QChar ch : t) {
         qsizetype found = -1;
-        for (qsizetype i = pos; i < c.size(); ++i) {
-            if (c[i] == ch && wordStart(i)) {
+        for (qsizetype i = at; i < c.size() && found < 0; ++i)
+            if (c[i] == ch && wordStart(i))
                 found = i;
-                break;
-            }
+        if (found < 0) {
+            acronym = false;
+            break;
         }
-        if (found < 0)
-            found = c.indexOf(ch, pos);
-        if (found < 0)
-            return 0;
-        if (wordStart(found))
-            ++starts;
-        gaps += int(found - pos);
-        pos = found + 1;
+        at = found + 1;
     }
-    if (starts == int(t.size()))
-        return 600 - gaps; // Every letter starts a word: cnm for customer_name.
-    const qsizetype substring = c.indexOf(t);
-    if (substring >= 0)
+    if (acronym)
+        return 600 + quality;
+    if (const qsizetype substring = c.indexOf(t); substring >= 0)
         return 500 - int(substring);
-    return std::max(1, 300 + 20 * starts - gaps);
+    // Letters in order but scattered: how well they line up decides.
+    return 300 + quality;
 }
 
 Completion complete(const QByteArray &statement, qsizetype cursor, const Snapshot &snapshot)

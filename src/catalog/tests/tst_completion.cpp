@@ -302,6 +302,16 @@ private Q_SLOTS:
         QVERIFY(fuzzyScore(QStringLiteral("cnm"), QStringLiteral("customer_name"))
                 > fuzzyScore(QStringLiteral("cnm"), QStringLiteral("cinema")));
         QVERIFY(fuzzyScore(QStringLiteral("oi"), QStringLiteral("OrderItems")) > 500);
+        // Letters out of one word and into the next, "leapa" for
+        // "learning_package", and the better lined-up name wins.
+        QVERIFY(fuzzyScore(QStringLiteral("leapa"), QStringLiteral("learning_package")) > 300);
+        QVERIFY(fuzzyScore(QStringLiteral("lepac"), QStringLiteral("learning_package"))
+                > fuzzyScore(QStringLiteral("lepac"), QStringLiteral("lesson_plan_archive")));
+        QVERIFY(fuzzyScore(QStringLiteral("lpkg"), QStringLiteral("learning_package")) > 0);
+        // A run of letters beats the same letters scattered about.
+        QVERIFY(fuzzyScore(QStringLiteral("lpack"), QStringLiteral("learning_package"))
+                > fuzzyScore(QStringLiteral("lpcka"), QStringLiteral("learning_package")));
+        QCOMPARE(fuzzyScore(QStringLiteral("zzz"), QStringLiteral("learning_package")), 0);
         QCOMPARE(fuzzyScore(QStringLiteral("xyz"), QStringLiteral("orders")), 0);
         QVERIFY(fuzzyScore(QString(), QStringLiteral("orders")) > 0);
     }

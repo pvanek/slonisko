@@ -45,6 +45,9 @@ public:
     bool isRunning() const { return m_running; }
     // Cancels the running query, if it is one this view runs itself.
     void stop();
+    // Columns as wide as their contents, within limits, and never narrower
+    // than their header's full text.
+    void sizeColumns();
 
 Q_SIGNALS:
     void finished();
@@ -56,6 +59,8 @@ private:
     void showOutcome(const pg::QueryOutcome &outcome, qint64 elapsedMs);
     void setMessage(const QString &text, bool error);
     void updateEditing();
+    // What the header section needs for its own text, ignoring the data.
+    int headerWidth(int column) const;
     void refresh();
 
     QLabel *m_title = nullptr;
@@ -81,6 +86,10 @@ private:
     quint64 m_generation = 0; // Ignores results of queries run before the latest one.
     bool m_running = false;
     bool m_sized = false; // Columns sized to their contents once rows arrived.
+    // Long texts and JSON would take the whole view; headers get more room
+    // because a column nobody can name is of no use.
+    static constexpr int MaxContentWidth = 400;
+    static constexpr int MaxHeaderWidth = 600;
 };
 
 } // namespace slonisko
