@@ -23,7 +23,9 @@ class CompletionPopup : public QFrame
 public:
     explicit CompletionPopup(QWidget *editor);
 
-    void showItems(std::vector<catalog::CompletionItem> items, const QPoint &globalPos);
+    // prefix is what the user typed: its letters are highlighted in the labels.
+    void showItems(std::vector<catalog::CompletionItem> items, const QString &prefix,
+                   const QPoint &globalPos);
     // Handles Up, Down, Page Up/Down, Enter, Tab and Escape while visible.
     bool handleKey(QKeyEvent *event);
     const catalog::CompletionItem *current() const;

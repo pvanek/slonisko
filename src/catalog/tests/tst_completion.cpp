@@ -312,6 +312,21 @@ private Q_SLOTS:
         QVERIFY(fuzzyScore(QStringLiteral("lpack"), QStringLiteral("learning_package"))
                 > fuzzyScore(QStringLiteral("lpcka"), QStringLiteral("learning_package")));
         QCOMPARE(fuzzyScore(QStringLiteral("zzz"), QStringLiteral("learning_package")), 0);
+    }
+
+    void matchPositions()
+    {
+        using Positions = std::vector<qsizetype>;
+        // What to highlight in the popup: "lea" and then "pa" of "package".
+        QCOMPARE(fuzzyMatchPositions(QStringLiteral("leapa"), QStringLiteral("learning_package")),
+                 (Positions {0, 1, 2, 9, 10}));
+        QCOMPARE(fuzzyMatchPositions(QStringLiteral("lea"), QStringLiteral("learning_package")),
+                 (Positions {0, 1, 2}));
+        QCOMPARE(fuzzyMatchPositions(QStringLiteral("pack"), QStringLiteral("learning_package")),
+                 (Positions {9, 10, 11, 12}));
+        QCOMPARE(fuzzyMatchPositions(QStringLiteral("oi"), QStringLiteral("OrderItems")),
+                 (Positions {0, 5}));
+        QVERIFY(fuzzyMatchPositions(QStringLiteral("zzz"), QStringLiteral("orders")).empty());
         QCOMPARE(fuzzyScore(QStringLiteral("xyz"), QStringLiteral("orders")), 0);
         QVERIFY(fuzzyScore(QString(), QStringLiteral("orders")) > 0);
     }

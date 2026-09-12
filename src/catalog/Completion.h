@@ -67,4 +67,9 @@ Completion complete(const QByteArray &statement, qsizetype cursor, const Snapsho
 // subsequence). Case-insensitive.
 int fuzzyScore(const QString &typed, const QString &candidate);
 
+// Which letters of candidate fuzzyScore() matched, in order, for showing
+// what the suggestion has in common with what was typed. Empty when they do
+// not match at all.
+std::vector<qsizetype> fuzzyMatchPositions(const QString &typed, const QString &candidate);
+
 } // namespace slonisko::catalog

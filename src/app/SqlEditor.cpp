@@ -154,7 +154,7 @@ void SqlEditor::showCompletion()
     const int x = int(send(SCI_POINTXFROMPOSITION, 0, at));
     const int y = int(send(SCI_POINTYFROMPOSITION, 0, at)) + int(send(SCI_TEXTHEIGHT, line));
     m_completion = c;
-    m_popup->showItems(c.items, viewport()->mapToGlobal(QPoint(x, y)));
+    m_popup->showItems(c.items, c.prefix, viewport()->mapToGlobal(QPoint(x, y)));
 }
 
 void SqlEditor::applyCompletion(const catalog::CompletionItem &item)

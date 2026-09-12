@@ -14,6 +14,8 @@
 #include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
+#include <algorithm>
+
 namespace slonisko {
 
 using catalog::CompletionItem;
@@ -24,12 +26,13 @@ class CompletionModel : public QAbstractListModel
 public:
     using QAbstractListModel::QAbstractListModel;
 
-    enum { DetailRole = Qt::UserRole + 1 };
+    enum { DetailRole = Qt::UserRole + 1, PrefixRole };
 
-    void setItems(std::vector<CompletionItem> items)
+    void setItems(std::vector<CompletionItem> items, const QString &prefix)
     {
         beginResetModel();
         m_items = std::move(items);
+        m_prefix = prefix;
         endResetModel();
     }
     const CompletionItem &at(int row) const { return m_items[std::size_t(row)]; }
@@ -47,6 +50,8 @@ public:
             return item.label;
         case DetailRole:
             return item.detail;
+        case PrefixRole:
+            return m_prefix;
         case Qt::ToolTipRole:
             return item.detail;
         case Qt::DecorationRole:
@@ -84,11 +89,13 @@ private:
     }
 
     std::vector<CompletionItem> m_items;
+    QString m_prefix;
 };
 
 namespace {
 
-// Name on the left, detail (like a column's type) dimmed on the right.
+// Name on the left with the typed letters picked out, detail (like a
+// column's type) dimmed on the right.
 class Delegate : public QStyledItemDelegate
 {
 public:
@@ -97,11 +104,21 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override
     {
-        QStyledItemDelegate::paint(painter, option, index);
+        const QString label = index.data(Qt::DisplayRole).toString();
+        // Everything but the label, which is drawn letter by letter below.
+        QStyleOptionViewItem itemOption(option);
+        initStyleOption(&itemOption, index);
+        itemOption.text.clear();
+        const QWidget *widget = itemOption.widget;
+        QStyle *style = widget ? widget->style() : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &itemOption, painter, widget);
+        drawLabel(painter, itemOption, style, widget, label,
+                  catalog::fuzzyMatchPositions(index.data(CompletionModel::PrefixRole).toString(),
+                                               label));
+
         const QString detail = index.data(CompletionModel::DetailRole).toString();
         if (detail.isEmpty())
             return;
-        const QString label = index.data(Qt::DisplayRole).toString();
         const int left = option.rect.left() + option.decorationSize.width() + 12
             + option.fontMetrics.horizontalAdvance(label) + 16;
         QRect rect = option.rect.adjusted(0, 0, -6, 0);
@@ -115,6 +132,36 @@ public:
         painter->setPen(color);
         painter->drawText(rect, Qt::AlignRight | Qt::AlignVCenter,
                           option.fontMetrics.elidedText(detail, Qt::ElideLeft, rect.width()));
+        painter->restore();
+    }
+
+private:
+    // The label, with the matched letters in bold and the accent color.
+    static void drawLabel(QPainter *painter, const QStyleOptionViewItem &option, QStyle *style,
+                          const QWidget *widget, const QString &label,
+                          const std::vector<qsizetype> &matched)
+    {
+        const QRect rect = style->subElementRect(QStyle::SE_ItemViewItemText, &option, widget);
+        const bool selected = option.state & QStyle::State_Selected;
+        const QColor plain
+            = option.palette.color(selected ? QPalette::HighlightedText : QPalette::Text);
+        // On the highlight bar only the weight can carry the difference.
+        const QColor accent = selected ? plain : option.palette.color(QPalette::Link);
+        QFont bold = option.font;
+        bold.setBold(true);
+        const QFontMetrics boldMetrics(bold);
+
+        painter->save();
+        int x = rect.left();
+        for (qsizetype i = 0; i < label.size() && x < rect.right(); ++i) {
+            const bool hit = std::ranges::find(matched, i) != matched.end();
+            painter->setFont(hit ? bold : option.font);
+            painter->setPen(hit ? accent : plain);
+            const QString letter = label.mid(i, 1);
+            painter->drawText(QRect(x, rect.top(), rect.right() - x, rect.height()),
+                              Qt::AlignLeft | Qt::AlignVCenter, letter);
+            x += (hit ? boldMetrics : option.fontMetrics).horizontalAdvance(letter);
+        }
         painter->restore();
     }
 };
@@ -141,9 +188,10 @@ CompletionPopup::CompletionPopup(QWidget *editor)
     layout->addWidget(m_list);
 }
 
-void CompletionPopup::showItems(std::vector<CompletionItem> items, const QPoint &globalPos)
+void CompletionPopup::showItems(std::vector<CompletionItem> items, const QString &prefix,
+                                const QPoint &globalPos)
 {
-    m_model->setItems(std::move(items));
+    m_model->setItems(std::move(items), prefix);
     m_list->setCurrentIndex(m_model->index(0));
 
     const int rowHeight = std::max(m_list->sizeHintForRow(0), fontMetrics().height() + 4);

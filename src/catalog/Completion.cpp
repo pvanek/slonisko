@@ -684,104 +684,156 @@ private:
 
 namespace {
 
-// How well typed matches candidate, ignoring which tier they are in: 0 to
-// 100. Matches are looked for in every position, not greedily, so a later
-// run of letters can win over an early stray one: "leapa" takes "lea" and
-// "pa" out of "learning_package" rather than stopping at the first "a".
-int alignmentQuality(const QString &typed, const QString &candidate)
+// After _, space or . and at camelCase humps: learning_[p]ackage, Order[I]tems.
+bool isWordStart(const QString &candidate, qsizetype i)
+{
+    if (i == 0)
+        return true;
+    const QChar before = candidate[i - 1];
+    return before == QLatin1Char('_') || before == QLatin1Char(' ') || before == QLatin1Char('.')
+        || (candidate[i].isUpper() && before.isLower());
+}
+
+struct Alignment
+{
+    int quality = 0; // 0 for no match at all, else 1 to 100.
+    std::vector<qsizetype> positions;
+};
+
+// How well typed matches candidate, and where its letters landed. Matches
+// are looked for in every position, not greedily, so a later run of letters
+// can win over an early stray one: "leapa" takes "lea" and "pa" out of
+// "learning_package" rather than stopping at the first "a".
+Alignment align(const QString &typed, const QString &candidate)
 {
     constexpr int Match = 16; // Any letter in the right order.
-    constexpr int WordStart = 18; // learning_[p]ackage, Order[I]tems.
+    constexpr int WordStart = 18; // A letter that starts a word.
     constexpr int Consecutive = 12; // Right after the previous match.
     constexpr int GapPenalty = 2; // Per letter skipped, up to the bonuses.
     constexpr int MaxPerChar = Match + WordStart + Consecutive;
+    constexpr int NoMatch = std::numeric_limits<int>::min() / 2;
 
     const qsizetype n = typed.size(), m = candidate.size();
-    auto wordStart = [&](qsizetype i) {
-        if (i == 0)
-            return true;
-        const QChar before = candidate[i - 1];
-        return before == QLatin1Char('_') || before == QLatin1Char(' ')
-            || before == QLatin1Char('.') || (candidate[i].isUpper() && before.isLower());
-    };
+    if (n == 0 || n > m)
+        return {};
 
-    // best[j]: the best score for the typed letters so far, the last of them
-    // matched at candidate[j]. Unreachable positions stay at NoMatch.
-    constexpr int NoMatch = std::numeric_limits<int>::min() / 2;
-    std::vector<int> best(std::size_t(m), NoMatch), previous(std::size_t(m), NoMatch);
+    // score[i][j]: the best total for the first i + 1 typed letters, the
+    // last of them matched at candidate[j]. parent[i][j] is where the letter
+    // before it matched, for reading the positions back afterwards.
+    std::vector<int> score(std::size_t(n * m), NoMatch);
+    std::vector<qsizetype> parent(std::size_t(n * m), -1);
     for (qsizetype i = 0; i < n; ++i) {
-        previous.swap(best);
-        std::ranges::fill(best, NoMatch);
-        // The best of the previous letter's matches, as it moves right.
-        int carried = NoMatch;
+        // The best the letter before this one reached left of j, kept as j
+        // moves right and charged for every letter skipped on the way.
+        int carried = i == 0 ? 0 : NoMatch;
+        qsizetype carriedFrom = -1;
         for (qsizetype j = 0; j < m; ++j) {
             if (j > 0) {
                 if (carried > NoMatch)
                     carried -= GapPenalty;
-                carried = std::max(carried, i == 0 ? 0 : previous[std::size_t(j - 1)]);
-            } else if (i == 0) {
-                carried = 0;
+                const int before = i == 0 ? 0 : score[std::size_t((i - 1) * m + j - 1)];
+                if (before > carried) {
+                    carried = before;
+                    carriedFrom = i == 0 ? -1 : j - 1;
+                }
             }
-            if (candidate[j].toLower() != typed[i].toLower() || carried <= NoMatch)
+            if (carried <= NoMatch || candidate[j].toLower() != typed[i].toLower())
                 continue;
-            int score = carried + Match;
-            if (wordStart(j))
-                score += WordStart;
-            if (i > 0 && j > 0 && previous[std::size_t(j - 1)] > NoMatch
-                && previous[std::size_t(j - 1)] == carried)
-                score += Consecutive; // The letter before it matched too.
-            best[std::size_t(j)] = score;
+            int here = carried + Match;
+            if (isWordStart(candidate, j))
+                here += WordStart;
+            if (i > 0 && carriedFrom == j - 1)
+                here += Consecutive;
+            score[std::size_t(i * m + j)] = here;
+            parent[std::size_t(i * m + j)] = carriedFrom;
         }
     }
-    const auto top = std::ranges::max_element(best);
-    if (top == best.end() || *top <= NoMatch)
-        return 0;
-    return std::clamp(100 * *top / int(MaxPerChar * n), 1, 100);
+
+    const auto last = score.begin() + (n - 1) * m;
+    const auto top = std::max_element(last, last + m);
+    if (*top <= NoMatch)
+        return {};
+    Alignment out;
+    out.quality = std::clamp(100 * *top / int(MaxPerChar * n), 1, 100);
+    out.positions.resize(std::size_t(n));
+    qsizetype at = top - last;
+    for (qsizetype i = n - 1; i >= 0; --i) {
+        out.positions[std::size_t(i)] = at;
+        at = parent[std::size_t(i * m + at)];
+    }
+    return out;
+}
+
+// The score and, for highlighting, the letters of candidate it matched.
+struct Match
+{
+    int score = 0;
+    std::vector<qsizetype> positions;
+};
+
+Match match(const QString &typed, const QString &candidate)
+{
+    Match out;
+    if (typed.isEmpty()) {
+        out.score = 1;
+        return out;
+    }
+    const QString t = typed.toLower();
+    const QString c = candidate.toLower();
+    auto run = [&](qsizetype from) {
+        for (qsizetype i = 0; i < t.size(); ++i)
+            out.positions.push_back(from + i);
+    };
+    if (c.startsWith(t)) {
+        out.score = std::max(800, 1000 - int(c.size() - t.size()));
+        run(0);
+        return out;
+    }
+
+    const Alignment alignment = align(t, candidate);
+    if (alignment.quality == 0)
+        return out; // Not even out of order: no match at all.
+
+    // An acronym, every letter starting a word: cnm for customer_name.
+    std::vector<qsizetype> starts;
+    for (qsizetype at = 0; const QChar ch : t) {
+        qsizetype found = -1;
+        for (qsizetype i = at; i < c.size() && found < 0; ++i)
+            if (c[i] == ch && isWordStart(candidate, i))
+                found = i;
+        if (found < 0) {
+            starts.clear();
+            break;
+        }
+        starts.push_back(found);
+        at = found + 1;
+    }
+    if (!starts.empty()) {
+        out.score = 600 + alignment.quality;
+        out.positions = std::move(starts);
+        return out;
+    }
+    if (const qsizetype substring = c.indexOf(t); substring >= 0) {
+        out.score = 500 - int(substring);
+        run(substring);
+        return out;
+    }
+    // Letters in order but scattered: how well they line up decides.
+    out.score = 300 + alignment.quality;
+    out.positions = std::move(alignment.positions);
+    return out;
 }
 
 } // namespace
 
 int fuzzyScore(const QString &typed, const QString &candidate)
 {
-    if (typed.isEmpty())
-        return 1;
-    const QString t = typed.toLower();
-    const QString c = candidate.toLower();
-    if (c.startsWith(t))
-        return std::max(800, 1000 - int(c.size() - t.size()));
+    return match(typed, candidate).score;
+}
 
-    const int quality = alignmentQuality(t, candidate);
-    if (quality == 0)
-        return 0; // Not even out of order: no match at all.
-
-    // Word starts: after _, space or . and at camelCase humps.
-    auto wordStart = [&](qsizetype i) {
-        if (i == 0)
-            return true;
-        const QChar before = candidate[i - 1];
-        return before == QLatin1Char('_') || before == QLatin1Char(' ')
-            || before == QLatin1Char('.') || (candidate[i].isUpper() && before.isLower());
-    };
-    // An acronym, every letter starting a word: cnm for customer_name.
-    qsizetype at = 0;
-    bool acronym = true;
-    for (const QChar ch : t) {
-        qsizetype found = -1;
-        for (qsizetype i = at; i < c.size() && found < 0; ++i)
-            if (c[i] == ch && wordStart(i))
-                found = i;
-        if (found < 0) {
-            acronym = false;
-            break;
-        }
-        at = found + 1;
-    }
-    if (acronym)
-        return 600 + quality;
-    if (const qsizetype substring = c.indexOf(t); substring >= 0)
-        return 500 - int(substring);
-    // Letters in order but scattered: how well they line up decides.
-    return 300 + quality;
+std::vector<qsizetype> fuzzyMatchPositions(const QString &typed, const QString &candidate)
+{
+    return match(typed, candidate).positions;
 }
 
 Completion complete(const QByteArray &statement, qsizetype cursor, const Snapshot &snapshot)
