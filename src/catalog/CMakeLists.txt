@@ -6,6 +6,8 @@ add_library(slonisko_catalog STATIC
     Completion.h
     Editing.cpp
     Editing.h
+    Export.cpp
+    Export.h
     Monitoring.cpp
     Monitoring.h
     Objects.cpp

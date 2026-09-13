@@ -29,6 +29,8 @@ add_library(slonisko_ui STATIC
     PlanView.cpp
     PlanView.h
     Qsci.h
+    ResultTextView.cpp
+    ResultTextView.h
     ResultModel.cpp
     ResultModel.h
     ResultPanel.cpp

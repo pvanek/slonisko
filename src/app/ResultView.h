@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "catalog/Export.h"
 #include "pg/QueryRunner.h"
 
 #include <QPointer>
@@ -13,11 +14,14 @@
 class QAction;
 class QLabel;
 class QStackedWidget;
+class QComboBox;
 class QTableView;
 class QToolButton;
 
 namespace slonisko {
 
+class RecordModel;
+class ResultTextView;
 class ResultModel;
 
 // Shows the rows of a query, or its error. Either runs the query itself
@@ -40,8 +44,24 @@ public:
     // What the Run Again button does; none disables it.
     void setRerun(std::function<void()> rerun);
 
+    // How the rows are shown.
+    enum class ViewMode {
+        Grid, // The editable table.
+        Text, // An ASCII table, to copy into a file or a message.
+        Record // One row at a time, its columns under each other.
+    };
+    void setViewMode(ViewMode mode);
+    ViewMode viewMode() const { return m_mode; }
+
+    // Writes every row in one of the export formats.
+    bool exportTo(catalog::ExportFormat format, const QString &path,
+                  QString *error = nullptr) const;
+    catalog::ExportOptions exportOptions(catalog::ExportFormat format) const;
+
     ResultModel *model() const { return m_model; }
     QTableView *table() const { return m_table; }
+    ResultTextView *textView() const { return m_text; }
+    QTableView *recordView() const { return m_record; }
     bool isRunning() const { return m_running; }
     // Cancels the running query, if it is one this view runs itself.
     void stop();
@@ -61,6 +81,13 @@ private:
     void updateEditing();
     // What the header section needs for its own text, ignoring the data.
     int headerWidth(int column) const;
+    // Fills the view the current mode shows; force leaves a message behind
+    // even before rows have arrived.
+    void updateView(bool force = false);
+    void updateRecord(); // The row the record view shows.
+    void stepRecord(int by); // Moves to another row in the record view.
+    void exportWithDialog(catalog::ExportFormat format);
+    void copyAs(catalog::ExportFormat format);
     void refresh();
 
     QLabel *m_title = nullptr;
@@ -69,6 +96,14 @@ private:
     QToolButton *m_stop = nullptr;
     QStackedWidget *m_stack = nullptr;
     QTableView *m_table = nullptr;
+    ResultTextView *m_text = nullptr;
+    QTableView *m_record = nullptr;
+    RecordModel *m_recordModel = nullptr;
+    QComboBox *m_modeBox = nullptr;
+    QWidget *m_recordBar = nullptr;
+    QToolButton *m_export = nullptr;
+    QAction *m_previousRow = nullptr;
+    QAction *m_nextRow = nullptr;
     QLabel *m_message = nullptr;
     ResultModel *m_model = nullptr;
     QLabel *m_editLabel = nullptr;
@@ -86,6 +121,10 @@ private:
     quint64 m_generation = 0; // Ignores results of queries run before the latest one.
     bool m_running = false;
     bool m_sized = false; // Columns sized to their contents once rows arrived.
+    ViewMode m_mode = ViewMode::Grid;
+    bool m_textStale = true; // The text view is rendered when it is shown.
+    // The text view renders this many rows at most; an export writes them all.
+    static constexpr int MaxTextRows = 10000;
     // Long texts and JSON would take the whole view; headers get more room
     // because a column nobody can name is of no use.
     static constexpr int MaxContentWidth = 400;

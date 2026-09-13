@@ -8,7 +8,9 @@
 #include "PlanView.h"
 #include "ResultModel.h"
 #include "ResultPanel.h"
+#include "ResultTextView.h"
 #include "ResultView.h"
+#include "catalog/Export.h"
 #include "Session.h"
 #include "SqlEditor.h"
 #include "TestServer.h"
@@ -21,8 +23,8 @@
 #include <QTabWidget>
 #include <QFile>
 #include <QHeaderView>
-#include <QLabel>
 #include <QPlainTextEdit>
+#include <QLabel>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -608,6 +610,77 @@ private Q_SLOTS:
         QVERIFY(table->columnWidth(0) <= 400);
         QVERIFY(table->columnWidth(2) <= 400);
         QVERIFY(table->columnWidth(0) > table->columnWidth(1));
+    }
+
+    void viewModes()
+    {
+        runSql("SELECT i AS n, repeat('x', i) AS name FROM generate_series(1, 3) i");
+        ResultView *view = m_tab->resultPanel()->results();
+        QCOMPARE(view->viewMode(), ResultView::ViewMode::Grid);
+        QVERIFY(view->table()->isVisibleTo(view));
+
+        // Text: the same rows as an ASCII table, ready to copy out.
+        view->setViewMode(ResultView::ViewMode::Text);
+        QVERIFY(view->textView()->isVisibleTo(view));
+        const QString text = view->textView()->text();
+        QVERIFY(text.contains(QLatin1String("n | name")));
+        QVERIFY(text.contains(QLatin1String("3 | xxx")));
+
+        // Record: one row, its columns under each other.
+        view->setViewMode(ResultView::ViewMode::Record);
+        QVERIFY(view->recordView()->isVisibleTo(view));
+        QAbstractItemModel *record = view->recordView()->model();
+        QCOMPARE(record->rowCount(), 2);
+        QCOMPARE(record->index(0, 0).data().toString(), QStringLiteral("n"));
+        QCOMPARE(record->index(0, 1).data().toString(), QStringLiteral("1"));
+        QCOMPARE(record->index(1, 1).data().toString(), QStringLiteral("x"));
+
+        // It follows the grid's row, and the arrows move it.
+        view->table()->setCurrentIndex(model()->index(2, 0));
+        QCOMPARE(record->index(1, 1).data().toString(), QStringLiteral("xxx"));
+
+        view->setViewMode(ResultView::ViewMode::Grid);
+        QVERIFY(view->table()->isVisibleTo(view));
+
+        // Alt+drag territory: a block of the text view is one column of the
+        // table, so a single column can be copied out.
+        view->setViewMode(ResultView::ViewMode::Text);
+        ResultTextView *textView = view->textView();
+        const QString rendered = textView->text();
+        const qsizetype nameColumn = rendered.indexOf(QLatin1String("name"));
+        QVERIFY(nameColumn > 0);
+        const qsizetype lastLine = rendered.lastIndexOf(QLatin1Char('\n'), -2) + 1;
+        textView->selectBlock(nameColumn, lastLine + nameColumn + 3);
+        QCOMPARE(textView->selection(), QStringLiteral("nam\n---\nx\nxx\nxxx\n"));
+
+        // A new query re-renders the text view rather than keeping the old.
+        view->setViewMode(ResultView::ViewMode::Text);
+        runSql("SELECT 'fresh' AS word");
+        QVERIFY(view->textView()->text().contains(QLatin1String("fresh")));
+        QVERIFY(!view->textView()->text().contains(QLatin1String("xxx")));
+    }
+
+    void exportsRows()
+    {
+        runSql("SELECT i AS n, 'it''s' AS t FROM generate_series(1, 2) i");
+        ResultView *view = m_tab->resultPanel()->results();
+        const QString path = m_dir.filePath(QStringLiteral("rows.csv"));
+        QString error;
+        QVERIFY2(view->exportTo(catalog::ExportFormat::Csv, path, &error), qPrintable(error));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QCOMPARE(QString::fromUtf8(file.readAll()), QStringLiteral("n,t\n1,it's\n2,it's\n"));
+
+        // SQL exports name the table the rows came from, when it is known.
+        runSql("CREATE TEMP TABLE export_target (id int PRIMARY KEY, note text)");
+        runSql("INSERT INTO export_target VALUES (1, 'one')");
+        runSql("SELECT * FROM export_target");
+        QTRY_VERIFY(model()->isEditable());
+        const QString sql = catalog::exportRows(
+            model()->rows(), view->exportOptions(catalog::ExportFormat::SqlInsert));
+        QVERIFY2(sql.contains(QLatin1String("INSERT INTO ")), qPrintable(sql));
+        QVERIFY2(sql.contains(QLatin1String("export_target (id, note) VALUES (1, 'one');")),
+                 qPrintable(sql));
     }
 
     void transactionActions()
