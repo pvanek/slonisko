@@ -19,6 +19,8 @@
 
 #include <QComboBox>
 #include <QSplitter>
+#include <QTabBar>
+#include <QToolButton>
 #include <QTableView>
 #include <QTabWidget>
 #include <QFile>
@@ -658,6 +660,53 @@ private Q_SLOTS:
         runSql("SELECT 'fresh' AS word");
         QVERIFY(view->textView()->text().contains(QLatin1String("fresh")));
         QVERIFY(!view->textView()->text().contains(QLatin1String("xxx")));
+    }
+
+    void editPaletteToggles()
+    {
+        ResultView *view = m_tab->resultPanel()->results();
+        QToolButton *toggle = view->editToggle();
+
+        // A query nothing can be written back to: no editing tools at all.
+        runSql("SELECT 1 AS n");
+        QVERIFY(!toggle->isEnabled());
+        QVERIFY(!view->editBar()->isVisibleTo(view));
+
+        runSql("CREATE TEMP TABLE palette (id int PRIMARY KEY, note text)");
+        runSql("INSERT INTO palette VALUES (1, 'one')");
+        runSql("SELECT * FROM palette");
+        QTRY_VERIFY(model()->isEditable());
+        QVERIFY(toggle->isEnabled());
+        QVERIFY(!view->editBar()->isVisibleTo(view)); // Out of the way until asked for.
+
+        toggle->click();
+        QVERIFY(view->editBar()->isVisibleTo(view));
+        toggle->click();
+        QVERIFY(!view->editBar()->isVisibleTo(view));
+
+        // An unsaved change brings it back: Save and Discard must be reachable.
+        QVERIFY(model()->setData(model()->index(0, 1), QStringLiteral("two")));
+        QVERIFY(toggle->isChecked());
+        QVERIFY(view->editBar()->isVisibleTo(view));
+        model()->discardChanges();
+
+        // And it goes away again with a read-only result.
+        runSql("SELECT 1 AS n");
+        QVERIFY(!toggle->isEnabled());
+        QVERIFY(!toggle->isChecked());
+        QVERIFY(!view->editBar()->isVisibleTo(view));
+    }
+
+    void modeTabsSwitchViews()
+    {
+        runSql("SELECT 1 AS n");
+        ResultView *view = m_tab->resultPanel()->results();
+        QCOMPARE(view->modeTabs()->count(), 3);
+        view->modeTabs()->setCurrentIndex(1);
+        QCOMPARE(view->viewMode(), ResultView::ViewMode::Text);
+        QVERIFY(view->textView()->isVisibleTo(view));
+        view->setViewMode(ResultView::ViewMode::Grid);
+        QCOMPARE(view->modeTabs()->currentIndex(), 0);
     }
 
     void exportsRows()

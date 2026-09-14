@@ -36,6 +36,7 @@ private Q_SLOTS:
     void altDragSelectsABlock()
     {
         drag(Qt::AltModifier);
+        QVERIFY(m_view->SendScintilla(QsciScintilla::SCI_SELECTIONISRECTANGLE));
         QCOMPARE(m_view->selection(), QStringLiteral("nam\n---\naaa\nbbb\nccc\n"));
     }
 
@@ -67,12 +68,22 @@ private:
         const QPointF from = pointOf(name);
         const QPointF to = pointOf(lastLine + name + 3);
         send(QEvent::MouseButtonPress, from, Qt::LeftButton, modifiers);
-        // Scintilla throttles drag moves, so they need a moment apart.
-        send(QEvent::MouseMove, QPointF((from.x() + to.x()) / 2, (from.y() + to.y()) / 2),
-             Qt::NoButton, modifiers);
-        QTest::qWait(150);
-        send(QEvent::MouseMove, to, Qt::NoButton, modifiers);
-        QTest::qWait(150);
+        // Scintilla ignores the first moves of a drag (it throttles them to
+        // slow autoscrolling down), so the whole way is walked in steps.
+        constexpr int Steps = 8;
+        for (int step = 1; step <= Steps; ++step) {
+            const qreal part = qreal(step) / Steps;
+            send(QEvent::MouseMove,
+                 QPointF(from.x() + (to.x() - from.x()) * part,
+                         from.y() + (to.y() - from.y()) * part),
+                 Qt::NoButton, modifiers);
+            QTest::qWait(20);
+        }
+        // And a few more at the end, since some of them are swallowed.
+        for (int i = 0; i < 3; ++i) {
+            send(QEvent::MouseMove, to, Qt::NoButton, modifiers);
+            QTest::qWait(20);
+        }
         send(QEvent::MouseButtonRelease, to, Qt::LeftButton, modifiers);
     }
 

@@ -14,7 +14,7 @@
 class QAction;
 class QLabel;
 class QStackedWidget;
-class QComboBox;
+class QTabBar;
 class QTableView;
 class QToolButton;
 
@@ -61,6 +61,10 @@ public:
     ResultModel *model() const { return m_model; }
     QTableView *table() const { return m_table; }
     ResultTextView *textView() const { return m_text; }
+    // The editing palette and the button that shows it.
+    QToolButton *editToggle() const { return m_editToggle; }
+    QWidget *editBar() const { return m_editBar; }
+    QTabBar *modeTabs() const { return m_modeTabs; }
     QTableView *recordView() const { return m_record; }
     bool isRunning() const { return m_running; }
     // Cancels the running query, if it is one this view runs itself.
@@ -99,8 +103,9 @@ private:
     ResultTextView *m_text = nullptr;
     QTableView *m_record = nullptr;
     RecordModel *m_recordModel = nullptr;
-    QComboBox *m_modeBox = nullptr;
-    QWidget *m_recordBar = nullptr;
+    QTabBar *m_modeTabs = nullptr;
+    QLabel *m_recordLabel = nullptr; // "Row 3 of 42" under the record form.
+    QToolButton *m_editToggle = nullptr;
     QToolButton *m_export = nullptr;
     QAction *m_previousRow = nullptr;
     QAction *m_nextRow = nullptr;

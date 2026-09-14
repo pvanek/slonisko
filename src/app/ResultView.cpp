@@ -9,7 +9,6 @@
 
 #include <QAction>
 #include <QClipboard>
-#include <QComboBox>
 #include <QFileDialog>
 #include <QGuiApplication>
 #include <QMenu>
@@ -25,6 +24,7 @@
 #include <QStackedWidget>
 #include <QStyle>
 #include <QStyleOptionHeader>
+#include <QTabBar>
 #include <QTableView>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -154,20 +154,30 @@ ResultView::ResultView(QWidget *parent)
     connect(m_model, &ResultModel::changesChanged, this, &ResultView::updateEditing);
     connect(m_model, &ResultModel::editTargetChanged, this, &ResultView::updateEditing);
 
-    auto *header = new QHBoxLayout;
-    header->setContentsMargins(4, 2, 4, 2);
-    header->addWidget(m_title);
-    header->addStretch();
-    header->addWidget(m_editLabel);
-    header->addWidget(m_editBar);
-    // Grid, text or one row at a time, and the same rows written out.
-    m_modeBox = new QComboBox(this);
-    m_modeBox->addItem(tr("Grid"), int(ViewMode::Grid));
-    m_modeBox->addItem(tr("Text"), int(ViewMode::Text));
-    m_modeBox->addItem(tr("Record"), int(ViewMode::Record));
-    m_modeBox->setToolTip(tr("How to show the rows"));
-    connect(m_modeBox, &QComboBox::activated, this,
-            [this](int index) { setViewMode(ViewMode(m_modeBox->itemData(index).toInt())); });
+    // The palette of editing tools: out of the way until it is wanted.
+    m_editToggle = new QToolButton(this);
+    m_editToggle->setIcon(QIcon::fromTheme(QStringLiteral("document-edit")));
+    m_editToggle->setText(tr("Edit"));
+    m_editToggle->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_editToggle->setToolTip(tr("Show the editing tools"));
+    m_editToggle->setCheckable(true);
+    m_editToggle->setAutoRaise(true);
+    connect(m_editToggle, &QToolButton::toggled, this, [this] { updateEditing(); });
+
+    // Grid, text or one row at a time: tabs down the left side.
+    m_modeTabs = new QTabBar(this);
+    m_modeTabs->setShape(QTabBar::RoundedWest);
+    m_modeTabs->setExpanding(false);
+    m_modeTabs->setDrawBase(false);
+    m_modeTabs->addTab(tr("Grid"));
+    m_modeTabs->addTab(tr("Text"));
+    m_modeTabs->addTab(tr("Record"));
+    m_modeTabs->setTabToolTip(0, tr("The rows in a table, editable"));
+    m_modeTabs->setTabToolTip(1, tr("The rows as text, to copy out; Alt+drag selects a block"));
+    m_modeTabs->setTabToolTip(2, tr("One row at a time"));
+    connect(m_modeTabs, &QTabBar::currentChanged, this,
+            [this](int index) { setViewMode(ViewMode(index)); });
+
     // Arrows from the style when the icon theme has none, so the buttons
     // stay small either way.
     m_previousRow = new QAction(
@@ -178,12 +188,6 @@ ResultView::ResultView(QWidget *parent)
         tr("Next Row"), this);
     connect(m_previousRow, &QAction::triggered, this, [this] { stepRecord(-1); });
     connect(m_nextRow, &QAction::triggered, this, [this] { stepRecord(1); });
-    auto *recordBar = new QToolBar(this);
-    recordBar->setIconSize(QSize(16, 16));
-    recordBar->addAction(m_previousRow);
-    recordBar->addAction(m_nextRow);
-    recordBar->setVisible(false);
-    m_recordBar = recordBar;
 
     m_export = new QToolButton(this);
     m_export->setIcon(QIcon::fromTheme(QStringLiteral("document-save-as")));
@@ -206,10 +210,12 @@ ResultView::ResultView(QWidget *parent)
     }
     m_export->setMenu(menu);
 
-    header->addWidget(m_recordBar);
-    header->addWidget(m_modeBox);
+    auto *header = new QHBoxLayout;
+    header->setContentsMargins(4, 2, 4, 2);
+    header->addWidget(m_title);
+    header->addStretch();
+    header->addWidget(m_editToggle);
     header->addWidget(m_export);
-    header->addWidget(m_status);
     header->addWidget(m_stop);
     header->addWidget(m_refresh);
 
@@ -262,16 +268,50 @@ ResultView::ResultView(QWidget *parent)
             updateRecord();
     });
 
+    // The record form and its own row navigation, under it.
+    auto *recordPage = new QWidget(this);
+    auto *recordLayout = new QVBoxLayout(recordPage);
+    recordLayout->setContentsMargins(0, 0, 0, 0);
+    recordLayout->setSpacing(0);
+    recordLayout->addWidget(m_record);
+    auto *recordNav = new QToolBar(recordPage);
+    recordNav->setIconSize(QSize(16, 16));
+    recordNav->addAction(m_previousRow);
+    recordNav->addAction(m_nextRow);
+    m_recordLabel = new QLabel(recordPage);
+    auto *navLayout = new QHBoxLayout;
+    navLayout->setContentsMargins(4, 0, 4, 2);
+    navLayout->addWidget(recordNav);
+    navLayout->addWidget(m_recordLabel);
+    navLayout->addStretch();
+    recordLayout->addLayout(navLayout);
+
     m_stack->addWidget(m_table);
     m_stack->addWidget(m_text);
-    m_stack->addWidget(m_record);
+    m_stack->addWidget(recordPage);
     m_stack->addWidget(m_message);
+
+    // Row count and how long the query took: out of the way at the bottom.
+    m_status->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    auto *footer = new QHBoxLayout;
+    footer->setContentsMargins(4, 2, 4, 2);
+    footer->addWidget(m_editLabel);
+    footer->addStretch();
+    footer->addWidget(m_status);
+
+    auto *middle = new QHBoxLayout;
+    middle->setContentsMargins(0, 0, 0, 0);
+    middle->setSpacing(0);
+    middle->addWidget(m_modeTabs, 0, Qt::AlignTop);
+    middle->addWidget(m_stack, 1);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addLayout(header);
-    layout->addWidget(m_stack);
+    layout->addWidget(m_editBar);
+    layout->addLayout(middle, 1);
+    layout->addLayout(footer);
 
     showMessage(tr("Run a statement with Ctrl+Enter, or double-click an item under DBA Tools "
                    "or System Info."));
@@ -283,7 +323,12 @@ void ResultView::updateEditing()
     const catalog::EditTarget &target = m_model->editTarget();
     const bool editable = target.editable();
     const bool changes = m_model->hasChanges();
-    m_editBar->setVisible(editable);
+    m_editToggle->setEnabled(editable);
+    if (!editable)
+        m_editToggle->setChecked(false);
+    else if (changes)
+        m_editToggle->setChecked(true); // Save and Discard have to be reachable.
+    m_editBar->setVisible(editable && m_editToggle->isChecked());
     m_editLabel->setVisible(m_model->hasColumns() && (editable || !target.reason.isEmpty()));
     if (editable) {
         m_editLabel->setText(tr("Editing %1.%2").arg(target.schema, target.table));
@@ -380,14 +425,13 @@ void ResultView::setViewMode(ViewMode mode)
     if (m_mode == mode)
         return;
     m_mode = mode;
-    if (const int index = m_modeBox->findData(int(mode)); index >= 0)
-        m_modeBox->setCurrentIndex(index);
+    if (m_modeTabs->currentIndex() != int(mode))
+        m_modeTabs->setCurrentIndex(int(mode));
     updateView();
 }
 
 void ResultView::updateView(bool force)
 {
-    m_recordBar->setVisible(m_mode == ViewMode::Record);
     if (!force && m_stack->currentWidget() == m_message && !m_model->hasColumns())
         return; // A message, an error or nothing run yet: no rows to show.
 
@@ -407,7 +451,7 @@ void ResultView::updateView(bool force)
         return;
     case ViewMode::Record:
         updateRecord();
-        m_stack->setCurrentWidget(m_record);
+        m_stack->setCurrentWidget(m_record->parentWidget());
         return;
     }
 }
@@ -421,8 +465,8 @@ void ResultView::updateRecord()
     m_record->resizeColumnToContents(0);
     m_previousRow->setEnabled(row > 0);
     m_nextRow->setEnabled(row >= 0 && row + 1 < m_model->rowCount());
-    m_recordBar->setToolTip(row < 0 ? QString()
-                                    : tr("Row %1 of %2").arg(row + 1).arg(m_model->rowCount()));
+    m_recordLabel->setText(row < 0 ? QString()
+                                   : tr("Row %1 of %2").arg(row + 1).arg(m_model->rowCount()));
 }
 
 void ResultView::stepRecord(int by)
