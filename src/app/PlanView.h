@@ -9,9 +9,13 @@
 #include <QWidget>
 
 class QLabel;
+class QStackedWidget;
+class QTabBar;
 class QTreeView;
 
 namespace slonisko {
+
+class ResultTextView;
 
 // An EXPLAIN plan as a tree.
 class PlanModel : public QAbstractItemModel
@@ -71,10 +75,23 @@ public:
     void showMessage(const QString &text, bool error = false);
     PlanModel *model() const { return m_model; }
 
+    // The same plan as a tree or as the text psql would print.
+    enum class ViewMode { Tree, Text };
+    void setViewMode(ViewMode mode);
+    ViewMode viewMode() const { return m_mode; }
+
+    QTreeView *tree() const { return m_tree; }
+    ResultTextView *textView() const { return m_text; }
+    QTabBar *modeTabs() const { return m_modeTabs; }
+
 private:
     QLabel *m_summary = nullptr;
+    QTabBar *m_modeTabs = nullptr;
+    QStackedWidget *m_stack = nullptr;
     QTreeView *m_tree = nullptr;
+    ResultTextView *m_text = nullptr;
     PlanModel *m_model = nullptr;
+    ViewMode m_mode = ViewMode::Tree;
 };
 
 } // namespace slonisko

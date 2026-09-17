@@ -82,6 +82,25 @@ private Q_SLOTS:
         QCOMPARE(join.children[1].exclusive, 0.0); // The Hash costs nothing beyond its child.
     }
 
+    void asText()
+    {
+        const auto plan = parsePlan(Estimated);
+        QVERIFY(plan);
+        // psql's shape: children behind "->", details indented under their
+        // node, costs after the node's name.
+        const QStringList lines = planText(*plan).split(QLatin1Char('\n'));
+        QVERIFY(lines.first().startsWith(QLatin1String("Hash Left Join  (cost=")));
+        QCOMPARE(lines.value(1), QStringLiteral("  Hash Cond: (o.customer_id = c.id)"));
+        QVERIFY(
+            lines.value(2).startsWith(QLatin1String("  ->  Seq Scan on public.orders o  (cost=")));
+        QCOMPARE(lines.value(3), QStringLiteral("        Filter: (total > 10)"));
+        QVERIFY(lines.value(4).startsWith(QLatin1String("  ->  Hash  (cost=")));
+        QVERIFY(lines.value(5).startsWith(QLatin1String(
+            "        ->  Index Only Scan on public.customers c using customers_pkey  (cost=")));
+        QVERIFY(!planText(*plan).contains(QLatin1String("actual time"))); // Not analyzed.
+        QVERIFY(planText(Plan {}).isEmpty());
+    }
+
     void invalid()
     {
         QString error;

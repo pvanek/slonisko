@@ -225,6 +225,28 @@ private Q_SLOTS:
         runAndWait();
     }
 
+    void explainAsText()
+    {
+        setText("SELECT * FROM generate_series(1, 3)");
+        m_tab->explain(false);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        PlanView *plan = m_tab->resultPanel()->plan();
+        QCOMPARE(plan->viewMode(), PlanView::ViewMode::Tree);
+
+        plan->modeTabs()->setCurrentIndex(1);
+        QCOMPARE(plan->viewMode(), PlanView::ViewMode::Text);
+        QVERIFY(plan->textView()->isVisibleTo(plan));
+        const QString text = plan->textView()->text();
+        QVERIFY2(text.contains(QLatin1String("Function Scan")), qPrintable(text));
+        QVERIFY(text.contains(QLatin1String("(cost=")));
+
+        // A failed explain leaves no stale plan text behind.
+        setText("SELECT * FROM no_such_table_here");
+        m_tab->explain(false);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        QVERIFY(plan->textView()->text().isEmpty());
+    }
+
     void explainErrorIsMarked()
     {
         setText("SELECT nope FROM (SELECT 1) s;");

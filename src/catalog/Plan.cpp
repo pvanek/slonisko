@@ -7,6 +7,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <algorithm>
+
 namespace slonisko::catalog {
 
 namespace {
@@ -128,6 +130,60 @@ void computeExclusive(PlanNode &n, double whole)
 }
 
 } // namespace
+
+namespace {
+
+QString spaces(int count)
+{
+    return QString(std::max(0, count), QLatin1Char(' '));
+}
+
+QString describe(const PlanNode &node)
+{
+    QString line = node.nodeType;
+    if (!node.object.isEmpty())
+        line += QStringLiteral(" on ") + node.object;
+    line += QStringLiteral("  (cost=%1..%2 rows=%3 width=%4)")
+                .arg(node.startupCost, 0, 'f', 2)
+                .arg(node.totalCost, 0, 'f', 2)
+                .arg(qint64(node.planRows))
+                .arg(node.planWidth);
+    if (node.actualTotalMs && node.actualRows && node.loops) {
+        line += QStringLiteral(" (actual time=%1..%2 rows=%3 loops=%4)")
+                    .arg(node.actualStartupMs.value_or(0), 0, 'f', 3)
+                    .arg(*node.actualTotalMs, 0, 'f', 3)
+                    .arg(*node.actualRows, 0, 'g', 6)
+                    .arg(qint64(*node.loops));
+    }
+    return line;
+}
+
+// indent is the column the node's own text starts at; its "->" goes four
+// columns to the left of it, as in psql's output.
+void appendNode(const PlanNode &node, int indent, QStringList &out)
+{
+    out << (indent > 0 ? spaces(indent - 4) + QStringLiteral("->  ") : QString()) + describe(node);
+    for (const QString &detail : node.details)
+        out << spaces(indent + 2) + detail;
+    for (const PlanNode &child : node.children)
+        appendNode(child, indent + 6, out);
+}
+
+} // namespace
+
+QString planText(const Plan &plan)
+{
+    if (plan.root.nodeType.isEmpty())
+        return {};
+    QStringList lines;
+    appendNode(plan.root, 0, lines);
+    if (plan.planningMs)
+        lines << QStringLiteral("Planning Time: %1 ms").arg(*plan.planningMs, 0, 'f', 3);
+    if (plan.executionMs)
+        lines << QStringLiteral("Execution Time: %1 ms").arg(*plan.executionMs, 0, 'f', 3);
+    lines << QString();
+    return lines.join(QLatin1Char('\n'));
+}
 
 std::optional<Plan> parsePlan(const QByteArray &json, QString *error)
 {

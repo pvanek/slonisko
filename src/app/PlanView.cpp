@@ -3,9 +3,14 @@
 
 #include "PlanView.h"
 
+#include "ResultTextView.h"
+
 #include <QColor>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QStackedWidget>
+#include <QTabBar>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -172,11 +177,35 @@ PlanView::PlanView(QWidget *parent)
     m_tree->setUniformRowHeights(true);
     m_tree->header()->setStretchLastSection(true);
 
+    // The plan as text: Scintilla again, so a block of it can be copied.
+    m_text = new ResultTextView(this);
+
+    m_modeTabs = new QTabBar(this);
+    m_modeTabs->setShape(QTabBar::RoundedWest);
+    m_modeTabs->setExpanding(false);
+    m_modeTabs->setDrawBase(false);
+    m_modeTabs->addTab(tr("Tree"));
+    m_modeTabs->addTab(tr("Text"));
+    m_modeTabs->setTabToolTip(0, tr("The plan as a tree, with costs and timings"));
+    m_modeTabs->setTabToolTip(1, tr("The plan as text, the way psql prints it"));
+    connect(m_modeTabs, &QTabBar::currentChanged, this,
+            [this](int index) { setViewMode(ViewMode(index)); });
+
+    m_stack = new QStackedWidget(this);
+    m_stack->addWidget(m_tree);
+    m_stack->addWidget(m_text);
+
+    auto *middle = new QHBoxLayout;
+    middle->setContentsMargins(0, 0, 0, 0);
+    middle->setSpacing(0);
+    middle->addWidget(m_modeTabs, 0, Qt::AlignTop);
+    middle->addWidget(m_stack, 1);
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(m_summary);
-    layout->addWidget(m_tree);
+    layout->addLayout(middle, 1);
     showMessage(tr("Explain a statement with Ctrl+E, or Ctrl+Shift+E to also run it."));
 }
 
@@ -198,11 +227,22 @@ void PlanView::setPlan(const catalog::Plan &plan)
         summary << tr("execution %1 ms").arg(*plan.executionMs, 0, 'f', 3);
     m_summary->setStyleSheet(QString());
     m_summary->setText(summary.join(QStringLiteral(" · ")));
+    m_text->setText(catalog::planText(plan));
+}
+
+void PlanView::setViewMode(ViewMode mode)
+{
+    m_mode = mode;
+    if (m_modeTabs->currentIndex() != int(mode))
+        m_modeTabs->setCurrentIndex(int(mode));
+    m_stack->setCurrentWidget(mode == ViewMode::Tree ? static_cast<QWidget *>(m_tree)
+                                                     : static_cast<QWidget *>(m_text));
 }
 
 void PlanView::showMessage(const QString &text, bool error)
 {
     m_model->clear();
+    m_text->setText(QString());
     m_summary->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());
     m_summary->setText(text);
 }

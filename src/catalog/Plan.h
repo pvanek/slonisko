@@ -52,4 +52,8 @@ struct Plan
 // nullopt and sets error.
 std::optional<Plan> parsePlan(const QByteArray &json, QString *error = nullptr);
 
+// The plan as text, the way psql prints EXPLAIN: one line per node, its
+// children under it behind "->", its details indented below it.
+QString planText(const Plan &plan);
+
 } // namespace slonisko::catalog
