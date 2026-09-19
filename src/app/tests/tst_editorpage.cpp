@@ -24,6 +24,9 @@
 #include <QTableView>
 #include <QTabWidget>
 #include <QFile>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QItemSelectionModel>
 #include <QHeaderView>
 #include <QPlainTextEdit>
 #include <QLabel>
@@ -731,13 +734,74 @@ private Q_SLOTS:
         QCOMPARE(view->modeTabs()->currentIndex(), 0);
     }
 
+    void exportsSelectedRows()
+    {
+        runSql("SELECT i AS n FROM generate_series(1, 5) i");
+        ResultView *view = m_tab->resultPanel()->results();
+        QCOMPARE(model()->rowCount(), 5);
+        QVERIFY(view->allRowsFetched());
+
+        // Rows 2 and 4, picked in the grid.
+        QItemSelectionModel *selection = view->table()->selectionModel();
+        selection->select(model()->index(1, 0),
+                          QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        selection->select(model()->index(3, 0),
+                          QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        QCOMPARE(view->selectedRows(), (std::vector<int> {1, 3}));
+
+        catalog::ExportOptions options = view->exportOptions(catalog::ExportFormat::Csv);
+        options.rows = view->selectedRows();
+        QCOMPARE(catalog::exportRows(model()->rows(), options), QStringLiteral("n\n2\n4\n"));
+
+        // Copy takes the selection too, and puts it on the clipboard.
+        view->copyAs(catalog::ExportFormat::Csv);
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("n\n2\n4\n"));
+
+        // With nothing selected it is the whole result again.
+        selection->clearSelection();
+        view->copyAs(catalog::ExportFormat::Csv);
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("n\n1\n2\n3\n4\n5\n"));
+    }
+
+    void exportsAllRowsBeyondTheLimit()
+    {
+        // The grid stops at the row limit, which libpq applies per chunk of
+        // 1000 rows, so the query has to be bigger than one chunk.
+        // Rows have to trickle in for the limit's cancel to land before the
+        // query is over: a millisecond each, and chunks of 1000.
+        m_tab->setRowLimit(2);
+        runSql("SELECT i AS n FROM generate_series(1, 1500) i WHERE pg_sleep(0.001)::text = ''");
+        ResultView *view = m_tab->resultPanel()->results();
+        QVERIFY2(model()->rowCount() < 1500, qPrintable(QString::number(model()->rowCount())));
+        QVERIFY(!view->allRowsFetched()); // So "all rows" runs it again.
+
+        const QString path = m_dir.filePath(QStringLiteral("all.csv"));
+        catalog::ExportOptions options = view->exportOptions(catalog::ExportFormat::Csv);
+        Q_EMIT view->exportAllRequested(options, path);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 20'000));
+
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QStringList lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+        QCOMPARE(lines.first(), QStringLiteral("n")); // One header, not one per chunk.
+        QCOMPARE(lines.value(1), QStringLiteral("1"));
+        QCOMPARE(lines.value(1500), QStringLiteral("1500"));
+        QCOMPARE(lines.value(1501), QString()); // Nothing after the last row.
+        QVERIFY2(messages().contains(QLatin1String("Exported 1500 rows")), qPrintable(messages()));
+
+        // The grid itself is untouched by the export.
+        QVERIFY(model()->rowCount() < 1500);
+        m_tab->setRowLimit(1000);
+    }
+
     void exportsRows()
     {
         runSql("SELECT i AS n, 'it''s' AS t FROM generate_series(1, 2) i");
         ResultView *view = m_tab->resultPanel()->results();
         const QString path = m_dir.filePath(QStringLiteral("rows.csv"));
         QString error;
-        QVERIFY2(view->exportTo(catalog::ExportFormat::Csv, path, &error), qPrintable(error));
+        QVERIFY2(view->exportTo(view->exportOptions(catalog::ExportFormat::Csv), path, &error),
+                 qPrintable(error));
         QFile file(path);
         QVERIFY(file.open(QIODevice::ReadOnly));
         QCOMPARE(QString::fromUtf8(file.readAll()), QStringLiteral("n,t\n1,it's\n2,it's\n"));

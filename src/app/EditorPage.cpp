@@ -132,6 +132,7 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     connect(m_browser, &ConnectionBrowser::sessionsChanged, this, &EditorPage::updateSessions);
     connect(m_editor, &QsciScintilla::modificationChanged, this, &EditorPage::titleChanged);
     connect(m_panel->results(), &ResultView::saveRequested, this, [this] { saveChanges(); });
+    connect(m_panel->results(), &ResultView::exportAllRequested, this, &EditorPage::exportAll);
     m_editor->setSnapshotProvider(
         [this] { return m_session ? m_session->snapshot(m_database) : catalog::SnapshotPtr(); });
 
@@ -631,7 +632,9 @@ void EditorPage::startNext()
     m_editInfo.clear();
     m_limited = false;
     m_timer.start();
-    const int chunk = m_current->kind == Job::Kind::Statement ? 1000 : 0;
+    const int chunk
+        = m_current->kind == Job::Kind::Statement || m_current->kind == Job::Kind::Export ? 1000
+                                                                                          : 0;
     if (!m_connection->execute(m_current->sql, chunk, m_current->copyData)) {
         m_panel->log(tr("Could not run the statement: %1").arg(m_connection->errorMessage()), true);
         finishAll();
@@ -703,6 +706,17 @@ void EditorPage::onResult(const pg::Result &result)
         if (result.status() != PGRES_TUPLES_CHUNK)
             m_commandTag = result.commandTag();
         break;
+    case Job::Kind::Export:
+        if (job.sink && result.rowCount() > 0) {
+            // One chunk at a time: the header goes with the first of them.
+            pg::RowStore chunk;
+            chunk.append(result);
+            catalog::ExportOptions options = job.sink->options;
+            options.header = options.header && job.sink->rows == 0;
+            catalog::exportRows(chunk, options, *job.sink->stream);
+            job.sink->rows += result.rowCount();
+        }
+        break;
     case Job::Kind::Silent:
     case Job::Kind::Dml:
         m_commandTag = result.commandTag();
@@ -750,6 +764,9 @@ void EditorPage::onFinished()
                     ? tr("Done in %1 ms.").arg(ms)
                     : tr("%1 in %2 ms.").arg(QString::fromUtf8(m_commandTag)).arg(ms));
         }
+        // The grid holds every row unless the row limit stopped the query,
+        // which decides what an export of "all rows" has to do.
+        m_panel->results()->setAllRowsFetched(!m_limited);
         // Rows from one table can be edited; find out which, and its key.
         if (m_rowsShown && !m_failed) {
             m_lastQuery = job;
@@ -758,6 +775,19 @@ void EditorPage::onFinished()
     } else if (job.kind == Job::Kind::Explain && !m_failed) {
         m_panel->log(
             tr("Explained: %1 (%2 ms)").arg(preview(job.sql.mid(job.prefixChars))).arg(ms));
+    } else if (job.kind == Job::Kind::Export && job.sink) {
+        Job::Sink &sink = *job.sink;
+        sink.stream->flush();
+        if (m_failed) {
+            sink.file->cancelWriting();
+            m_panel->log(tr("Export of %1 was not written.").arg(sink.path), true);
+        } else if (!sink.file->commit()) {
+            m_panel->log(tr("Could not write %1: %2").arg(sink.path, sink.file->errorString()),
+                         true);
+        } else {
+            m_panel->log(
+                tr("Exported %1 rows to %2 (%3 ms).").arg(sink.rows).arg(sink.path).arg(ms));
+        }
     } else if (job.kind == Job::Kind::EditInfo) {
         m_panel->results()->model()->setEditTarget(
             catalog::editTarget(m_panel->results()->model()->rows(), m_editInfo));
@@ -772,6 +802,37 @@ void EditorPage::onFinished()
     if (job.mayChangeCatalog && m_session && !m_failed)
         m_session->reloadSnapshot(m_database);
     startNext();
+}
+
+void EditorPage::exportAll(const catalog::ExportOptions &options, const QString &path)
+{
+    if (!m_lastQuery) {
+        m_panel->log(tr("There is no query to run again for the export."), true);
+        return;
+    }
+    if (isRunning()) {
+        m_panel->log(tr("Wait for the running statement before exporting."), true);
+        return;
+    }
+    auto sink = std::make_shared<Job::Sink>();
+    sink->options = options;
+    sink->options.maxRows = 0; // Every row, whatever the grid's limit was.
+    sink->options.rows.clear();
+    sink->path = path;
+    sink->file = std::make_unique<QSaveFile>(path);
+    if (!sink->file->open(QIODevice::WriteOnly | QIODevice::Text)) {
+        m_panel->log(tr("Could not write %1: %2").arg(path, sink->file->errorString()), true);
+        return;
+    }
+    sink->stream = std::make_unique<QTextStream>(sink->file.get());
+
+    Job job = *m_lastQuery;
+    job.kind = Job::Kind::Export;
+    job.message.clear();
+    job.sink = std::move(sink);
+    m_panel->log(tr("Exporting every row of %1 to %2…").arg(preview(job.sql), path));
+    m_panel->showMessages();
+    start(std::deque<Job> {job});
 }
 
 void EditorPage::lookUpEditTarget()

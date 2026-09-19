@@ -24,9 +24,34 @@ std::vector<int> columnsOf(const pg::RowStore &rows, const ExportOptions &option
     return all;
 }
 
-int rowsOf(const pg::RowStore &rows, const ExportOptions &options)
+// The rows to write, in order: the chosen ones, or all of them, and never
+// more than maxRows.
+std::vector<int> rowsOf(const pg::RowStore &rows, const ExportOptions &options)
 {
-    return options.maxRows > 0 ? std::min(options.maxRows, rows.rowCount()) : rows.rowCount();
+    std::vector<int> out;
+    if (options.rows.empty()) {
+        const int last
+            = options.maxRows > 0 ? std::min(options.maxRows, rows.rowCount()) : rows.rowCount();
+        out.resize(std::size_t(std::max(0, last)));
+        for (int row = 0; row < last; ++row)
+            out[std::size_t(row)] = row;
+        return out;
+    }
+    for (const int row : options.rows) {
+        if (row < 0 || row >= rows.rowCount())
+            continue; // A row the user added and has not saved yet.
+        if (options.maxRows > 0 && int(out.size()) >= options.maxRows)
+            break;
+        out.push_back(row);
+    }
+    return out;
+}
+
+// How many rows were left out, for the text view's "… more rows" line.
+int skipped(const pg::RowStore &rows, const ExportOptions &options, std::size_t written)
+{
+    const int total = options.rows.empty() ? rows.rowCount() : int(options.rows.size());
+    return total - int(written);
 }
 
 QString text(const pg::RowStore &rows, int row, int column)
@@ -58,8 +83,7 @@ void writeSeparated(const pg::RowStore &rows, const ExportOptions &options, QCha
                 << csvField(rows.column(columns[i]).name, delimiter);
         out << '\n';
     }
-    const int last = rowsOf(rows, options);
-    for (int row = 0; row < last; ++row) {
+    for (const int row : rowsOf(rows, options)) {
         for (std::size_t i = 0; i < columns.size(); ++i) {
             const int column = columns[i];
             if (i)
@@ -91,7 +115,7 @@ QString oneLine(const QString &value)
 void writeText(const pg::RowStore &rows, const ExportOptions &options, QTextStream &out)
 {
     const std::vector<int> columns = columnsOf(rows, options);
-    const int last = rowsOf(rows, options);
+    const std::vector<int> wanted = rowsOf(rows, options);
     const QString null = options.nullText.isEmpty() ? QStringLiteral("[NULL]") : options.nullText;
 
     auto cell = [&](int row, int column) {
@@ -103,7 +127,7 @@ void writeText(const pg::RowStore &rows, const ExportOptions &options, QTextStre
     std::vector<int> width(columns.size());
     for (std::size_t i = 0; i < columns.size(); ++i)
         width[i] = int(cut(rows.column(columns[i]).name, options.maxCellWidth).size());
-    for (int row = 0; row < last; ++row)
+    for (const int row : wanted)
         for (std::size_t i = 0; i < columns.size(); ++i)
             width[i] = std::max(width[i], int(cell(row, columns[i]).size()));
 
@@ -125,7 +149,7 @@ void writeText(const pg::RowStore &rows, const ExportOptions &options, QTextStre
             out << (i ? QStringLiteral("-+-") : QString()) << QString(width[i], QLatin1Char('-'));
         out << '\n';
     }
-    for (int row = 0; row < last; ++row) {
+    for (const int row : wanted) {
         for (std::size_t i = 0; i < columns.size(); ++i) {
             const int column = columns[i];
             const bool number
@@ -136,7 +160,7 @@ void writeText(const pg::RowStore &rows, const ExportOptions &options, QTextStre
         }
         out << '\n';
     }
-    if (const int more = rows.rowCount() - last; more > 0)
+    if (const int more = skipped(rows, options, wanted.size()); more > 0)
         out << (more == 1
                     ? QCoreApplication::translate("slonisko::catalog", "… 1 more row")
                     : QCoreApplication::translate("slonisko::catalog", "… %1 more rows").arg(more))
@@ -169,17 +193,19 @@ void writeInserts(const pg::RowStore &rows, const ExportOptions &options, QTextS
     const QString into = QStringLiteral("INSERT INTO %1 (%2) VALUES")
                              .arg(options.table, names.join(QStringLiteral(", ")));
 
-    const int last = rowsOf(rows, options);
+    const std::vector<int> wanted = rowsOf(rows, options);
     const bool bulk = options.format == ExportFormat::SqlBulkInsert;
     const int perStatement = bulk ? std::max(1, options.bulkRows) : 1;
-    for (int row = 0; row < last; ++row) {
+    for (std::size_t index = 0; index < wanted.size(); ++index) {
+        const int row = wanted[index];
         QStringList values;
         for (const int column : columns)
             values << literal(rows, row, column);
         const QString tuple
             = QLatin1Char('(') + values.join(QStringLiteral(", ")) + QLatin1Char(')');
-        const bool first = row % perStatement == 0;
-        const bool lastOfStatement = row + 1 == last || (row + 1) % perStatement == 0;
+        const bool first = index % std::size_t(perStatement) == 0;
+        const bool lastOfStatement
+            = index + 1 == wanted.size() || (index + 1) % std::size_t(perStatement) == 0;
         if (first)
             out << into << (bulk ? QLatin1Char('\n') : QLatin1Char(' '));
         out << (bulk ? QStringLiteral("    ") : QString()) << tuple

@@ -28,6 +28,9 @@ add_library(slonisko_ui STATIC
     PageWindow.h
     PlanView.cpp
     PlanView.h
+    ExportDialog.cpp
+    ExportDialog.h
+    ExportDialog.ui
     Qsci.h
     ResultTextView.cpp
     ResultTextView.h

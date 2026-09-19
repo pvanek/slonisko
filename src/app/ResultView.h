@@ -53,10 +53,21 @@ public:
     void setViewMode(ViewMode mode);
     ViewMode viewMode() const { return m_mode; }
 
-    // Writes every row in one of the export formats.
-    bool exportTo(catalog::ExportFormat format, const QString &path,
+    // Writes the rows the options choose. Returns false and sets error when
+    // the file cannot be written.
+    bool exportTo(const catalog::ExportOptions &options, const QString &path,
                   QString *error = nullptr) const;
     catalog::ExportOptions exportOptions(catalog::ExportFormat format) const;
+    // The rows selected in the grid, in order.
+    std::vector<int> selectedRows() const;
+    // False when the server has more rows than were fetched, which makes
+    // "all rows" an export that runs the query again.
+    void setAllRowsFetched(bool all);
+    bool allRowsFetched() const { return m_allFetched; }
+    // Opens the export dialog, as the Export button does.
+    void exportWithDialog();
+    // Puts the rows on the clipboard: the selected ones, or all of them.
+    void copyAs(catalog::ExportFormat format);
 
     ResultModel *model() const { return m_model; }
     QTableView *table() const { return m_table; }
@@ -75,6 +86,9 @@ public:
 
 Q_SIGNALS:
     void finished();
+    // Every row is wanted but not all of them were fetched: whoever ran the
+    // query runs it again and writes the rows as they arrive.
+    void exportAllRequested(const slonisko::catalog::ExportOptions &options, const QString &path);
     // Save was asked for; whoever ran the query saves the model's changes.
     void saveRequested();
 
@@ -90,8 +104,6 @@ private:
     void updateView(bool force = false);
     void updateRecord(); // The row the record view shows.
     void stepRecord(int by); // Moves to another row in the record view.
-    void exportWithDialog(catalog::ExportFormat format);
-    void copyAs(catalog::ExportFormat format);
     void refresh();
 
     QLabel *m_title = nullptr;
@@ -128,6 +140,7 @@ private:
     bool m_sized = false; // Columns sized to their contents once rows arrived.
     ViewMode m_mode = ViewMode::Grid;
     bool m_textStale = true; // The text view is rendered when it is shown.
+    bool m_allFetched = true;
     // The text view renders this many rows at most; an export writes them all.
     static constexpr int MaxTextRows = 10000;
     // Long texts and JSON would take the whole view; headers get more room

@@ -31,6 +31,7 @@ struct ExportOptions
     int bulkRows = 100; // Rows per bulk INSERT.
     int maxCellWidth = 0; // Text: cut longer cells; 0 keeps them.
     int maxRows = 0; // 0 exports every row.
+    std::vector<int> rows; // Which rows, in this order; empty exports all.
     std::vector<int> columns; // Empty exports every column.
 };
 

@@ -3,6 +3,7 @@
 
 #include "ResultView.h"
 
+#include "ExportDialog.h"
 #include "ResultModel.h"
 #include "ResultTextView.h"
 #include "Shortcuts.h"
@@ -28,6 +29,8 @@
 #include <QTableView>
 #include <QToolButton>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace slonisko {
 
@@ -196,13 +199,11 @@ ResultView::ResultView(QWidget *parent)
     m_export->setAutoRaise(true);
     m_export->setPopupMode(QToolButton::InstantPopup);
     auto *menu = new QMenu(m_export);
-    using catalog::ExportFormat;
-    for (const ExportFormat format : {ExportFormat::Csv, ExportFormat::Tsv, ExportFormat::Text,
-                                      ExportFormat::SqlInsert, ExportFormat::SqlBulkInsert}) {
-        menu->addAction(tr("Save as %1…").arg(catalog::formatName(format)), this,
-                        [this, format] { exportWithDialog(format); });
-    }
+    // The dialog covers every combination; these are the everyday ones,
+    // which take the selected rows when there are any.
+    menu->addAction(tr("&Export…"), this, [this] { exportWithDialog(); });
     menu->addSeparator();
+    using catalog::ExportFormat;
     for (const ExportFormat format :
          {ExportFormat::Csv, ExportFormat::Text, ExportFormat::SqlInsert}) {
         menu->addAction(tr("Copy as %1").arg(catalog::formatName(format)), this,
@@ -491,7 +492,24 @@ catalog::ExportOptions ResultView::exportOptions(catalog::ExportFormat format) c
     return options;
 }
 
-bool ResultView::exportTo(catalog::ExportFormat format, const QString &path, QString *error) const
+std::vector<int> ResultView::selectedRows() const
+{
+    std::vector<int> rows;
+    for (const QModelIndex &index : m_table->selectionModel()->selectedIndexes()) {
+        if (std::ranges::find(rows, index.row()) == rows.end())
+            rows.push_back(index.row());
+    }
+    std::ranges::sort(rows);
+    return rows;
+}
+
+void ResultView::setAllRowsFetched(bool all)
+{
+    m_allFetched = all;
+}
+
+bool ResultView::exportTo(const catalog::ExportOptions &options, const QString &path,
+                          QString *error) const
 {
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
@@ -500,7 +518,7 @@ bool ResultView::exportTo(catalog::ExportFormat format, const QString &path, QSt
         return false;
     }
     QTextStream out(&file);
-    catalog::exportRows(m_model->rows(), exportOptions(format), out);
+    catalog::exportRows(m_model->rows(), options, out);
     out.flush();
     if (!file.commit()) {
         if (error)
@@ -510,31 +528,55 @@ bool ResultView::exportTo(catalog::ExportFormat format, const QString &path, QSt
     return true;
 }
 
-void ResultView::exportWithDialog(catalog::ExportFormat format)
+void ResultView::exportWithDialog()
 {
     if (!m_model->hasColumns()) {
         QMessageBox::information(this, tr("Export"), tr("There are no rows to export."));
         return;
     }
-    QString name = m_title->text().simplified().replace(QLatin1Char(' '), QLatin1Char('_'));
-    if (name.isEmpty())
-        name = tr("result");
-    const QString suggested = name + QLatin1Char('.') + catalog::fileSuffix(format);
-    const QString path
-        = QFileDialog::getSaveFileName(this, tr("Export as %1").arg(catalog::formatName(format)),
-                                       suggested, catalog::fileFilter(format));
-    if (path.isEmpty())
+    ExportDialog::Counts counts;
+    counts.fetched = m_model->rowCount();
+    counts.selected = int(selectedRows().size());
+    counts.truncated = !m_allFetched;
+    ExportDialog dialog(counts, exportOptions(catalog::ExportFormat::SqlInsert).table, this);
+    if (dialog.exec() != QDialog::Accepted)
         return;
-    if (QString error; !exportTo(format, path, &error))
-        QMessageBox::warning(this, tr("Export"), tr("Could not write %1: %2").arg(path, error));
+
+    catalog::ExportOptions options = dialog.options();
+    if (dialog.scope() == ExportDialog::Scope::Selected)
+        options.rows = selectedRows();
+
+    // Every row, but some are still on the server: whoever ran the query
+    // runs it again and streams what comes back.
+    if (dialog.scope() == ExportDialog::Scope::All && !m_allFetched) {
+        if (dialog.toClipboard()) {
+            QMessageBox::information(this, tr("Export"),
+                                     tr("Only the rows that were fetched can be copied to the "
+                                        "clipboard. Save them to a file instead."));
+            return;
+        }
+        Q_EMIT exportAllRequested(options, dialog.path());
+        return;
+    }
+
+    if (dialog.toClipboard()) {
+        QGuiApplication::clipboard()->setText(catalog::exportRows(m_model->rows(), options));
+        return;
+    }
+    if (QString error; !exportTo(options, dialog.path(), &error)) {
+        QMessageBox::warning(this, tr("Export"),
+                             tr("Could not write %1: %2").arg(dialog.path(), error));
+    }
 }
 
 void ResultView::copyAs(catalog::ExportFormat format)
 {
     if (!m_model->hasColumns())
         return;
-    QGuiApplication::clipboard()->setText(
-        catalog::exportRows(m_model->rows(), exportOptions(format)));
+    catalog::ExportOptions options = exportOptions(format);
+    // What is selected is what is meant; with no selection, everything.
+    options.rows = selectedRows();
+    QGuiApplication::clipboard()->setText(catalog::exportRows(m_model->rows(), options));
 }
 
 void ResultView::sizeColumns()

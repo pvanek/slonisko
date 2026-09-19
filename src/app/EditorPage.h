@@ -3,16 +3,20 @@
 
 #pragma once
 
+#include "catalog/Export.h"
 #include "pg/Connection.h"
 #include "sql/PsqlVariables.h"
 
 #include <QColor>
 #include <QElapsedTimer>
 #include <QPointer>
+#include <QSaveFile>
+#include <QTextStream>
 #include "WorkspacePage.h"
 
 #include <deque>
 #include <functional>
+#include <memory>
 #include <optional>
 
 class QAction;
@@ -109,6 +113,18 @@ private:
             Silent,
             EditInfo, // Looks up the table a result can be edited in.
             Dml, // Saves one edit; must change exactly one row.
+            Export, // Runs the shown query again, writing every row to a file.
+        };
+
+        // An export in progress: rows go to the file as they arrive, so a
+        // result far too big for the grid still fits through.
+        struct Sink
+        {
+            catalog::ExportOptions options;
+            QString path;
+            std::unique_ptr<QSaveFile> file;
+            std::unique_ptr<QTextStream> stream;
+            int rows = 0;
         };
         Kind kind = Kind::Statement;
         QByteArray sql;
@@ -122,6 +138,7 @@ private:
         bool analyze = false;
         QString message; // Logged when it succeeds.
         bool mayChangeCatalog = false; // Reload completion data after it: a COMMIT of unknown DDL.
+        std::shared_ptr<Sink> sink; // Export jobs only.
     };
 
     void updateSessions();
@@ -129,6 +146,8 @@ private:
     void updateActions();
     void updateStatus();
     static Job transactionJob(const QByteArray &sql, const QString &message);
+    // Runs the query whose rows are shown again, writing all of them out.
+    void exportAll(const catalog::ExportOptions &options, const QString &path);
     void start(std::deque<Job> jobs);
     void startNext();
     void onResult(const pg::Result &result);
