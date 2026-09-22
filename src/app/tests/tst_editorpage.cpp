@@ -5,6 +5,7 @@
 #include "MainWindow.h"
 #include "ResultPage.h"
 #include "EditorPage.h"
+#include "ObjectPage.h"
 #include "PlanView.h"
 #include "ResultModel.h"
 #include "ResultPanel.h"
@@ -487,6 +488,47 @@ private Q_SLOTS:
         QVERIFY(w.closePage(0));
         QCOMPARE(w.pages().size(), 1);
         QVERIFY(w.currentEditor());
+    }
+
+    void objectOpensDetailsPage()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("CREATE TEMP TABLE details_demo (id int PRIMARY KEY, note text NOT NULL)");
+        runSql("CREATE INDEX details_demo_note ON details_demo (note)");
+        runSql("SELECT 'details_demo'::regclass::oid AS oid");
+        const unsigned int oid = model()->index(0, 0).data().toString().toUInt();
+        QVERIFY(oid > 0);
+
+        ObjectPage *page = w.showObject(m_session.get(), {}, catalog::ObjectKind::Table, oid,
+                                        QStringLiteral("details_demo"));
+        QVERIFY(page);
+        QTRY_VERIFY(!page->detail().title.isEmpty());
+        QVERIFY(page->title().endsWith(QLatin1String("details_demo")));
+
+        // A tab for the overview and one per list, counts in their labels.
+        QStringList tabs;
+        for (int tab = 0; tab < page->tabs()->count(); ++tab)
+            tabs << page->tabs()->tabText(tab);
+        QVERIFY2(tabs.first().contains(QLatin1String("Overview")), qPrintable(tabs.join(u',')));
+        QVERIFY(tabs.contains(QStringLiteral("Columns (2)")));
+        QVERIFY(tabs.contains(QStringLiteral("Indexes (2)")));
+        QVERIFY(tabs.contains(QStringLiteral("Constraints (1)")));
+        QVERIFY(tabs.contains(QStringLiteral("Triggers"))); // None: no count.
+
+        // The same object again lands on the page it already has.
+        QCOMPARE(w.showObject(m_session.get(), {}, catalog::ObjectKind::Table, oid,
+                              QStringLiteral("details_demo")),
+                 page);
+
+        // The tree asks for it the same way.
+        Q_EMIT w.browser()->objectRequested(m_session.get(), QString(),
+                                            catalog::ObjectKind::Extension, extensionOid(),
+                                            QStringLiteral("plpgsql"));
+        auto *extension = qobject_cast<ObjectPage *>(w.currentPage());
+        QVERIFY(extension);
+        QTRY_COMPARE(extension->detail().title, QStringLiteral("plpgsql"));
+        QVERIFY(extension->tabs()->count() >= 2); // Overview and Objects.
     }
 
     void monitoringOpensResultPage()
@@ -989,6 +1031,12 @@ private:
     {
         m_tab->run();
         QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+    }
+
+    unsigned int extensionOid()
+    {
+        runSql("SELECT oid FROM pg_extension WHERE extname = 'plpgsql'");
+        return model()->index(0, 0).data().toString().toUInt();
     }
 
     ResultModel *model() const { return m_tab->resultPanel()->results()->model(); }

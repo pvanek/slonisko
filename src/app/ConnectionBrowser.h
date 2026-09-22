@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Session.h"
+#include "catalog/Objects.h"
 #include "config/PasswordStore.h"
 #include "config/ProfileStore.h"
 
@@ -60,6 +61,9 @@ Q_SIGNALS:
     // A DBA or System Info item was opened.
     void monitoringRequested(slonisko::Session *session, const QString &title,
                              const QByteArray &sql);
+    // An object whose details can be shown was opened.
+    void objectRequested(slonisko::Session *session, const QString &database,
+                         slonisko::catalog::ObjectKind kind, unsigned int oid, const QString &name);
 
 private:
     void createActions();

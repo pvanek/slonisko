@@ -5,6 +5,7 @@
 
 #include "BrowserDelegate.h"
 #include "BrowserModel.h"
+#include "catalog/Details.h"
 #include "ConnectionDialog.h"
 #include "Shortcuts.h"
 #include "catalog/Monitoring.h"
@@ -200,6 +201,18 @@ void ConnectionBrowser::onActivated(const QModelIndex &index)
             index.data(BrowserModel::MonitoringRole).toInt())];
         if (s && s->runner())
             Q_EMIT monitoringRequested(s, query.title, query.sql(s->serverVersion()));
+        break;
+    }
+    case NodeType::Object: {
+        const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
+        Session *s = m_model->sessionOf(index);
+        if (s && catalog::hasDetails(kind)) {
+            Q_EMIT objectRequested(s, index.data(BrowserModel::DatabaseRole).toString(), kind,
+                                   index.data(BrowserModel::OidRole).toUInt(),
+                                   index.data().toString());
+            break;
+        }
+        m_view->setExpanded(index, !m_view->isExpanded(index));
         break;
     }
     default:

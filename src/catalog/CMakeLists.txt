@@ -4,6 +4,8 @@
 add_library(slonisko_catalog STATIC
     Completion.cpp
     Completion.h
+    Details.cpp
+    Details.h
     Editing.cpp
     Editing.h
     Export.cpp

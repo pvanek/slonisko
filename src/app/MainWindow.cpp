@@ -10,6 +10,7 @@
 #include "PageTabWidget.h"
 #include "PageWindow.h"
 #include "ResultModel.h"
+#include "ObjectPage.h"
 #include "ResultPage.h"
 #include "ResultPanel.h"
 #include "ResultView.h"
@@ -62,6 +63,7 @@ MainWindow::MainWindow(QWidget *parent)
     connect(m_browser, &ConnectionBrowser::editorRequested, this,
             [this](Session *s, const QString &database) { newEditor(s, database); });
     connect(m_browser, &ConnectionBrowser::monitoringRequested, this, &MainWindow::showResult);
+    connect(m_browser, &ConnectionBrowser::objectRequested, this, &MainWindow::showObject);
 
     setupMenus();
     statusBar();
@@ -241,6 +243,23 @@ EditorPage *MainWindow::openFile(const QString &path)
     }
     m_pages->setCurrentWidget(editor);
     return editor;
+}
+
+ObjectPage *MainWindow::showObject(Session *session, const QString &database,
+                                   catalog::ObjectKind kind, unsigned int oid, const QString &name)
+{
+    for (WorkspacePage *page : pages()) {
+        auto *object = qobject_cast<ObjectPage *>(page);
+        if (object && object->session() == session && object->oid() == oid
+            && object->kind() == kind) {
+            showPage(object);
+            object->refresh();
+            return object;
+        }
+    }
+    auto *page = new ObjectPage(session, database, kind, oid, name);
+    addPage(page);
+    return page;
 }
 
 ResultPage *MainWindow::showResult(Session *session, const QString &title, const QByteArray &sql)

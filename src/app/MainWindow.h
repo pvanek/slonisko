@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "catalog/Objects.h"
+
 #include <QMainWindow>
 #include <QSettings>
 
@@ -17,6 +19,7 @@ class EditorPage;
 class FileBrowser;
 class PageTabWidget;
 class PageWindow;
+class ObjectPage;
 class ResultPage;
 class Session;
 class WorkspacePage;
@@ -62,6 +65,9 @@ public:
     // Shows a query's rows on a page of their own. The same query on the same
     // session reuses its page and runs again.
     ResultPage *showResult(Session *session, const QString &title, const QByteArray &sql);
+    // A page with everything about one object; the same object reuses its page.
+    ObjectPage *showObject(Session *session, const QString &database, catalog::ObjectKind kind,
+                           unsigned int oid, const QString &name);
     // Closes a page, if it agrees (an editor may ask to save).
     bool closePage(int index);
     bool closePage(WorkspacePage *page);
