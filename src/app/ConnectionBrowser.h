@@ -72,6 +72,8 @@ private:
     void onActivated(const QModelIndex &index);
     QUuid currentProfile() const;
 
+    // Opens the details page of the node the cursor is on, if it has one.
+    void showDetails(const QModelIndex &index);
     void newConnection();
     void editConnection();
     void duplicateConnection();
@@ -106,6 +108,7 @@ private:
     QAction *m_disconnect = nullptr;
     QAction *m_refresh = nullptr;
     QAction *m_openEditor = nullptr;
+    QAction *m_showDetails = nullptr;
     std::function<bool(const QString &)> m_confirm;
 };
 

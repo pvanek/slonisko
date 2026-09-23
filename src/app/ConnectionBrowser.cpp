@@ -102,6 +102,8 @@ void ConnectionBrowser::createActions()
         if (Session *s = currentSession(&database))
             Q_EMIT editorRequested(s, database);
     });
+    m_showDetails = action(QStringLiteral("dialog-information"), tr("&Details"),
+                           [this] { showDetails(m_view->currentIndex()); });
     m_refresh->setShortcuts(Shortcuts::refresh());
     m_refresh->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_delete->setShortcut(QKeySequence::Delete);
@@ -126,6 +128,21 @@ void ConnectionBrowser::updateActions()
     m_disconnect->setEnabled(busy);
     m_refresh->setEnabled(s && s->state() == Session::State::Connected);
     m_openEditor->setEnabled(s && s->state() == Session::State::Connected);
+    const QModelIndex index = m_view->currentIndex();
+    m_showDetails->setEnabled(
+        s && s->state() == Session::State::Connected
+        && catalog::hasDetails(
+            index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>()));
+}
+
+void ConnectionBrowser::showDetails(const QModelIndex &index)
+{
+    Session *s = m_model->sessionOf(index);
+    const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
+    if (!s || s->state() != Session::State::Connected || !catalog::hasDetails(kind))
+        return;
+    Q_EMIT objectRequested(s, index.data(BrowserModel::DatabaseRole).toString(), kind,
+                           index.data(BrowserModel::OidRole).toUInt(), index.data().toString());
 }
 
 std::vector<Session *> ConnectionBrowser::connectedSessions() const
@@ -168,6 +185,8 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
         if (m_openEditor->isEnabled()
             && (type == NodeType::Connection || type == NodeType::Database))
             menu.addAction(m_openEditor);
+        if (m_showDetails->isEnabled())
+            menu.addAction(m_showDetails);
         if (m_refresh->isEnabled())
             menu.addAction(m_refresh);
         if (type == NodeType::Connection) {
@@ -204,12 +223,11 @@ void ConnectionBrowser::onActivated(const QModelIndex &index)
         break;
     }
     case NodeType::Object: {
+        // Double-click opens what an object is; folders and databases
+        // expand instead, and have Details in their context menu.
         const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
-        Session *s = m_model->sessionOf(index);
-        if (s && catalog::hasDetails(kind)) {
-            Q_EMIT objectRequested(s, index.data(BrowserModel::DatabaseRole).toString(), kind,
-                                   index.data(BrowserModel::OidRole).toUInt(),
-                                   index.data().toString());
+        if (catalog::hasDetails(kind)) {
+            showDetails(index);
             break;
         }
         m_view->setExpanded(index, !m_view->isExpanded(index));

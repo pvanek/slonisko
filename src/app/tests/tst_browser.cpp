@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "BrowserModel.h"
+#include "catalog/Details.h"
 #include "ResultModel.h"
 #include "ResultView.h"
 #include "Session.h"
@@ -15,6 +16,7 @@
 
 using namespace slonisko;
 using NodeType = BrowserModel::NodeType;
+using ObjectKind = catalog::ObjectKind;
 
 namespace {
 
@@ -202,6 +204,33 @@ private Q_SLOTS:
 
         const QModelIndex info = expand(child(connection, QStringLiteral("System Info")));
         QVERIFY(childNames(info).contains(QStringLiteral("Server Overview")));
+    }
+
+    // Every kind the tree shows either opens a details page or does not,
+    // and the ones that do carry what the page needs.
+    void objectsWithDetails()
+    {
+        QVERIFY(catalog::hasDetails(ObjectKind::Table));
+        QVERIFY(catalog::hasDetails(ObjectKind::Database));
+        QVERIFY(catalog::hasDetails(ObjectKind::Schema));
+        QVERIFY(catalog::hasDetails(ObjectKind::Sequence));
+        QVERIFY(!catalog::hasDetails(ObjectKind::Column));
+
+        const QModelIndex connection = connect(m_server->profile);
+        const QModelIndex database = child(connection, m_server->profile.database);
+        QVERIFY(database.isValid());
+        QCOMPARE(database.data(BrowserModel::ObjectKindRole).value<ObjectKind>(),
+                 ObjectKind::Database);
+
+        const QModelIndex schemas = expand(child(expand(database), QStringLiteral("Schemas")));
+        const QModelIndex schema = expand(child(schemas, QStringLiteral("slonisko_browser")));
+        QCOMPARE(schema.data(BrowserModel::ObjectKindRole).value<ObjectKind>(), ObjectKind::Schema);
+
+        const QModelIndex tables = expand(child(schema, QStringLiteral("Tables")));
+        const QModelIndex table = child(tables, QStringLiteral("t"));
+        QVERIFY(table.isValid());
+        QCOMPARE(table.data(BrowserModel::ObjectKindRole).value<ObjectKind>(), ObjectKind::Table);
+        QVERIFY(table.data(BrowserModel::OidRole).toUInt() > 0);
     }
 
     void disconnectClears()

@@ -44,9 +44,28 @@ CREATE TRIGGER t_trg BEFORE INSERT ON t FOR EACH ROW EXECUTE FUNCTION trg();
 CREATE VIEW v AS SELECT id, name FROM t WHERE amount > 0;
 CREATE MATERIALIZED VIEW mv AS SELECT id FROM t;
 CREATE INDEX mv_id ON mv (id);
+CREATE SEQUENCE s START 5 INCREMENT 2;
+CREATE FUNCTION add(a int, b int) RETURNS int LANGUAGE sql RETURN a + b;
+CREATE PROCEDURE p(x int) LANGUAGE sql BEGIN ATOMIC SELECT x; END;
+CREATE AGGREGATE mysum(int) (sfunc = int4pl, stype = int);
+CREATE TYPE mood AS ENUM ('sad', 'happy');
+CREATE TYPE pair AS (a int, b int);
+CREATE DOMAIN posint AS int NOT NULL CHECK (VALUE > 0);
+ALTER TABLE t ENABLE ROW LEVEL SECURITY;
+CREATE POLICY t_read ON t FOR SELECT USING (true);
+SET client_min_messages = error;
+DROP PUBLICATION IF EXISTS slonisko_details_pub;
+CREATE PUBLICATION slonisko_details_pub FOR TABLE t;
+DROP EVENT TRIGGER IF EXISTS slonisko_details_evt;
+CREATE FUNCTION evt() RETURNS event_trigger LANGUAGE plpgsql AS $$BEGIN END$$;
+CREATE EVENT TRIGGER slonisko_details_evt ON ddl_command_end EXECUTE FUNCTION evt();
 )sql";
 
-const char *const Teardown = "DROP SCHEMA IF EXISTS slonisko_details_test CASCADE";
+const char *const Teardown = R"sql(
+DROP EVENT TRIGGER IF EXISTS slonisko_details_evt;
+DROP PUBLICATION IF EXISTS slonisko_details_pub;
+DROP SCHEMA IF EXISTS slonisko_details_test CASCADE;
+)sql";
 
 } // namespace
 
@@ -78,9 +97,11 @@ private Q_SLOTS:
         QVERIFY(hasDetails(ObjectKind::View));
         QVERIFY(hasDetails(ObjectKind::MaterializedView));
         QVERIFY(hasDetails(ObjectKind::Extension));
-        QVERIFY(!hasDetails(ObjectKind::Sequence));
-        QVERIFY(!hasDetails(ObjectKind::Schema));
-        QVERIFY(detailQueries(ObjectKind::Sequence, 1).empty());
+        QVERIFY(hasDetails(ObjectKind::Sequence));
+        QVERIFY(hasDetails(ObjectKind::Role));
+        // A column is described by its table's Columns tab, not a page.
+        QVERIFY(!hasDetails(ObjectKind::Column));
+        QVERIFY(detailQueries(ObjectKind::Column, 1).empty());
     }
 
     void table()
@@ -141,8 +162,9 @@ private Q_SLOTS:
 
     void extension()
     {
-        const ObjectDetail detail = detailOf(
-            ObjectKind::Extension, oidOf("oid FROM pg_extension WHERE extname = 'plpgsql'", true));
+        const ObjectDetail detail
+            = detailOf(ObjectKind::Extension,
+                       oidFrom("SELECT oid FROM pg_extension WHERE extname = 'plpgsql'"));
         QCOMPARE(detail.title, QStringLiteral("plpgsql"));
         QCOMPARE(detail.subtitle, kindName(ObjectKind::Extension));
         QVERIFY(!property(detail, QStringLiteral("version")).isEmpty());
@@ -155,6 +177,175 @@ private Q_SLOTS:
         const DetailTable &objects = table(detail, QStringLiteral("Objects"));
         QVERIFY(!objects.rows.empty());
         QVERIFY(firstColumn(objects, 1).contains(QStringLiteral("plpgsql_call_handler")));
+    }
+
+    // Every kind's queries have to be valid SQL and find their object; this
+    // is what catches a typo or a column that a PostgreSQL version renamed.
+    void everyKind_data()
+    {
+        QTest::addColumn<int>("kind");
+        QTest::addColumn<QByteArray>("oidQuery");
+        QTest::addColumn<QString>("title");
+
+        auto row = [](const char *name, ObjectKind kind, const char *oidQuery, const char *title) {
+            QTest::newRow(name) << int(kind) << QByteArray(oidQuery) << QString::fromUtf8(title);
+        };
+        row("database", ObjectKind::Database,
+            "SELECT oid FROM pg_database WHERE datname = current_database()", "");
+        row("schema", ObjectKind::Schema,
+            "SELECT oid FROM pg_namespace WHERE nspname = 'slonisko_details_test'",
+            "slonisko_details_test");
+        row("sequence", ObjectKind::Sequence, "SELECT 'slonisko_details_test.s'::regclass::oid",
+            "slonisko_details_test.s");
+        row("function", ObjectKind::Function,
+            "SELECT 'slonisko_details_test.add(int, int)'::regprocedure::oid",
+            "slonisko_details_test.add");
+        row("procedure", ObjectKind::Procedure,
+            "SELECT 'slonisko_details_test.p(int)'::regprocedure::oid", "slonisko_details_test.p");
+        row("aggregate", ObjectKind::Aggregate,
+            "SELECT 'slonisko_details_test.mysum(int)'::regprocedure::oid",
+            "slonisko_details_test.mysum");
+        row("enum type", ObjectKind::Type, "SELECT 'slonisko_details_test.mood'::regtype::oid",
+            "slonisko_details_test.mood");
+        row("composite type", ObjectKind::Type, "SELECT 'slonisko_details_test.pair'::regtype::oid",
+            "slonisko_details_test.pair");
+        row("domain", ObjectKind::Domain, "SELECT 'slonisko_details_test.posint'::regtype::oid",
+            "slonisko_details_test.posint");
+        row("index", ObjectKind::Index, "SELECT 'slonisko_details_test.t_name'::regclass::oid",
+            "slonisko_details_test.t_name");
+        row("trigger", ObjectKind::Trigger, "SELECT oid FROM pg_trigger WHERE tgname = 't_trg'",
+            "t_trg");
+        row("policy", ObjectKind::Policy, "SELECT oid FROM pg_policy WHERE polname = 't_read'",
+            "t_read");
+        row("constraint", ObjectKind::Constraint,
+            "SELECT oid FROM pg_constraint WHERE conname = 't_pkey'", "t_pkey");
+        row("publication", ObjectKind::Publication,
+            "SELECT oid FROM pg_publication WHERE pubname = 'slonisko_details_pub'",
+            "slonisko_details_pub");
+        row("event trigger", ObjectKind::EventTrigger,
+            "SELECT oid FROM pg_event_trigger WHERE evtname = 'slonisko_details_evt'",
+            "slonisko_details_evt");
+        row("role", ObjectKind::Role, "SELECT oid FROM pg_roles WHERE rolname = current_user", "");
+        row("tablespace", ObjectKind::Tablespace,
+            "SELECT oid FROM pg_tablespace WHERE spcname = 'pg_default'", "pg_default");
+    }
+
+    void everyKind()
+    {
+        QFETCH(int, kind);
+        QFETCH(QByteArray, oidQuery);
+        QFETCH(QString, title);
+
+        const Oid oid = oidFrom(oidQuery);
+        QVERIFY2(oid > 0, oidQuery.constData());
+        const ObjectDetail detail = detailOf(ObjectKind(kind), oid);
+        QVERIFY(!detail.title.isEmpty());
+        if (!title.isEmpty())
+            QCOMPARE(detail.title, title);
+        QVERIFY(!detail.properties.rows.empty());
+    }
+
+    void sequence()
+    {
+        const ObjectDetail detail
+            = detailOf(ObjectKind::Sequence, oidOf("'slonisko_details_test.s'"));
+        QCOMPARE(property(detail, QStringLiteral("start")), QStringLiteral("5"));
+        QCOMPARE(property(detail, QStringLiteral("increment")), QStringLiteral("2"));
+        QCOMPARE(property(detail, QStringLiteral("cycles")), QStringLiteral("no"));
+        QCOMPARE(property(detail, QStringLiteral("type")), QStringLiteral("bigint"));
+    }
+
+    void functionShowsItsSource()
+    {
+        const ObjectDetail detail
+            = detailOf(ObjectKind::Function,
+                       oidFrom("SELECT 'slonisko_details_test.add(int, int)'::regprocedure::oid"));
+        QCOMPARE(property(detail, QStringLiteral("arguments")),
+                 QStringLiteral("a integer, b integer"));
+        QCOMPARE(property(detail, QStringLiteral("returns")), QStringLiteral("integer"));
+        QCOMPARE(property(detail, QStringLiteral("language")), QStringLiteral("sql"));
+        QVERIFY2(detail.definition.contains(QLatin1String("a + b")), qPrintable(detail.definition));
+    }
+
+    void aggregateShowsItsSupportFunctions()
+    {
+        const ObjectDetail detail
+            = detailOf(ObjectKind::Aggregate,
+                       oidFrom("SELECT 'slonisko_details_test.mysum(int)'::regprocedure::oid"));
+        QVERIFY(detail.definition.isEmpty()); // There is no source to show.
+        const DetailTable &support = table(detail, QStringLiteral("Support"));
+        QCOMPARE(firstColumn(support, 1).value(0), QStringLiteral("int4pl"));
+    }
+
+    void typesAndDomains()
+    {
+        const ObjectDetail mood = detailOf(
+            ObjectKind::Type, oidFrom("SELECT 'slonisko_details_test.mood'::regtype::oid"));
+        QCOMPARE(property(mood, QStringLiteral("type")), QStringLiteral("enum"));
+        QCOMPARE(firstColumn(table(mood, QStringLiteral("Values"))),
+                 (QStringList {QStringLiteral("sad"), QStringLiteral("happy")}));
+
+        const ObjectDetail pair = detailOf(
+            ObjectKind::Type, oidFrom("SELECT 'slonisko_details_test.pair'::regtype::oid"));
+        QCOMPARE(property(pair, QStringLiteral("type")), QStringLiteral("composite"));
+        QCOMPARE(firstColumn(table(pair, QStringLiteral("Attributes")), 1),
+                 (QStringList {QStringLiteral("a"), QStringLiteral("b")}));
+
+        const ObjectDetail domain = detailOf(
+            ObjectKind::Domain, oidFrom("SELECT 'slonisko_details_test.posint'::regtype::oid"));
+        QCOMPARE(property(domain, QStringLiteral("base type")), QStringLiteral("integer"));
+        QCOMPARE(property(domain, QStringLiteral("nullable")), QStringLiteral("not null"));
+        QVERIFY(!table(domain, QStringLiteral("Constraints")).rows.empty());
+    }
+
+    void indexAndTrigger()
+    {
+        const ObjectDetail index
+            = detailOf(ObjectKind::Index, oidOf("'slonisko_details_test.t_name'"));
+        QCOMPARE(property(index, QStringLiteral("table")), QStringLiteral("t"));
+        QCOMPARE(property(index, QStringLiteral("method")), QStringLiteral("btree"));
+        QCOMPARE(property(index, QStringLiteral("kind")), QStringLiteral("non-unique"));
+        QVERIFY(index.definition.startsWith(QLatin1String("CREATE INDEX")));
+        QCOMPARE(firstColumn(table(index, QStringLiteral("Columns")), 1),
+                 QStringList {QStringLiteral("name")});
+
+        const ObjectDetail trigger = detailOf(
+            ObjectKind::Trigger, oidFrom("SELECT oid FROM pg_trigger WHERE tgname = 't_trg'"));
+        QCOMPARE(property(trigger, QStringLiteral("timing")), QStringLiteral("before"));
+        QCOMPARE(property(trigger, QStringLiteral("events")), QStringLiteral("insert"));
+        QCOMPARE(property(trigger, QStringLiteral("for each")), QStringLiteral("row"));
+        QVERIFY(trigger.definition.contains(QLatin1String("EXECUTE FUNCTION")));
+    }
+
+    void schemaCountsItsContents()
+    {
+        const ObjectDetail detail = detailOf(
+            ObjectKind::Schema,
+            oidFrom("SELECT oid FROM pg_namespace WHERE nspname = 'slonisko_details_test'"));
+        const DetailTable &contents = table(detail, QStringLiteral("Contents"));
+        QVERIFY(!contents.rows.empty());
+        const QStringList kinds = firstColumn(contents);
+        QVERIFY2(kinds.contains(QStringLiteral("tables")), qPrintable(kinds.join(u',')));
+        QVERIFY(kinds.contains(QStringLiteral("views")));
+        QVERIFY(kinds.contains(QStringLiteral("functions")));
+    }
+
+    void tableShowsItsPolicies()
+    {
+        const ObjectDetail detail = detailOf(ObjectKind::Table, oidOf("'slonisko_details_test.t'"));
+        QCOMPARE(property(detail, QStringLiteral("row security")), QStringLiteral("enabled"));
+        QCOMPARE(firstColumn(table(detail, QStringLiteral("Policies"))),
+                 QStringList {QStringLiteral("t_read")});
+    }
+
+    // The tree has no oid for the database a connection was made to.
+    void databaseWithoutAnOid()
+    {
+        const ObjectDetail detail = detailOf(ObjectKind::Database, 0);
+        QVERIFY(!detail.title.isEmpty());
+        QVERIFY(!property(detail, QStringLiteral("encoding")).isEmpty());
+        QCOMPARE(detail.title,
+                 QString::fromUtf8(run("SELECT current_database()").results[0].value(0, 0)));
     }
 
     void objectThatIsGone()
@@ -179,10 +370,16 @@ private:
         return outcome;
     }
 
-    // Either a regclass literal, or a whole "column FROM ..." tail.
-    Oid oidOf(const QByteArray &what, bool tail = false)
+    // A regclass literal, like "'public.t'".
+    Oid oidOf(const QByteArray &regclass)
     {
-        const QueryOutcome o = run(tail ? "SELECT " + what : "SELECT " + what + "::regclass::oid");
+        return oidFrom("SELECT " + regclass + "::regclass::oid");
+    }
+
+    // A complete query returning one oid.
+    Oid oidFrom(const QByteArray &query)
+    {
+        const QueryOutcome o = run(query);
         return o.ok() && !o.results.empty() && o.results[0].rowCount() > 0
             ? o.results[0].value(0, 0).toUInt()
             : 0;
