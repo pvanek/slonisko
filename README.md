@@ -51,6 +51,33 @@ plus one for each further database the object tree browses.
 - Disconnecting a profile asks first if any of its editors has a transaction
   open or a statement running; disconnecting rolls those back.
 
+## Coding style
+
+The code follows the [Qt coding style](https://wiki.qt.io/Qt_Coding_Style),
+with `.clang-format` in the repository root as its written form:
+
+- Four spaces, never tabs; lines up to 100 characters.
+- Braces on their own line for classes, structs and function bodies,
+  attached everywhere else (`if (x) {`, `} else {`).
+- `*` and `&` next to the name: `Session *session`, `const QString &name`.
+- A space after control keywords, none after a function name: `if (ok)`,
+  `run(sql)`.
+- Braces may be left out for single-statement bodies, but then the whole
+  statement, `else` branch included, goes without them.
+- Names: `CamelCase` types, `camelCase` functions and variables, `m_` for
+  members, `SCREAMING_CASE` only for macros.
+
+Before committing:
+
+```sh
+clang-format -i $(git ls-files '*.cpp' '*.h')
+```
+
+Beyond the formatter: comments say why something is done, not what the next
+line already says; anything that is not obvious from the code gets a
+sentence. Qt Designer `.ui` files hold every dialog's layout, so that it can
+be changed without touching code. Only `src/app` may use Qt Widgets.
+
 ## Requirements
 
 - CMake 3.25+

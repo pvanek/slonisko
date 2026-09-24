@@ -114,7 +114,7 @@ private Q_SLOTS:
         QVERIFY(property(detail, QStringLiteral("size")).contains(QLatin1String("bytes"))
                 || property(detail, QStringLiteral("size")).contains(QLatin1String("kB")));
 
-        const DetailTable &columns = table(detail, QStringLiteral("Columns"));
+        const DetailTable columns = table(detail, QStringLiteral("Columns"));
         QCOMPARE(columns.rows.size(), 4u);
         QCOMPARE(columns.rows[0][1], QStringLiteral("id"));
         QCOMPARE(columns.rows[0][2], QStringLiteral("bigint"));
@@ -124,7 +124,7 @@ private Q_SLOTS:
         QCOMPARE(columns.rows[3][2], QStringLiteral("numeric(10,2)"));
         QCOMPARE(columns.rows[3][4], QStringLiteral("0"));
 
-        const DetailTable &indexes = table(detail, QStringLiteral("Indexes"));
+        const DetailTable indexes = table(detail, QStringLiteral("Indexes"));
         QCOMPARE(indexes.rows.size(), 2u);
         QVERIFY(firstColumn(indexes).contains(QStringLiteral("t_name")));
         QVERIFY(indexes.rows[0][3].startsWith(QLatin1String("CREATE")));
@@ -174,7 +174,7 @@ private Q_SLOTS:
             property(detail, QStringLiteral("description")).contains(QLatin1String("PL/pgSQL")));
 
         // What it brought with it: the language's handler functions.
-        const DetailTable &objects = table(detail, QStringLiteral("Objects"));
+        const DetailTable objects = table(detail, QStringLiteral("Objects"));
         QVERIFY(!objects.rows.empty());
         QVERIFY(firstColumn(objects, 1).contains(QStringLiteral("plpgsql_call_handler")));
     }
@@ -273,7 +273,7 @@ private Q_SLOTS:
             = detailOf(ObjectKind::Aggregate,
                        oidFrom("SELECT 'slonisko_details_test.mysum(int)'::regprocedure::oid"));
         QVERIFY(detail.definition.isEmpty()); // There is no source to show.
-        const DetailTable &support = table(detail, QStringLiteral("Support"));
+        const DetailTable support = table(detail, QStringLiteral("Support"));
         QCOMPARE(firstColumn(support, 1).value(0), QStringLiteral("int4pl"));
     }
 
@@ -322,7 +322,7 @@ private Q_SLOTS:
         const ObjectDetail detail = detailOf(
             ObjectKind::Schema,
             oidFrom("SELECT oid FROM pg_namespace WHERE nspname = 'slonisko_details_test'"));
-        const DetailTable &contents = table(detail, QStringLiteral("Contents"));
+        const DetailTable contents = table(detail, QStringLiteral("Contents"));
         QVERIFY(!contents.rows.empty());
         const QStringList kinds = firstColumn(contents);
         QVERIFY2(kinds.contains(QStringLiteral("tables")), qPrintable(kinds.join(u',')));
@@ -408,14 +408,13 @@ private:
         return {};
     }
 
-    static const DetailTable &table(const ObjectDetail &detail, const QString &title)
+    static DetailTable table(const ObjectDetail &detail, const QString &title)
     {
-        static const DetailTable none;
         for (const DetailTable &table : detail.tables) {
             if (table.title == title)
                 return table;
         }
-        return none;
+        return {};
     }
 
     static QStringList firstColumn(const DetailTable &table, int column = 0)
