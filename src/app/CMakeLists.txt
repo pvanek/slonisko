@@ -31,6 +31,8 @@ add_library(slonisko_ui STATIC
     ExportDialog.cpp
     ExportDialog.h
     ExportDialog.ui
+    ErdView.cpp
+    ErdView.h
     ObjectPage.cpp
     ObjectPage.h
     Qsci.h

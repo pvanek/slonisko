@@ -8,6 +8,8 @@ add_library(slonisko_catalog STATIC
     Details.h
     Editing.cpp
     Editing.h
+    Erd.cpp
+    Erd.h
     Export.cpp
     Export.h
     Monitoring.cpp

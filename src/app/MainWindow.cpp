@@ -258,6 +258,13 @@ ObjectPage *MainWindow::showObject(Session *session, const QString &database,
         }
     }
     auto *page = new ObjectPage(session, database, kind, oid, name);
+    // A neighbour in the diagram opens its own page; its name comes from
+    // the details it loads for itself.
+    connect(page, &ObjectPage::objectRequested, this,
+            [this](Session *from, const QString &db, catalog::ObjectKind neighbourKind,
+                   unsigned int neighbour) {
+                showObject(from, db, neighbourKind, neighbour, QString());
+            });
     addPage(page);
     return page;
 }

@@ -5,6 +5,8 @@
 #include "MainWindow.h"
 #include "ResultPage.h"
 #include "EditorPage.h"
+#include "ErdView.h"
+#include <QGraphicsScene>
 #include "ObjectPage.h"
 #include "PlanView.h"
 #include "ResultModel.h"
@@ -531,6 +533,105 @@ private Q_SLOTS:
         QVERIFY(extension->tabs()->count() >= 2); // Overview and Objects.
     }
 
+    void objectPageShowsADiagram()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("CREATE TEMP TABLE erd_parent (id int PRIMARY KEY)");
+        runSql("CREATE TEMP TABLE erd_child (id int PRIMARY KEY, "
+               "parent_id int REFERENCES erd_parent (id))");
+        runSql("SELECT 'erd_child'::regclass::oid");
+        const unsigned int child = model()->index(0, 0).data().toString().toUInt();
+
+        ObjectPage *page = w.showObject(m_session.get(), {}, catalog::ObjectKind::Table, child,
+                                        QStringLiteral("erd_child"));
+        QVERIFY(page->diagram());
+        QTRY_VERIFY(!page->detail().title.isEmpty());
+
+        // The tab is there, but its queries wait until it is opened.
+        const int diagramTab = tabNamed(page, QStringLiteral("Diagram"));
+        QVERIFY(diagramTab >= 0);
+        QVERIFY(page->diagram()->graph().isEmpty());
+        QTest::qWait(200);
+        QVERIFY(page->diagram()->graph().isEmpty());
+
+        page->tabs()->setCurrentIndex(diagramTab);
+        QTRY_COMPARE(page->diagram()->graph().nodes.size(), 2u);
+        QCOMPARE(page->diagram()->graph().focus, child);
+        QCOMPARE(page->diagram()->graph().edges.size(), 1u);
+
+        // One item per table plus one per foreign key, and the whole
+        // diagram is inside the scene.
+        QGraphicsScene *scene = page->diagram()->scene();
+        QCOMPARE(scene->items().size(), 3);
+        QVERIFY(scene->sceneRect().contains(scene->itemsBoundingRect()));
+    }
+
+    // The diagram opens on the table it is about, big enough to read,
+    // rather than fitted to nothing while its tab was still hidden.
+    void diagramOpensOnItsTable()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("CREATE TEMP TABLE erd_hub (id int PRIMARY KEY)");
+        for (int i = 0; i < 6; ++i) {
+            runSql(QStringLiteral("CREATE TEMP TABLE erd_spoke%1 "
+                                  "(id int PRIMARY KEY, hub_id int REFERENCES erd_hub (id))")
+                       .arg(i)
+                       .toUtf8()
+                       .constData());
+        }
+        runSql("SELECT 'erd_hub'::regclass::oid");
+        const unsigned int hub = model()->index(0, 0).data().toString().toUInt();
+
+        ObjectPage *page = w.showObject(m_session.get(), {}, catalog::ObjectKind::Table, hub,
+                                        QStringLiteral("erd_hub"));
+        w.resize(900, 600);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QTRY_VERIFY(!page->detail().title.isEmpty());
+        page->tabs()->setCurrentIndex(tabNamed(page, QStringLiteral("Diagram")));
+        QTRY_COMPARE(page->diagram()->graph().nodes.size(), 7u);
+        QTest::qWait(100);
+
+        ErdView *view = page->diagram();
+        const qreal scale = view->transform().m11();
+        QVERIFY2(scale >= 0.69, qPrintable(QString::number(scale))); // Still readable.
+        QVERIFY(scale <= 1.0); // Never blown up.
+
+        // The table the diagram is about is in view, and the whole of it.
+        const QRectF focus = view->focusBox();
+        QVERIFY(!focus.isNull());
+        const QRectF visible = view->mapToScene(view->viewport()->rect()).boundingRect();
+        QVERIFY2(visible.contains(focus),
+                 qPrintable(QStringLiteral("%1,%2 %3x%4 in %5,%6 %7x%8")
+                                .arg(focus.x())
+                                .arg(focus.y())
+                                .arg(focus.width())
+                                .arg(focus.height())
+                                .arg(visible.x())
+                                .arg(visible.y())
+                                .arg(visible.width())
+                                .arg(visible.height())));
+    }
+
+    // A view has no foreign keys, so it gets no diagram tab at all.
+    void viewHasNoDiagram()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("CREATE TEMP VIEW erd_view AS SELECT 1 AS n");
+        runSql("SELECT 'erd_view'::regclass::oid");
+        const unsigned int oid = model()->index(0, 0).data().toString().toUInt();
+
+        ObjectPage *page = w.showObject(m_session.get(), {}, catalog::ObjectKind::View, oid,
+                                        QStringLiteral("erd_view"));
+        QTRY_VERIFY(!page->detail().title.isEmpty());
+        QVERIFY(!page->diagram());
+        for (int tab = 0; tab < page->tabs()->count(); ++tab)
+            QVERIFY(page->tabs()->tabText(tab) != QLatin1String("Diagram"));
+    }
+
     void monitoringOpensResultPage()
     {
         QStandardPaths::setTestModeEnabled(true);
@@ -1031,6 +1132,15 @@ private:
     {
         m_tab->run();
         QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+    }
+
+    int tabNamed(ObjectPage *page, const QString &title) const
+    {
+        for (int tab = 0; tab < page->tabs()->count(); ++tab) {
+            if (page->tabs()->tabText(tab) == title)
+                return tab;
+        }
+        return -1;
     }
 
     unsigned int extensionOid()

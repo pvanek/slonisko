@@ -3,6 +3,7 @@
 
 #include "ObjectPage.h"
 
+#include "ErdView.h"
 #include "ResultTextView.h"
 #include "Session.h"
 #include "Shortcuts.h"
@@ -13,6 +14,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QTabWidget>
+#include <QToolBar>
 #include <QTableView>
 #include <QVBoxLayout>
 
@@ -74,8 +76,9 @@ QTableView *viewOf(const catalog::DetailTable &table, QWidget *parent)
 ObjectPage::ObjectPage(Session *session, const QString &database, catalog::ObjectKind kind,
                        catalog::Oid oid, const QString &name, QWidget *parent)
     : WorkspacePage(parent), m_session(session), m_database(database), m_kind(kind), m_oid(oid),
-      m_name(name), m_heading(new QLabel(this)), m_message(new QLabel(this)),
-      m_tabs(new QTabWidget(this)), m_definition(new ResultTextView(this))
+      m_name(name.isEmpty() ? tr("Loading…") : name), m_heading(new QLabel(this)),
+      m_message(new QLabel(this)), m_tabs(new QTabWidget(this)),
+      m_definition(new ResultTextView(this))
 {
     QFont bold = m_heading->font();
     bold.setBold(true);
@@ -86,8 +89,43 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
     m_message->setWordWrap(true);
     m_message->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     m_tabs->setDocumentMode(true);
-    // It only ever appears as a tab; loose, it would sit over the heading.
+    // They only ever appear as tabs; loose, they would sit over the heading.
     m_definition->hide();
+    if (catalog::hasDiagram(m_kind)) {
+        m_diagramTab = new QWidget(this);
+        m_diagram = new ErdView(m_diagramTab);
+        auto *diagramBar = new QToolBar(m_diagramTab);
+        diagramBar->setIconSize(QSize(16, 16));
+        auto diagramAction = [&](const QString &icon, const QString &text, auto slot) {
+            QAction *action = diagramBar->addAction(QIcon::fromTheme(icon), text);
+            connect(action, &QAction::triggered, m_diagram, slot);
+            return action;
+        };
+        diagramAction(QStringLiteral("zoom-fit-best"), tr("Fit"), &ErdView::fitDiagram);
+        diagramAction(QStringLiteral("zoom-in"), tr("Zoom In"), &ErdView::zoomIn);
+        diagramAction(QStringLiteral("zoom-out"), tr("Zoom Out"), &ErdView::zoomOut);
+        diagramAction(QStringLiteral("zoom-original"), tr("Actual Size"), &ErdView::resetZoom);
+        auto *hint = new QLabel(tr("Drag to move a table, Ctrl+wheel to zoom, "
+                                   "double-click a neighbour to open it."),
+                                m_diagramTab);
+        hint->setEnabled(false);
+        diagramBar->addWidget(hint);
+        // Reading the keys is two more queries, so they wait until the tab
+        // is actually opened.
+        connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
+            if (m_tabs->currentWidget() == m_diagramTab && !m_diagramLoaded)
+                loadDiagram();
+        });
+        auto *diagramLayout = new QVBoxLayout(m_diagramTab);
+        diagramLayout->setContentsMargins(0, 0, 0, 0);
+        diagramLayout->setSpacing(0);
+        diagramLayout->addWidget(diagramBar);
+        diagramLayout->addWidget(m_diagram, 1);
+        m_diagramTab->hide();
+        connect(m_diagram, &ErdView::tableActivated, this, [this](unsigned int neighbour) {
+            Q_EMIT objectRequested(m_session, m_database, catalog::ObjectKind::Table, neighbour);
+        });
+    }
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -147,6 +185,10 @@ void ObjectPage::refresh()
                     return;
                 }
                 showDetail(catalog::parseDetail(m_kind, *results));
+                // A refresh with the diagram open reloads it; otherwise it
+                // waits for its tab to be opened again.
+                if (m_diagramTab && m_tabs->currentWidget() == m_diagramTab)
+                    loadDiagram();
             });
     }
 }
@@ -161,9 +203,13 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
 
     const QString current = m_tabs->tabText(m_tabs->currentIndex());
     m_tabs->clear();
-    // clear() hands the definition back with no parent; keep it here.
+    // clear() hands the tab widgets back with no parent; keep them here.
     m_definition->setParent(this);
     m_definition->hide();
+    if (m_diagramTab) {
+        m_diagramTab->setParent(this);
+        m_diagramTab->hide();
+    }
     m_heading->setText(detail.title + QStringLiteral("  ·  ") + detail.subtitle);
     m_message->hide();
     m_tabs->show();
@@ -180,6 +226,8 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
         m_definition->setText(detail.definition);
         m_tabs->addTab(m_definition, tr("Definition"));
     }
+    if (m_diagramTab)
+        m_tabs->addTab(m_diagramTab, tr("Diagram"));
 
     // Back to the tab that was open before the refresh, where there is one.
     for (int tab = 0; tab < m_tabs->count(); ++tab) {
@@ -194,11 +242,43 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
     }
 }
 
+void ObjectPage::loadDiagram()
+{
+    pg::QueryRunner *runner = m_session ? m_session->runner(m_database) : nullptr;
+    if (!m_diagram || !runner)
+        return;
+
+    m_diagramLoaded = true;
+    const quint64 generation = m_generation;
+    const std::vector<QByteArray> queries = catalog::erdQueries(m_oid);
+    auto results = std::make_shared<std::vector<pg::Result>>();
+    for (const QByteArray &query : queries) {
+        runner->run(
+            query, this,
+            [this, generation, results, wanted = queries.size()](const pg::QueryOutcome &outcome) {
+                if (generation != m_generation || !outcome.ok())
+                    return; // A newer refresh, or no diagram this time.
+                results->push_back(outcome.results.empty() ? pg::Result() : outcome.results.back());
+                if (results->size() < wanted)
+                    return;
+                m_graph = catalog::parseErd(m_oid, *results);
+                m_diagram->setGraph(m_graph);
+            });
+    }
+}
+
 void ObjectPage::showMessage(const QString &text, bool error)
 {
     m_tabs->clear();
     m_definition->setParent(this);
     m_definition->hide();
+    if (m_diagramTab) {
+        m_diagramTab->setParent(this);
+        m_diagramTab->hide();
+        m_diagram->clear();
+    }
+    m_graph = {};
+    m_diagramLoaded = false;
     m_tabs->hide();
     m_definition->setText(QString());
     m_message->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());

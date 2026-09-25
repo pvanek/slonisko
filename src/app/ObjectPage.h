@@ -5,6 +5,7 @@
 
 #include "WorkspacePage.h"
 #include "catalog/Details.h"
+#include "catalog/Erd.h"
 
 #include <QPointer>
 
@@ -13,6 +14,7 @@ class QTabWidget;
 
 namespace slonisko {
 
+class ErdView;
 class ResultTextView;
 class Session;
 
@@ -34,11 +36,20 @@ public:
     catalog::ObjectKind kind() const { return m_kind; }
     const catalog::ObjectDetail &detail() const { return m_detail; }
     QTabWidget *tabs() const { return m_tabs; }
+    // The diagram of this table and its neighbours; null for kinds that
+    // have no foreign keys.
+    ErdView *diagram() const { return m_diagram; }
     // Reads everything about the object again.
     void refresh();
 
+Q_SIGNALS:
+    // A neighbour in the diagram was double-clicked.
+    void objectRequested(slonisko::Session *session, const QString &database,
+                         slonisko::catalog::ObjectKind kind, unsigned int oid);
+
 private:
     void showDetail(const catalog::ObjectDetail &detail);
+    void loadDiagram();
     void showMessage(const QString &text, bool error = false);
 
     QPointer<Session> m_session;
@@ -52,6 +63,10 @@ private:
     QLabel *m_message = nullptr;
     QTabWidget *m_tabs = nullptr;
     ResultTextView *m_definition = nullptr;
+    ErdView *m_diagram = nullptr;
+    QWidget *m_diagramTab = nullptr; // The diagram with its own little toolbar.
+    bool m_diagramLoaded = false; // Its queries run when the tab is first opened.
+    catalog::ErdGraph m_graph;
     quint64 m_generation = 0; // Drops the answers of an earlier refresh.
 };
 
