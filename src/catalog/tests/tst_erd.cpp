@@ -404,6 +404,81 @@ private Q_SLOTS:
         QCOMPARE(layoutFor(schema).placement(1)->box, layeredLayout(schema).placement(1)->box);
     }
 
+    // Several schemas: each one framed and laid out on its own.
+
+    void clustersKeepSchemasApart()
+    {
+        ErdGraph graph;
+        auto add = [&graph](unsigned int oid, const char *schema, const char *name) {
+            ErdNode node = makeNode(oid, name, 2);
+            node.schema = QString::fromUtf8(schema);
+            graph.nodes.push_back(node);
+        };
+        add(1, "sales", "orders");
+        add(2, "sales", "customer");
+        add(3, "stock", "item");
+        add(4, "stock", "warehouse");
+        graph.edges = {makeEdge("orders_customer_fkey", 1, 2), makeEdge("item_wh_fkey", 3, 4),
+                       makeEdge("orders_item_fkey", 1, 3)}; // The last one crosses schemas.
+
+        const ErdLayout layout = clusteredLayout(graph);
+        QCOMPARE(layout.nodes.size(), 4u);
+        QVERIFY(!overlap(layout));
+
+        QCOMPARE(layout.clusters.size(), 2u);
+        QCOMPARE(layout.clusters[0].name, QStringLiteral("sales")); // In name order.
+        QCOMPARE(layout.clusters[1].name, QStringLiteral("stock"));
+        QVERIFY(!layout.clusters[0].box.intersects(layout.clusters[1].box));
+
+        // Every table sits inside its own schema's frame.
+        QVERIFY(layout.clusters[0].box.contains(layout.placement(1)->box));
+        QVERIFY(layout.clusters[0].box.contains(layout.placement(2)->box));
+        QVERIFY(layout.clusters[1].box.contains(layout.placement(3)->box));
+        QVERIFY(layout.clusters[1].box.contains(layout.placement(4)->box));
+        QVERIFY(layout.bounds.contains(layout.clusters[1].box));
+
+        // Inside a frame the keys still decide what goes above what.
+        QVERIFY(layout.placement(2)->box.bottom() < layout.placement(1)->box.top());
+        QVERIFY(layout.placement(4)->box.bottom() < layout.placement(3)->box.top());
+    }
+
+    void clusteredLayoutIsDeterministic()
+    {
+        ErdGraph graph;
+        for (unsigned int i = 1; i <= 9; ++i) {
+            ErdNode node = makeNode(i, QStringLiteral("t%1").arg(i).toUtf8().constData(), 2);
+            node.schema = QStringLiteral("s%1").arg(i % 3);
+            graph.nodes.push_back(node);
+        }
+        graph.edges = {makeEdge("e1", 4, 1), makeEdge("e2", 7, 4), makeEdge("e3", 5, 2)};
+
+        const ErdLayout first = clusteredLayout(graph);
+        std::ranges::reverse(graph.nodes);
+        std::ranges::reverse(graph.edges);
+        const ErdLayout second = clusteredLayout(graph);
+        QCOMPARE(first.clusters.size(), 3u);
+        for (const ErdPlacement &placement : first.nodes)
+            QCOMPARE(second.placement(placement.oid)->box, placement.box);
+        for (std::size_t i = 0; i < first.clusters.size(); ++i) {
+            QCOMPARE(second.clusters[i].name, first.clusters[i].name);
+            QCOMPARE(second.clusters[i].box, first.clusters[i].box);
+        }
+    }
+
+    void layoutForFramesSeveralSchemas()
+    {
+        ErdGraph graph;
+        ErdNode here = makeNode(1, "a", 2);
+        ErdNode there = makeNode(2, "b", 2);
+        there.schema = QStringLiteral("other");
+        graph.nodes = {here, there};
+        QCOMPARE(layoutFor(graph).clusters.size(), 2u);
+
+        // One schema needs no frames at all.
+        graph.nodes[1].schema = graph.nodes[0].schema;
+        QVERIFY(layoutFor(graph).clusters.empty());
+    }
+
     // The queries, against a real server.
 
     void initTestCase()
@@ -538,6 +613,32 @@ private Q_SLOTS:
         QVERIFY(orders && lines);
         QVERIFY(layout.placement(orders->oid)->box.bottom()
                 < layout.placement(lines->oid)->box.top());
+    }
+
+    // The whole database: every schema but the server's own.
+    void databaseGraph()
+    {
+        std::vector<Result> results;
+        for (const QByteArray &query : erdQueries(ErdScope::Database, 0)) {
+            const QueryOutcome o = run(query);
+            QVERIFY2(o.ok(), qPrintable(o.error + QLatin1String(": ") + QString::fromUtf8(query)));
+            results.push_back(o.results.empty() ? Result() : o.results.back());
+        }
+        const ErdGraph graph = parseErd(0, results);
+
+        QStringList schemas;
+        for (const ErdNode &node : graph.nodes) {
+            if (!schemas.contains(node.schema))
+                schemas << node.schema;
+        }
+        QVERIFY(schemas.contains(QStringLiteral("slonisko_erd_test")));
+        QVERIFY(!schemas.contains(QStringLiteral("pg_catalog")));
+        QVERIFY(!schemas.contains(QStringLiteral("information_schema")));
+        QVERIFY(nodeNamed(graph, "orders"));
+
+        const ErdLayout layout = layoutFor(graph);
+        QCOMPARE(layout.nodes.size(), graph.nodes.size());
+        QVERIFY(!overlap(layout));
     }
 
     void tableWithNoKeyColumns()

@@ -365,6 +365,48 @@ private:
 
 } // namespace
 
+namespace {
+
+// The frame round a schema's tables in a diagram that spans several.
+class ErdClusterItem : public QGraphicsItem
+{
+public:
+    explicit ErdClusterItem(const catalog::ErdCluster &cluster)
+        : m_name(cluster.name), m_size(cluster.box.size())
+    {
+        setZValue(-1); // Behind the tables it holds.
+        setPos(cluster.box.topLeft());
+        setToolTip(cluster.name);
+    }
+
+    QRectF boundingRect() const override { return QRectF(QPointF(), m_size); }
+
+protected:
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override
+    {
+        const QPalette palette = QApplication::palette();
+        const QColor base = palette.color(QPalette::Base);
+        const QColor text = palette.color(QPalette::Text);
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->setPen(QPen(mix(base, text, 0.25f), 1, Qt::DashLine));
+        painter->setBrush(mix(base, palette.color(QPalette::Window), 0.5f));
+        painter->drawRoundedRect(QRectF(QPointF(), m_size), 6, 6);
+
+        QFont bold = painter->font();
+        bold.setBold(true);
+        painter->setFont(bold);
+        painter->setPen(mix(base, text, 0.75f));
+        painter->drawText(QRectF(8, 4, m_size.width() - 16, 20), Qt::AlignLeft | Qt::AlignVCenter,
+                          m_name);
+    }
+
+private:
+    QString m_name;
+    QSizeF m_size;
+};
+
+} // namespace
+
 ErdView::ErdView(QWidget *parent) : QGraphicsView(parent), m_scene(new QGraphicsScene(this))
 {
     setScene(m_scene);
@@ -412,6 +454,8 @@ void ErdView::rebuild()
 
     const catalog::ErdMetrics m = metrics();
     const catalog::ErdLayout layout = catalog::layoutFor(m_graph, m);
+    for (const catalog::ErdCluster &cluster : layout.clusters)
+        m_scene->addItem(new ErdClusterItem(cluster));
     for (const catalog::ErdPlacement &placement : layout.nodes) {
         const catalog::ErdNode *node = m_graph.node(placement.oid);
         if (!node)
@@ -490,8 +534,11 @@ void ErdView::focusDiagram()
 
     const qreal fits
         = std::min(viewport()->width() / scene.width(), viewport()->height() / scene.height());
-    // Never bigger than life size, never so small that the columns go.
-    const qreal wanted = std::clamp(fits, MinOpeningScale, 1.0);
+    // A diagram about one table opens big enough to read, even if that
+    // leaves the rest to be scrolled to; one about a schema or a database
+    // has no such centre, so it opens showing everything.
+    const bool focused = m_tables.contains(m_graph.focus);
+    const qreal wanted = std::clamp(fits, focused ? MinOpeningScale : MinScale, 1.0);
     setTransform(QTransform::fromScale(wanted, wanted));
 
     const QRectF focus = focusBox();

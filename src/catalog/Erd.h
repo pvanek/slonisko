@@ -76,7 +76,8 @@ bool hasDiagram(ObjectKind kind);
 // What a diagram covers.
 enum class ErdScope {
     Table, // One table and its neighbours: what it references and what references it.
-    Schema // Every table of a schema, and the tables their keys point at.
+    Schema, // Every table of a schema, and the tables their keys point at.
+    Database // Every table of every schema the server does not own.
 };
 
 // The queries run in order; their results go to parseErd() the same way.
@@ -116,10 +117,19 @@ struct ErdRoute
     std::vector<QPointF> bends;
 };
 
+// A schema's tables, kept together and framed, in a diagram that spans more
+// than one schema.
+struct ErdCluster
+{
+    QString name;
+    QRectF box;
+};
+
 struct ErdLayout
 {
     std::vector<ErdPlacement> nodes;
     std::vector<ErdRoute> routes;
+    std::vector<ErdCluster> clusters;
     QRectF bounds;
 
     const ErdPlacement *placement(Oid oid) const;
@@ -141,8 +151,12 @@ ErdLayout starLayout(const ErdGraph &graph, const ErdMetrics &metrics = {});
 ErdLayout layeredLayout(const ErdGraph &graph, const ErdMetrics &metrics = {});
 constexpr int ManyTables = 150;
 
-// The layout that suits the graph: a focused table gets a star, a whole
-// schema gets layers.
+// Each schema laid out on its own and framed, the blocks packed into rows:
+// a whole database is a set of diagrams rather than one.
+ErdLayout clusteredLayout(const ErdGraph &graph, const ErdMetrics &metrics = {});
+
+// The layout that suits the graph: a focused table gets a star, one schema
+// gets layers, several schemas get a frame each.
 ErdLayout layoutFor(const ErdGraph &graph, const ErdMetrics &metrics = {});
 
 } // namespace slonisko::catalog

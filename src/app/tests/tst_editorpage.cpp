@@ -654,6 +654,48 @@ private Q_SLOTS:
         runSql("DROP SCHEMA IF EXISTS erd_schema CASCADE");
     }
 
+    // A database shows every schema, each in a frame of its own.
+    void databasePageShowsADiagram()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("DROP SCHEMA IF EXISTS erd_db_a CASCADE");
+        runSql("DROP SCHEMA IF EXISTS erd_db_b CASCADE");
+        runSql("CREATE SCHEMA erd_db_a");
+        runSql("CREATE SCHEMA erd_db_b");
+        runSql("CREATE TABLE erd_db_a.parent (id int PRIMARY KEY)");
+        runSql("CREATE TABLE erd_db_a.child (id int PRIMARY KEY, "
+               "parent_id int REFERENCES erd_db_a.parent (id))");
+        runSql("CREATE TABLE erd_db_b.other (id int PRIMARY KEY)");
+        runSql("SELECT oid FROM pg_database WHERE datname = current_database()");
+        const unsigned int database = model()->index(0, 0).data().toString().toUInt();
+
+        ObjectPage *page = w.showObject(m_session.get(), {}, catalog::ObjectKind::Database,
+                                        database, QStringLiteral("postgres"));
+        QTRY_VERIFY(!page->detail().title.isEmpty());
+        QVERIFY(page->diagram());
+        page->tabs()->setCurrentIndex(tabNamed(page, QStringLiteral("Diagram")));
+        QTRY_VERIFY(page->diagram()->graph().nodes.size() >= 3u);
+
+        const catalog::ErdGraph &graph = page->diagram()->graph();
+        QStringList schemas;
+        for (const catalog::ErdNode &node : graph.nodes) {
+            if (!schemas.contains(node.schema))
+                schemas << node.schema;
+        }
+        QVERIFY(schemas.contains(QStringLiteral("erd_db_a")));
+        QVERIFY(schemas.contains(QStringLiteral("erd_db_b")));
+
+        // Every schema gets a frame, drawn behind its tables.
+        const catalog::ErdLayout layout = catalog::layoutFor(graph);
+        QCOMPARE(layout.clusters.size(), std::size_t(schemas.size()));
+        QVERIFY(page->diagram()->scene()->items().size()
+                > int(graph.nodes.size() + graph.edges.size()));
+
+        runSql("DROP SCHEMA IF EXISTS erd_db_a CASCADE");
+        runSql("DROP SCHEMA IF EXISTS erd_db_b CASCADE");
+    }
+
     // A view has no foreign keys, so it gets no diagram tab at all.
     void viewHasNoDiagram()
     {

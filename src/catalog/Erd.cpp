@@ -65,18 +65,26 @@ std::vector<QPointF> ErdLayout::route(Oid from, Oid to) const
 bool hasDiagram(ObjectKind kind)
 {
     return kind == ObjectKind::Table || kind == ObjectKind::PartitionedTable
-        || kind == ObjectKind::ForeignTable || kind == ObjectKind::Schema;
+        || kind == ObjectKind::ForeignTable || kind == ObjectKind::Schema
+        || kind == ObjectKind::Database;
 }
 
 std::vector<QByteArray> erdQueries(ErdScope scope, Oid oid)
 {
     const QByteArray id = QByteArray::number(oid);
 
-    // Which tables the diagram covers: one table and its neighbours, or a
-    // whole schema plus whatever its keys point at.
-    const QByteArray involved = scope == ErdScope::Table
-        ? "WITH involved AS ("
-          "  SELECT "
+    // Which tables the diagram covers: one table and its neighbours, one
+    // schema plus whatever its keys point at, or every schema the server
+    // does not own itself.
+    const QByteArray userSchemas = "n.nspname NOT IN ('pg_catalog', 'information_schema') "
+                                   "AND n.nspname !~ '^pg_'";
+    const QByteArray involved = scope == ErdScope::Database
+        ? "WITH mine AS ("
+          "  SELECT cl.oid FROM pg_class cl JOIN pg_namespace n ON n.oid = cl.relnamespace"
+          "  WHERE cl.relkind IN ('r', 'p', 'f') AND "
+            + userSchemas + "), involved AS (SELECT oid FROM mine), "
+        : scope == ErdScope::Table ? "WITH involved AS ("
+                                     "  SELECT "
             + id
             + "::oid AS oid"
               "  UNION SELECT c.confrelid FROM pg_constraint c"
@@ -85,8 +93,8 @@ std::vector<QByteArray> erdQueries(ErdScope scope, Oid oid)
             + "  UNION SELECT c.conrelid FROM pg_constraint c"
               "    WHERE c.contype = 'f' AND c.confrelid = "
             + id + "), "
-        : "WITH mine AS ("
-          "  SELECT cl.oid FROM pg_class cl WHERE cl.relnamespace = "
+                                   : "WITH mine AS ("
+                                     "  SELECT cl.oid FROM pg_class cl WHERE cl.relnamespace = "
             + id
             + "    AND cl.relkind IN ('r', 'p', 'f')), "
               "involved AS ("
@@ -121,7 +129,11 @@ std::vector<QByteArray> erdQueries(ErdScope scope, Oid oid)
 
     // The foreign keys between them, with the columns at both ends in the
     // order the constraint names them.
-    const QByteArray where = scope == ErdScope::Table
+    const QByteArray where = scope == ErdScope::Database
+        ? "c.conrelid IN (SELECT cl.oid FROM pg_class cl "
+          "JOIN pg_namespace n ON n.oid = cl.relnamespace WHERE "
+            + userSchemas + ")"
+        : scope == ErdScope::Table
         ? "c.conrelid = " + id + " OR c.confrelid = " + id
         : "c.conrelid IN (SELECT cl.oid FROM pg_class cl WHERE cl.relnamespace = " + id + ")";
     const QByteArray edges
@@ -678,10 +690,101 @@ ErdLayout layeredLayout(const ErdGraph &graph, const ErdMetrics &metrics)
     return Layered(graph, metrics).run();
 }
 
+ErdLayout clusteredLayout(const ErdGraph &graph, const ErdMetrics &metrics)
+{
+    if (graph.nodes.empty())
+        return {};
+    if (int(graph.nodes.size()) > ManyTables)
+        return layeredLayout(graph, metrics); // Which falls back to a grid.
+
+    // One sub-graph per schema, in name order. Keys that cross a schema
+    // are left out of the blocks and drawn between them afterwards.
+    std::vector<QString> schemas;
+    for (const ErdNode &node : graph.nodes) {
+        if (std::ranges::find(schemas, node.schema) == schemas.end())
+            schemas.push_back(node.schema);
+    }
+    std::ranges::sort(schemas, [](const QString &a, const QString &b) {
+        return a.compare(b, Qt::CaseInsensitive) < 0;
+    });
+
+    struct Block
+    {
+        QString schema;
+        ErdLayout layout;
+    };
+    std::vector<Block> blocks;
+    qreal widest = 0;
+    qreal area = 0;
+    for (const QString &schema : schemas) {
+        ErdGraph part;
+        for (const ErdNode &node : graph.nodes) {
+            if (node.schema == schema)
+                part.nodes.push_back(node);
+        }
+        for (const ErdEdge &edge : graph.edges) {
+            const ErdNode *from = graph.node(edge.from);
+            const ErdNode *to = graph.node(edge.to);
+            if (from && to && from->schema == schema && to->schema == schema)
+                part.edges.push_back(edge);
+        }
+        Block block {schema, layeredLayout(part, metrics)};
+        widest = std::max(widest, block.layout.bounds.width());
+        area += block.layout.bounds.width() * block.layout.bounds.height();
+        blocks.push_back(std::move(block));
+    }
+
+    // Blocks in rows, wrapping at roughly the width that makes the whole
+    // diagram about as wide as it is tall. The tallest go first, so a row
+    // is not left half empty under a short block.
+    const qreal padding = metrics.padding * 3;
+    const qreal label = metrics.headerHeight;
+    std::ranges::stable_sort(blocks, [](const Block &a, const Block &b) {
+        return a.layout.bounds.height() > b.layout.bounds.height();
+    });
+    const qreal target = std::max(widest, std::sqrt(area) * 2.0);
+    ErdLayout layout;
+    qreal x = 0;
+    qreal y = 0;
+    qreal rowHeight = 0;
+    for (const Block &block : blocks) {
+        const QSizeF size(block.layout.bounds.width() + 2 * padding,
+                          block.layout.bounds.height() + 2 * padding + label);
+        if (x > 0 && x + size.width() > target) {
+            x = 0;
+            y += rowHeight + metrics.rowGap;
+            rowHeight = 0;
+        }
+        const QPointF offset(x + padding - block.layout.bounds.left(),
+                             y + padding + label - block.layout.bounds.top());
+        for (const ErdPlacement &placement : block.layout.nodes)
+            layout.nodes.push_back({placement.oid, placement.box.translated(offset)});
+        for (ErdRoute route : block.layout.routes) {
+            for (QPointF &bend : route.bends)
+                bend += offset;
+            layout.routes.push_back(std::move(route));
+        }
+        layout.clusters.push_back({block.schema, QRectF(QPointF(x, y), size)});
+        x += size.width() + metrics.columnGap;
+        rowHeight = std::max(rowHeight, size.height());
+    }
+
+    for (const ErdCluster &cluster : layout.clusters)
+        layout.bounds = layout.bounds.isNull() ? cluster.box : layout.bounds.united(cluster.box);
+    return layout;
+}
+
 ErdLayout layoutFor(const ErdGraph &graph, const ErdMetrics &metrics)
 {
-    return graph.focus != 0 && graph.node(graph.focus) ? starLayout(graph, metrics)
-                                                       : layeredLayout(graph, metrics);
+    if (graph.focus != 0 && graph.node(graph.focus))
+        return starLayout(graph, metrics);
+    // Tables of several schemas belong in frames of their own, whether the
+    // diagram is of a database or of a schema whose keys reach outside it.
+    const auto elsewhere = std::ranges::find_if(graph.nodes, [&graph](const ErdNode &node) {
+        return node.schema != graph.nodes.front().schema;
+    });
+    return elsewhere == graph.nodes.end() ? layeredLayout(graph, metrics)
+                                          : clusteredLayout(graph, metrics);
 }
 
 ErdLayout starLayout(const ErdGraph &graph, const ErdMetrics &metrics)
