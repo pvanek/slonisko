@@ -88,10 +88,13 @@ public:
         return {right ? area.right() : area.left(), std::min(y, area.bottom() - 2)};
     }
 
-    QPointF verticalAnchor(bool bottom) const
+    // Several keys meeting the same edge of a box would all land on the
+    // same spot; each gets its own share of the width instead.
+    QPointF verticalAnchor(bool bottom, qreal share = 0.5) const
     {
         const QRectF area = box();
-        return {area.center().x(), bottom ? area.bottom() : area.top()};
+        return {area.left() + area.width() * std::clamp(share, 0.15, 0.85),
+                bottom ? area.bottom() : area.top()};
     }
 
 protected:
@@ -204,8 +207,10 @@ namespace {
 class ErdEdgeItem : public QGraphicsItem
 {
 public:
-    ErdEdgeItem(const ErdEdge &edge, ErdTableItem *from, ErdTableItem *to)
-        : m_edge(edge), m_from(from), m_to(to)
+    ErdEdgeItem(const ErdEdge &edge, ErdTableItem *from, ErdTableItem *to,
+                std::vector<QPointF> bends, qreal fromShare, qreal toShare)
+        : m_edge(edge), m_from(from), m_to(to), m_bends(std::move(bends)), m_fromShare(fromShare),
+          m_toShare(toShare)
     {
         setZValue(0);
         setToolTip(QStringLiteral("%1\n%2 (%3) → %4 (%5)")
@@ -220,6 +225,11 @@ public:
         return path().controlPointRect().adjusted(-8, -8, 8, 8);
     }
 
+    // Once a table has been dragged, the channels are no longer where the
+    // layout left them, so the edge goes back to a plain curve.
+    void forget() { m_moved = true; }
+    void setLoopOnTheLeft() { m_loopLeft = true; }
+
 protected:
     void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override
     {
@@ -232,38 +242,87 @@ protected:
         const QPainterPath line = path();
         painter->drawPath(line);
 
-        // A crow's foot at the referencing end, a bar at the referenced one.
+        // Crow's foot notation, as on any ER diagram: the referencing end
+        // may have many rows, so it gets the foot; the referenced end has
+        // exactly one when the key cannot be null, zero or one when it can.
         const QPointF many = line.pointAtPercent(0.0);
         const QPointF one = line.pointAtPercent(1.0);
-        const qreal angle = std::atan2(line.pointAtPercent(0.05).y() - many.y(),
-                                       line.pointAtPercent(0.05).x() - many.x());
-        painter->setBrush(color);
-        for (const qreal spread : {-0.5, 0.0, 0.5}) {
-            painter->drawLine(
-                many, many + QPointF(std::cos(angle + spread) * 9, std::sin(angle + spread) * 9));
-        }
-        const qreal back = std::atan2(one.y() - line.pointAtPercent(0.95).y(),
-                                      one.x() - line.pointAtPercent(0.95).x());
-        painter->drawLine(one
-                              - QPointF(std::cos(back) * 6 - std::sin(back) * 5,
-                                        std::sin(back) * 6 + std::cos(back) * 5),
-                          one
-                              - QPointF(std::cos(back) * 6 + std::sin(back) * 5,
-                                        std::sin(back) * 6 - std::cos(back) * 5));
+        drawCrowsFoot(painter, many, direction(line, 0.0), color);
+        drawOne(painter, one, direction(line, 1.0), color, m_edge.mandatory);
     }
 
 private:
+    // Which way the line runs at one of its ends, pointing away from it.
+    static qreal direction(const QPainterPath &line, qreal at)
+    {
+        const QPointF end = line.pointAtPercent(at);
+        const QPointF inside = line.pointAtPercent(at == 0.0 ? 0.06 : 0.94);
+        return std::atan2(inside.y() - end.y(), inside.x() - end.x());
+    }
+
+    // "Many": the foot, three prongs spreading out onto the table's edge,
+    // with the circle of "zero or many" behind it.
+    static void drawCrowsFoot(QPainter *painter, const QPointF &end, qreal angle,
+                              const QColor &color)
+    {
+        constexpr qreal Length = 12;
+        constexpr qreal HalfSpread = 5.5;
+        painter->setPen(QPen(color, 1.2));
+        painter->setBrush(Qt::NoBrush);
+        const QPointF along(std::cos(angle), std::sin(angle));
+        const QPointF across(-std::sin(angle), std::cos(angle));
+        const QPointF root = end + along * Length;
+        painter->drawLine(root, end);
+        painter->drawLine(root, end + across * HalfSpread);
+        painter->drawLine(root, end - across * HalfSpread);
+        painter->drawEllipse(end + along * (Length + 4), 3.5, 3.5);
+    }
+
+    // "One": a bar across the line, and a second one for "exactly one".
+    static void drawOne(QPainter *painter, const QPointF &end, qreal angle, const QColor &color,
+                        bool mandatory)
+    {
+        constexpr qreal HalfBar = 5;
+        painter->setPen(QPen(color, 1.2));
+        painter->setBrush(Qt::NoBrush);
+        const QPointF along(std::cos(angle), std::sin(angle));
+        const QPointF across(-std::sin(angle), std::cos(angle));
+        auto bar = [&](qreal distance) {
+            const QPointF middle = end + along * distance;
+            painter->drawLine(middle - across * HalfBar, middle + across * HalfBar);
+        };
+        bar(8);
+        if (mandatory)
+            bar(13); // Two bars: exactly one.
+        else
+            painter->drawEllipse(end + along * 16, 3.5, 3.5); // Zero or one.
+    }
+
     QPainterPath path() const
     {
         QPainterPath path;
         const QRectF from = m_from->box();
         const QRectF to = m_to->box();
         if (m_edge.isSelfReference()) {
-            // A loop out of the right side and back in again.
-            const QPointF out(from.right(), from.top() + from.height() * 0.35);
-            const QPointF in(from.right(), from.top() + from.height() * 0.65);
+            // A loop out of one side and back in again, on whichever side
+            // the other keys left alone.
+            const qreal side = m_loopLeft ? from.left() : from.right();
+            const qreal reach = m_loopLeft ? -40 : 40;
+            const QPointF out(side, from.top() + from.height() * 0.35);
+            const QPointF in(side, from.top() + from.height() * 0.65);
             path.moveTo(out);
-            path.cubicTo(out + QPointF(40, -10), in + QPointF(40, 10), in);
+            path.cubicTo(out + QPointF(reach, -10), in + QPointF(reach, 10), in);
+            return path;
+        }
+
+        // Tables in between: through the channels the layout kept free, so
+        // the line goes round them instead of straight over them.
+        if (!m_bends.empty() && !m_moved) {
+            const bool downwards = to.center().y() < from.center().y();
+            path.moveTo(m_from->verticalAnchor(!downwards, m_fromShare));
+            for (const QPointF &bend : m_bends)
+                path.lineTo(bend);
+            path.lineTo(m_to->verticalAnchor(downwards, m_toShare));
             return path;
         }
 
@@ -272,8 +331,8 @@ private:
         const bool sideBySide = from.right() < to.left() || to.right() < from.left();
         if (!sideBySide) {
             const bool downwards = to.center().y() > from.center().y();
-            const QPointF start = m_from->verticalAnchor(downwards);
-            const QPointF end = m_to->verticalAnchor(!downwards);
+            const QPointF start = m_from->verticalAnchor(downwards, m_fromShare);
+            const QPointF end = m_to->verticalAnchor(!downwards, m_toShare);
             const qreal reach = std::max<qreal>(24, std::abs(end.y() - start.y()) / 3);
             path.moveTo(start);
             path.cubicTo(start + QPointF(0, downwards ? reach : -reach),
@@ -295,6 +354,13 @@ private:
     ErdEdge m_edge;
     ErdTableItem *m_from = nullptr;
     ErdTableItem *m_to = nullptr;
+    // Where the layout kept a channel free, for an edge that has tables
+    // between its ends; empty for a hop to the next layer.
+    std::vector<QPointF> m_bends;
+    qreal m_fromShare = 0.5; // Where along the box edge each end attaches.
+    qreal m_toShare = 0.5;
+    bool m_loopLeft = false; // Self-references: which side the loop goes out.
+    bool m_moved = false;
 };
 
 } // namespace
@@ -345,7 +411,7 @@ void ErdView::rebuild()
     }
 
     const catalog::ErdMetrics m = metrics();
-    const catalog::ErdLayout layout = catalog::starLayout(m_graph, m);
+    const catalog::ErdLayout layout = catalog::layoutFor(m_graph, m);
     for (const catalog::ErdPlacement &placement : layout.nodes) {
         const catalog::ErdNode *node = m_graph.node(placement.oid);
         if (!node)
@@ -355,11 +421,41 @@ void ErdView::rebuild()
         m_scene->addItem(item);
         m_tables.insert(node->oid, item);
     }
+    // Each key that touches a table gets its own place along the box edge,
+    // in a fixed order, so several of them do not pile up on one point.
+    QHash<unsigned int, int> touching;
+    for (const catalog::ErdEdge &edge : m_graph.edges) {
+        touching[edge.from] += 1;
+        if (!edge.isSelfReference())
+            touching[edge.to] += 1;
+    }
+    QHash<unsigned int, int> used;
+    auto share = [&](unsigned int oid) { return qreal(++used[oid]) / (touching.value(oid) + 1); };
     for (const catalog::ErdEdge &edge : m_graph.edges) {
         ErdTableItem *from = m_tables.value(edge.from);
         ErdTableItem *to = m_tables.value(edge.to);
-        if (from && to)
-            m_scene->addItem(new ErdEdgeItem(edge, from, to));
+        if (!from || !to)
+            continue;
+        const qreal fromShare = share(edge.from);
+        const qreal toShare = edge.isSelfReference() ? fromShare : share(edge.to);
+        auto *item
+            = new ErdEdgeItem(edge, from, to, layout.route(edge.from, edge.to), fromShare, toShare);
+        if (edge.isSelfReference()) {
+            // Out of the side the table's other keys use less.
+            int right = 0;
+            for (const catalog::ErdEdge &other : m_graph.edges) {
+                if (other.isSelfReference())
+                    continue;
+                const unsigned int far = other.from == edge.from ? other.to : other.from;
+                if ((other.from == edge.from || other.to == edge.from) && m_tables.contains(far))
+                    right += m_tables.value(far)->box().center().x() > from->box().center().x()
+                        ? 1
+                        : -1;
+            }
+            if (right > 0)
+                item->setLoopOnTheLeft();
+        }
+        m_scene->addItem(item);
     }
 
     // From the items, not from the layout: edges curve out beyond the boxes.

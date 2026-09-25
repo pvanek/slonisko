@@ -4,6 +4,7 @@
 #include "catalog/Erd.h"
 #include "pg/QueryRunner.h"
 
+#include <QElapsedTimer>
 #include <QFile>
 #include <QTest>
 
@@ -46,6 +47,7 @@ CREATE TABLE shipment (
     line int,
     FOREIGN KEY (order_id, line) REFERENCES order_line (order_id, line));
 CREATE TABLE lonely (id int PRIMARY KEY);
+CREATE TABLE keyless (a int, b text);
 )sql";
 
 const char *const Teardown = "DROP SCHEMA IF EXISTS slonisko_erd_test CASCADE";
@@ -71,6 +73,18 @@ ErdEdge makeEdge(const char *name, unsigned int from, unsigned int to)
     edge.fromColumns = QStringList {QStringLiteral("x")};
     edge.toColumns = QStringList {QStringLiteral("id")};
     return edge;
+}
+
+// Which layer a box ended up on, by its top edge.
+std::vector<qreal> rowsOf(const ErdLayout &layout)
+{
+    std::vector<qreal> tops;
+    for (const ErdPlacement &placement : layout.nodes) {
+        if (std::ranges::find(tops, placement.box.top()) == tops.end())
+            tops.push_back(placement.box.top());
+    }
+    std::ranges::sort(tops);
+    return tops;
 }
 
 bool overlap(const ErdLayout &layout)
@@ -116,6 +130,38 @@ private Q_SLOTS:
         QVERIFY(qAbs(focus->box.center().x() - layout.bounds.center().x()) < 1.0);
         QVERIFY(!overlap(layout));
         QVERIFY(layout.bounds.contains(focus->box));
+    }
+
+    // Round the focus table, not in one long row: eight neighbours used to
+    // make a diagram four screens wide.
+    void starIsRoundNotWide()
+    {
+        ErdGraph graph;
+        graph.focus = 1;
+        graph.nodes = {makeNode(1, "orders", 4)};
+        for (unsigned int i = 2; i <= 9; ++i) {
+            graph.nodes.push_back(
+                makeNode(i, QStringLiteral("t%1").arg(i).toUtf8().constData(), 3));
+            // Four tables the focus points at, four pointing at it.
+            graph.edges.push_back(
+                i % 2 == 0 ? makeEdge(QStringLiteral("e%1").arg(i).toUtf8().constData(), 1, i)
+                           : makeEdge(QStringLiteral("e%1").arg(i).toUtf8().constData(), i, 1));
+        }
+
+        const ErdLayout layout = starLayout(graph);
+        QCOMPARE(layout.nodes.size(), 9u);
+        QVERIFY(!overlap(layout));
+
+        // Wider than tall is fine; four times as wide is not.
+        const qreal ratio = layout.bounds.width() / layout.bounds.height();
+        QVERIFY2(
+            ratio < 2.5,
+            qPrintable(
+                QStringLiteral("%1 x %2").arg(layout.bounds.width()).arg(layout.bounds.height())));
+        // And the focus table is in the middle of it all.
+        const QRectF focus = layout.placement(1)->box;
+        QVERIFY(qAbs(focus.center().x() - layout.bounds.center().x()) < focus.width());
+        QVERIFY(qAbs(focus.center().y() - layout.bounds.center().y()) < focus.height());
     }
 
     void selfReferenceNeedsNoPlace()
@@ -202,6 +248,162 @@ private Q_SLOTS:
                  ErdMetrics {}.headerHeight + 3 * ErdMetrics {}.rowHeight + ErdMetrics {}.padding);
     }
 
+    // The layered layout, which is what a whole schema gets.
+
+    void layersPutReferencedTablesAbove()
+    {
+        // country ← orders ← order_line, a chain of three.
+        ErdGraph graph;
+        graph.nodes
+            = {makeNode(1, "orders", 3), makeNode(2, "country", 2), makeNode(3, "order_line", 2)};
+        graph.edges
+            = {makeEdge("orders_country_fkey", 1, 2), makeEdge("order_line_orders_fkey", 3, 1)};
+
+        const ErdLayout layout = layeredLayout(graph);
+        QCOMPARE(layout.nodes.size(), 3u);
+        QCOMPARE(rowsOf(layout).size(), 3u);
+        QVERIFY(layout.placement(2)->box.bottom() < layout.placement(1)->box.top());
+        QVERIFY(layout.placement(1)->box.bottom() < layout.placement(3)->box.top());
+        QVERIFY(!overlap(layout));
+    }
+
+    void cyclesDoNotHangTheLayout()
+    {
+        // Two tables pointing at each other, and a longer ring behind them.
+        ErdGraph graph;
+        graph.nodes = {makeNode(1, "a", 2), makeNode(2, "b", 2), makeNode(3, "c", 2)};
+        graph.edges = {makeEdge("a_b_fkey", 1, 2), makeEdge("b_a_fkey", 2, 1),
+                       makeEdge("b_c_fkey", 2, 3), makeEdge("c_a_fkey", 3, 1)};
+
+        const ErdLayout layout = layeredLayout(graph);
+        QCOMPARE(layout.nodes.size(), 3u);
+        QVERIFY(!overlap(layout));
+    }
+
+    void partsThatAreNotConnectedArePackedSideBySide()
+    {
+        ErdGraph graph;
+        graph.nodes = {makeNode(1, "a", 2), makeNode(2, "b", 2), makeNode(3, "x", 2),
+                       makeNode(4, "y", 2), makeNode(5, "alone", 1)};
+        graph.edges = {makeEdge("a_b_fkey", 1, 2), makeEdge("x_y_fkey", 3, 4)};
+
+        const ErdLayout layout = layeredLayout(graph);
+        QCOMPARE(layout.nodes.size(), 5u);
+        QVERIFY(!overlap(layout));
+        // Each pair keeps its own two layers rather than being spread out.
+        QVERIFY(layout.placement(2)->box.bottom() < layout.placement(1)->box.top());
+        QVERIFY(layout.placement(4)->box.bottom() < layout.placement(3)->box.top());
+        // The parts stand next to each other, not on top of one another.
+        QVERIFY(layout.placement(1)->box.right() < layout.placement(3)->box.left()
+                || layout.placement(3)->box.right() < layout.placement(1)->box.left());
+    }
+
+    // An edge crossing a layer gets a channel of its own, so it is not
+    // drawn straight through the tables in between.
+    void longEdgesAreRoutedAroundTables()
+    {
+        // a ← b ← c, and a long one from a straight down to c.
+        ErdGraph graph;
+        graph.nodes = {makeNode(1, "a", 2), makeNode(2, "b", 2), makeNode(3, "c", 2)};
+        graph.edges
+            = {makeEdge("b_a_fkey", 2, 1), makeEdge("c_b_fkey", 3, 2), makeEdge("c_a_fkey", 3, 1)};
+
+        const ErdLayout layout = layeredLayout(graph);
+        QCOMPARE(layout.nodes.size(), 3u);
+        // The short hops need no help.
+        QVERIFY(layout.route(2, 1).empty());
+        QVERIFY(layout.route(3, 2).empty());
+
+        // The long one bends once, on b's layer and clear of b's box.
+        const std::vector<QPointF> bends = layout.route(3, 1);
+        QCOMPARE(bends.size(), 1u);
+        const QRectF b = layout.placement(2)->box;
+        QVERIFY(bends[0].y() > b.top() && bends[0].y() < b.bottom());
+        QVERIFY2(!b.contains(bends[0]),
+                 qPrintable(QStringLiteral("bend %1,%2 inside %3..%4")
+                                .arg(bends[0].x())
+                                .arg(bends[0].y())
+                                .arg(b.left())
+                                .arg(b.right())));
+        QVERIFY(!overlap(layout));
+    }
+
+    void layeredLayoutIsDeterministic()
+    {
+        ErdGraph graph;
+        for (unsigned int i = 1; i <= 8; ++i)
+            graph.nodes.push_back(
+                makeNode(i, QStringLiteral("t%1").arg(i).toUtf8().constData(), 2));
+        graph.edges = {makeEdge("e1", 2, 1), makeEdge("e2", 3, 1), makeEdge("e3", 4, 2),
+                       makeEdge("e4", 5, 2), makeEdge("e5", 6, 3), makeEdge("e6", 7, 4),
+                       makeEdge("e7", 8, 5), makeEdge("e8", 8, 6)};
+
+        const ErdLayout first = layeredLayout(graph);
+        std::ranges::reverse(graph.nodes);
+        std::ranges::reverse(graph.edges);
+        const ErdLayout second = layeredLayout(graph);
+        for (const ErdPlacement &placement : first.nodes)
+            QCOMPARE(second.placement(placement.oid)->box, placement.box);
+    }
+
+    void selfReferencesAreNoLayer()
+    {
+        ErdGraph graph;
+        graph.nodes = {makeNode(1, "orders", 3)};
+        graph.edges = {makeEdge("orders_parent_fkey", 1, 1)};
+
+        const ErdLayout layout = layeredLayout(graph);
+        QCOMPARE(layout.nodes.size(), 1u);
+        QCOMPARE(rowsOf(layout).size(), 1u);
+    }
+
+    void aSchemaFullOfTablesFallsBackToAGrid()
+    {
+        ErdGraph graph;
+        for (unsigned int i = 1; i <= ManyTables + 20; ++i) {
+            graph.nodes.push_back(makeNode(
+                i, QStringLiteral("t%1").arg(i, 4, 10, QLatin1Char('0')).toUtf8().constData(), 2));
+        }
+        QElapsedTimer timer;
+        timer.start();
+        const ErdLayout layout = layeredLayout(graph);
+        QCOMPARE(layout.nodes.size(), graph.nodes.size());
+        QVERIFY(!overlap(layout));
+        QVERIFY2(timer.elapsed() < 2000, qPrintable(QString::number(timer.elapsed())));
+    }
+
+    void aBigSchemaStillLaysOutQuickly()
+    {
+        // A hundred tables in a tree: the layered path, at its usual size.
+        ErdGraph graph;
+        for (unsigned int i = 1; i <= 100; ++i) {
+            graph.nodes.push_back(makeNode(
+                i, QStringLiteral("t%1").arg(i, 3, 10, QLatin1Char('0')).toUtf8().constData(), 3));
+            if (i > 1)
+                graph.edges.push_back(
+                    makeEdge(QStringLiteral("e%1").arg(i).toUtf8().constData(), i, i / 2));
+        }
+        QElapsedTimer timer;
+        timer.start();
+        const ErdLayout layout = layeredLayout(graph);
+        QCOMPARE(layout.nodes.size(), 100u);
+        QVERIFY(!overlap(layout));
+        QVERIFY2(timer.elapsed() < 3000, qPrintable(QString::number(timer.elapsed())));
+    }
+
+    void layoutForPicksTheShape()
+    {
+        ErdGraph focused;
+        focused.focus = 1;
+        focused.nodes = {makeNode(1, "orders", 2), makeNode(2, "customer", 2)};
+        focused.edges = {makeEdge("orders_customer_fkey", 1, 2)};
+        QCOMPARE(layoutFor(focused).nodes.size(), starLayout(focused).nodes.size());
+
+        ErdGraph schema = focused;
+        schema.focus = 0; // A whole schema singles no table out.
+        QCOMPARE(layoutFor(schema).placement(1)->box, layeredLayout(schema).placement(1)->box);
+    }
+
     // The queries, against a real server.
 
     void initTestCase()
@@ -278,6 +480,21 @@ private Q_SLOTS:
         QCOMPARE(std::ranges::count_if(graph.edges, &ErdEdge::isSelfReference), 1);
     }
 
+    // What the crow's foot needs: a key that cannot be null means its table
+    // must have exactly one counterpart, not zero or one.
+    void keysSayWhetherTheyAreMandatory()
+    {
+        const ErdGraph graph = graphOf("slonisko_erd_test.orders");
+        const Oid orders = oidOf("slonisko_erd_test.orders");
+        const auto edge = [&](const char *table) {
+            const Oid other = oidOf((QByteArray("slonisko_erd_test.") + table).constData());
+            return std::ranges::find_if(
+                graph.edges, [&](const ErdEdge &e) { return e.from == orders && e.to == other; });
+        };
+        QVERIFY(edge("customer")->mandatory); // customer_id is NOT NULL.
+        QVERIFY(!edge("country")->mandatory); // country_code may be null.
+    }
+
     void compositeKeysKeepTheirOrder()
     {
         const ErdGraph graph = graphOf("slonisko_erd_test.shipment");
@@ -291,10 +508,40 @@ private Q_SLOTS:
 
     // A table with no keys at all must still turn up, or its diagram would
     // be empty rather than a box on its own.
+    // A whole schema: every table in it, and the ones its keys point at.
+    void schemaGraph()
+    {
+        const QueryOutcome oid = run("SELECT oid FROM pg_namespace "
+                                     "WHERE nspname = 'slonisko_erd_test'");
+        QVERIFY(oid.ok());
+        const ErdGraph graph = graphOfSchema(oid.results[0].value(0, 0).toUInt());
+
+        QStringList names;
+        for (const ErdNode &node : graph.nodes)
+            names << node.name;
+        std::ranges::sort(names);
+        QCOMPARE(names,
+                 (QStringList {QStringLiteral("country"), QStringLiteral("customer"),
+                               QStringLiteral("keyless"), QStringLiteral("lonely"),
+                               QStringLiteral("order_line"), QStringLiteral("orders"),
+                               QStringLiteral("shipment")}));
+        QCOMPARE(graph.focus, 0u); // No table is singled out.
+        // Every foreign key of the schema is there, the self-reference too.
+        QCOMPARE(graph.edges.size(), 5u);
+
+        const ErdLayout layout = layoutFor(graph);
+        QCOMPARE(layout.nodes.size(), graph.nodes.size());
+        QVERIFY(!overlap(layout));
+        // order_line points at orders, so it hangs below it.
+        const ErdNode *orders = nodeNamed(graph, "orders");
+        const ErdNode *lines = nodeNamed(graph, "order_line");
+        QVERIFY(orders && lines);
+        QVERIFY(layout.placement(orders->oid)->box.bottom()
+                < layout.placement(lines->oid)->box.top());
+    }
+
     void tableWithNoKeyColumns()
     {
-        const QueryOutcome created = run("CREATE TABLE slonisko_erd_test.keyless (a int, b text)");
-        QVERIFY2(created.ok(), qPrintable(created.error));
         const ErdGraph graph = graphOf("slonisko_erd_test.keyless");
         QCOMPARE(graph.nodes.size(), 1u);
         const ErdNode &node = graph.nodes.front();
@@ -342,12 +589,32 @@ private:
         return o.ok() && !o.results.empty() ? o.results[0].value(0, 0).toUInt() : 0;
     }
 
+    static const ErdNode *nodeNamed(const ErdGraph &graph, const char *name)
+    {
+        const auto it = std::ranges::find(graph.nodes, QString::fromUtf8(name), &ErdNode::name);
+        return it == graph.nodes.end() ? nullptr : &*it;
+    }
+
+    ErdGraph graphOfSchema(Oid schema)
+    {
+        std::vector<Result> results;
+        for (const QByteArray &query : erdQueries(ErdScope::Schema, schema)) {
+            const QueryOutcome o = run(query);
+            [&] {
+                QVERIFY2(o.ok(),
+                         qPrintable(o.error + QLatin1String(": ") + QString::fromUtf8(query)));
+            }();
+            results.push_back(o.results.empty() ? Result() : o.results.back());
+        }
+        return parseErd(0, results);
+    }
+
     ErdGraph graphOf(const char *table)
     {
         const Oid oid = oidOf(table);
         [&] { QVERIFY(oid > 0); }();
         std::vector<Result> results;
-        for (const QByteArray &query : erdQueries(oid)) {
+        for (const QByteArray &query : erdQueries(ErdScope::Table, oid)) {
             const QueryOutcome o = run(query);
             [&] {
                 QVERIFY2(o.ok(),

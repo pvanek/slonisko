@@ -615,6 +615,45 @@ private Q_SLOTS:
                                 .arg(visible.height())));
     }
 
+    // A schema shows every table it holds, in layers.
+    void schemaPageShowsADiagram()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("DROP SCHEMA IF EXISTS erd_schema CASCADE");
+        runSql("CREATE SCHEMA erd_schema");
+        runSql("CREATE TABLE erd_schema.author (id int PRIMARY KEY, name text)");
+        runSql("CREATE TABLE erd_schema.book (id int PRIMARY KEY, "
+               "author_id int REFERENCES erd_schema.author (id))");
+        runSql(
+            "CREATE TABLE erd_schema.page (book_id int REFERENCES erd_schema.book (id), no int)");
+        runSql("SELECT oid FROM pg_namespace WHERE nspname = 'erd_schema'");
+        const unsigned int schema = model()->index(0, 0).data().toString().toUInt();
+
+        ObjectPage *page = w.showObject(m_session.get(), {}, catalog::ObjectKind::Schema, schema,
+                                        QStringLiteral("erd_schema"));
+        QTRY_VERIFY(!page->detail().title.isEmpty());
+        QVERIFY(page->diagram());
+        page->tabs()->setCurrentIndex(tabNamed(page, QStringLiteral("Diagram")));
+        QTRY_COMPARE(page->diagram()->graph().nodes.size(), 3u);
+
+        // No table is the focus, and the layers follow the keys: author
+        // above book above page.
+        const catalog::ErdGraph &graph = page->diagram()->graph();
+        QCOMPARE(graph.focus, 0u);
+        QVERIFY(page->diagram()->focusBox().isNull());
+        const catalog::ErdLayout layout = catalog::layoutFor(graph);
+        auto boxOf = [&](const char *name) {
+            const auto it
+                = std::ranges::find(graph.nodes, QString::fromUtf8(name), &catalog::ErdNode::name);
+            return layout.placement(it->oid)->box;
+        };
+        QVERIFY(boxOf("author").bottom() < boxOf("book").top());
+        QVERIFY(boxOf("book").bottom() < boxOf("page").top());
+
+        runSql("DROP SCHEMA IF EXISTS erd_schema CASCADE");
+    }
+
     // A view has no foreign keys, so it gets no diagram tab at all.
     void viewHasNoDiagram()
     {

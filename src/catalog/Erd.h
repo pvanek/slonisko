@@ -6,6 +6,7 @@
 #include "catalog/Objects.h"
 
 #include <QByteArray>
+#include <QPointF>
 #include <QRectF>
 #include <QSizeF>
 #include <QString>
@@ -51,6 +52,9 @@ struct ErdEdge
     Oid to = 0; // ...and the one it points at.
     QStringList fromColumns;
     QStringList toColumns;
+    // Every column of the key is NOT NULL, so each row must have its
+    // counterpart: "exactly one" rather than "zero or one" on the diagram.
+    bool mandatory = false;
 
     bool isSelfReference() const { return from == to; }
 };
@@ -69,10 +73,16 @@ struct ErdGraph
 // take part in foreign keys.
 bool hasDiagram(ObjectKind kind);
 
-// One table and its neighbours: what it references and what references it.
+// What a diagram covers.
+enum class ErdScope {
+    Table, // One table and its neighbours: what it references and what references it.
+    Schema // Every table of a schema, and the tables their keys point at.
+};
+
 // The queries run in order; their results go to parseErd() the same way.
-std::vector<QByteArray> erdQueries(Oid table);
-ErdGraph parseErd(Oid table, const std::vector<pg::Result> &results);
+// For a schema, focus is the schema's oid and no table is singled out.
+std::vector<QByteArray> erdQueries(ErdScope scope, Oid oid);
+ErdGraph parseErd(Oid focus, const std::vector<pg::Result> &results);
 
 // What a table box looks like, in scene units. The view fills this in from
 // its own font; the defaults are here so layout tests need no font at all.
@@ -97,17 +107,42 @@ struct ErdPlacement
     QRectF box;
 };
 
+// Where an edge has to bend to get past the tables between its ends: the
+// points come from the channels the layout kept free for it.
+struct ErdRoute
+{
+    Oid from = 0;
+    Oid to = 0;
+    std::vector<QPointF> bends;
+};
+
 struct ErdLayout
 {
     std::vector<ErdPlacement> nodes;
+    std::vector<ErdRoute> routes;
     QRectF bounds;
 
     const ErdPlacement *placement(Oid oid) const;
+    // Empty when the edge runs between neighbouring layers, which needs no
+    // help, or when the layout draws no routes at all.
+    std::vector<QPointF> route(Oid from, Oid to) const;
 };
 
 // The focus table in the middle, what it references in a row above, what
 // references it in a row below. Deterministic: the same graph always comes
 // out the same way, whatever order the server listed things in.
 ErdLayout starLayout(const ErdGraph &graph, const ErdMetrics &metrics = {});
+
+// Tables in layers, a referenced table above the ones referencing it: cycles
+// broken, layers assigned by longest path, crossings cut down by repeated
+// median sweeps, and disconnected parts packed side by side. Deterministic,
+// like starLayout(). Above ManyTables it falls back to a plain grid, which
+// is all a diagram that size is good for anyway.
+ErdLayout layeredLayout(const ErdGraph &graph, const ErdMetrics &metrics = {});
+constexpr int ManyTables = 150;
+
+// The layout that suits the graph: a focused table gets a star, a whole
+// schema gets layers.
+ErdLayout layoutFor(const ErdGraph &graph, const ErdMetrics &metrics = {});
 
 } // namespace slonisko::catalog

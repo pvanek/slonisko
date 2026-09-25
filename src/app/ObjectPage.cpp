@@ -250,7 +250,10 @@ void ObjectPage::loadDiagram()
 
     m_diagramLoaded = true;
     const quint64 generation = m_generation;
-    const std::vector<QByteArray> queries = catalog::erdQueries(m_oid);
+    const std::vector<QByteArray> queries
+        = catalog::erdQueries(m_kind == catalog::ObjectKind::Schema ? catalog::ErdScope::Schema
+                                                                    : catalog::ErdScope::Table,
+                              m_oid);
     auto results = std::make_shared<std::vector<pg::Result>>();
     for (const QByteArray &query : queries) {
         runner->run(
@@ -261,7 +264,9 @@ void ObjectPage::loadDiagram()
                 results->push_back(outcome.results.empty() ? pg::Result() : outcome.results.back());
                 if (results->size() < wanted)
                     return;
-                m_graph = catalog::parseErd(m_oid, *results);
+                // A schema diagram singles no table out.
+                m_graph = catalog::parseErd(m_kind == catalog::ObjectKind::Schema ? 0 : m_oid,
+                                            *results);
                 m_diagram->setGraph(m_graph);
             });
     }
