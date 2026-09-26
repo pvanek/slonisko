@@ -31,6 +31,7 @@
 #include <QGuiApplication>
 #include <QItemSelectionModel>
 #include <QHeaderView>
+#include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QLabel>
 #include <QSettings>
@@ -531,6 +532,70 @@ private Q_SLOTS:
         QVERIFY(extension);
         QTRY_COMPARE(extension->detail().title, QStringLiteral("plpgsql"));
         QVERIFY(extension->tabs()->count() >= 2); // Overview and Objects.
+    }
+
+    // Ctrl+click on a table's name in the script opens what it is.
+    void ctrlClickOpensTheObject()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("DROP TABLE IF EXISTS click_target");
+        runSql("CREATE TABLE click_target (id int PRIMARY KEY, note text)");
+        runSql("SELECT 'click_target'::regclass::oid");
+        const unsigned int oid = model()->index(0, 0).data().toString().toUInt();
+
+        EditorPage *editor = w.currentEditor();
+        QVERIFY(editor);
+        editor->setSession(m_session.get());
+        QTRY_COMPARE(editor->connection()->state(), pg::Connection::State::Ready);
+        // The editor resolves names against the catalog data the session
+        // loaded, which has to know the new table first.
+        QTRY_VERIFY_WITH_TIMEOUT(
+            m_session->snapshot()
+                && m_session->snapshot()->findRelation(QString(), QStringLiteral("click_target")),
+            15'000);
+        editor->editor()->setText(QStringLiteral("SELECT * FROM click_target WHERE id > 1"));
+        editor->editor()->refreshSemantics();
+        w.resize(900, 600);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+
+        const qsizetype at = editor->editor()->utf8Text().indexOf("click_target") + 2;
+        QTRY_VERIFY_WITH_TIMEOUT(editor->editor()->objectAt(at) != nullptr, 10'000);
+        QCOMPARE(editor->editor()->objectAt(at)->oid, oid);
+
+        // Ctrl over the name shows it is a link; without Ctrl it is text,
+        // and so is a name the catalog knows nothing about.
+        // Several moves, as a real mouse sends: Scintilla puts the text
+        // cursor back on each of them and the hand has to survive that.
+        for (int i = 0; i < 3; ++i)
+            moveTo(editor->editor(), at, Qt::ControlModifier);
+        QCOMPARE(editor->editor()->viewport()->cursor().shape(), Qt::PointingHandCursor);
+        moveTo(editor->editor(), at, Qt::NoModifier);
+        QCOMPARE(editor->editor()->viewport()->cursor().shape(), Qt::IBeamCursor);
+        moveTo(editor->editor(), editor->editor()->utf8Text().indexOf("WHERE") + 1,
+               Qt::ControlModifier);
+        QCOMPARE(editor->editor()->viewport()->cursor().shape(), Qt::IBeamCursor);
+
+        // A plain click leaves the editor alone, and so does a Ctrl+drag,
+        // which selects. Only press and release in one place opens a page.
+        const int pages = int(w.pages().size());
+        clickAt(editor->editor(), at, Qt::NoModifier);
+        QCOMPARE(w.pages().size(), std::size_t(pages));
+
+        clickAt(editor->editor(), at, Qt::ControlModifier, at + 20);
+        QTest::qWait(100);
+        QCOMPARE(w.pages().size(), std::size_t(pages));
+
+        clickAt(editor->editor(), at, Qt::ControlModifier);
+        QTRY_COMPARE(w.pages().size(), std::size_t(pages + 1));
+        auto *page = qobject_cast<ObjectPage *>(w.currentPage());
+        QVERIFY(page);
+        QCOMPARE(page->oid(), oid);
+        QCOMPARE(page->kind(), catalog::ObjectKind::Table);
+        QTRY_COMPARE(page->detail().title, QStringLiteral("public.click_target"));
+
+        runSql("DROP TABLE IF EXISTS click_target");
     }
 
     void objectPageShowsADiagram()
@@ -1222,6 +1287,41 @@ private:
                 return tab;
         }
         return -1;
+    }
+
+    // A mouse click at a byte position in the script.
+    QPointF pointAt(SqlEditor *editor, qsizetype position) const
+    {
+        return QPointF(
+            qreal(editor->SendScintilla(QsciScintilla::SCI_POINTXFROMPOSITION, 0UL, position))
+                + 2.0,
+            qreal(editor->SendScintilla(QsciScintilla::SCI_POINTYFROMPOSITION, 0UL, position))
+                + 2.0);
+    }
+
+    void moveTo(SqlEditor *editor, qsizetype position, Qt::KeyboardModifiers modifiers)
+    {
+        const QPointF at = pointAt(editor, position);
+        QWidget *viewport = editor->viewport();
+        QMouseEvent move(QEvent::MouseMove, at, viewport->mapToGlobal(at), Qt::NoButton,
+                         Qt::NoButton, modifiers);
+        QCoreApplication::sendEvent(viewport, &move);
+    }
+
+    // A mouse click at a byte position in the script; releaseAt < 0 lets go
+    // where it was pressed, anything else drags there first.
+    void clickAt(SqlEditor *editor, qsizetype position, Qt::KeyboardModifiers modifiers,
+                 qsizetype releaseAt = -1)
+    {
+        const QPointF at = pointAt(editor, position);
+        const QPointF to = releaseAt < 0 ? at : pointAt(editor, releaseAt);
+        QWidget *viewport = editor->viewport();
+        QMouseEvent press(QEvent::MouseButtonPress, at, viewport->mapToGlobal(at), Qt::LeftButton,
+                          Qt::LeftButton, modifiers);
+        QCoreApplication::sendEvent(viewport, &press);
+        QMouseEvent release(QEvent::MouseButtonRelease, to, viewport->mapToGlobal(to),
+                            Qt::LeftButton, Qt::NoButton, modifiers);
+        QCoreApplication::sendEvent(viewport, &release);
     }
 
     unsigned int extensionOid()

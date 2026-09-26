@@ -253,6 +253,26 @@ QString folderTitle(Folder folder)
     return {};
 }
 
+ObjectKind relationKind(char relkind)
+{
+    switch (relkind) {
+    case 'p':
+        return ObjectKind::PartitionedTable;
+    case 'v':
+        return ObjectKind::View;
+    case 'm':
+        return ObjectKind::MaterializedView;
+    case 'f':
+        return ObjectKind::ForeignTable;
+    case 'S':
+        return ObjectKind::Sequence;
+    case 'i':
+        return ObjectKind::Index;
+    default:
+        return ObjectKind::Table;
+    }
+}
+
 QString kindName(ObjectKind kind)
 {
     switch (kind) {

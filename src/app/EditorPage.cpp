@@ -133,6 +133,11 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     connect(m_editor, &QsciScintilla::modificationChanged, this, &EditorPage::titleChanged);
     connect(m_panel->results(), &ResultView::saveRequested, this, [this] { saveChanges(); });
     connect(m_panel->results(), &ResultView::exportAllRequested, this, &EditorPage::exportAll);
+    connect(m_editor, &SqlEditor::objectActivated, this,
+            [this](unsigned int oid, catalog::ObjectKind kind, const QString &) {
+                if (m_session)
+                    Q_EMIT objectRequested(m_session, m_database, kind, oid);
+            });
     m_editor->setSnapshotProvider(
         [this] { return m_session ? m_session->snapshot(m_database) : catalog::SnapshotPtr(); });
 

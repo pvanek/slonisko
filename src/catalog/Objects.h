@@ -87,6 +87,9 @@ struct DbObject
 std::vector<Folder> foldersOf(ObjectKind kind);
 QString folderTitle(Folder folder);
 QString kindName(ObjectKind kind);
+// What a pg_class.relkind means, for the catalog data that carries the raw
+// character rather than a kind.
+ObjectKind relationKind(char relkind);
 
 // SQL listing the folder's objects. owner is the oid of the schema or
 // relation the folder belongs to; it is unused for database- and

@@ -35,6 +35,10 @@ struct SemanticSpan
     qsizetype offset = 0; // In bytes, in the script.
     qsizetype length = 0;
     QString detail; // For a tooltip, like a column's type.
+    // The catalog object the name turned out to be, for opening it from the
+    // editor; 0 when the name is not one, like a CTE or an alias.
+    Oid oid = 0;
+    char relationKind = 0; // pg_class.relkind, when oid names a relation.
 
     qsizetype end() const { return offset + length; }
 };

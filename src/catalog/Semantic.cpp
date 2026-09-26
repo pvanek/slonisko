@@ -292,10 +292,14 @@ public:
     }
 
 private:
-    void add(Kind kind, qsizetype offset, qsizetype length, const QString &detail = {})
+    void add(Kind kind, qsizetype offset, qsizetype length, const QString &detail = {},
+             const Relation *relation = nullptr)
     {
-        if (offset >= 0 && length > 0)
-            m_out.push_back({kind, m_base + offset, length, detail});
+        if (offset >= 0 && length > 0) {
+            m_out.push_back({kind, m_base + offset, length, detail,
+                             relation ? relation->oid : Oid(0),
+                             relation ? relation->kind : char(0)});
+        }
     }
 
     // The significant token starting at a byte offset, or -1.
@@ -410,7 +414,7 @@ private:
             if (ref.schema.isEmpty() && isCte(refs.scope, ref.relation)) {
                 add(Kind::Cte, name.offset, name.length, QStringLiteral("WITH query"));
             } else if (const Relation *r = m_snapshot->findRelation(ref.schema, ref.relation)) {
-                add(Kind::Relation, name.offset, name.length, relationDetail(*r));
+                add(Kind::Relation, name.offset, name.length, relationDetail(*r), r);
             } else if (flag && !ref.created && !m_created.contains(ref.relation)) {
                 add(Kind::UnknownRelation, name.offset, name.length,
                     QStringLiteral("Not in the catalog loaded when connecting: %1")
@@ -546,7 +550,7 @@ private:
             if (s.schema.isEmpty() && isCte(m_scope, s.relation))
                 add(Kind::Cte, s.offset, s.length, QStringLiteral("WITH query"));
             else if (const Relation *r = relationOf(s))
-                add(Kind::Relation, s.offset, s.length, relationDetail(*r));
+                add(Kind::Relation, s.offset, s.length, relationDetail(*r), r);
         }
         for (int i = 0; i + 2 < m_tokens.size(); ++i) {
             if (!isName(m_tokens.at(i).kind) || !m_tokens.isPunct(i + 1, '.')

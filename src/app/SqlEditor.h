@@ -5,6 +5,7 @@
 
 #include "Qsci.h"
 #include "catalog/Completion.h"
+#include "catalog/Objects.h"
 #include "catalog/Semantic.h"
 
 #include <QFutureWatcher>
@@ -79,13 +80,27 @@ public:
     const std::vector<catalog::SemanticSpan> &semanticSpans() const { return m_semantic; }
     // What hovering over a position explains: a name's detail or an error.
     QString explanationAt(qsizetype pos) const;
+    // The catalog object named at a byte position, if the name resolved to
+    // one; what Ctrl+click opens.
+    const catalog::SemanticSpan *objectAt(qsizetype pos) const;
+
+Q_SIGNALS:
+    // Ctrl+click on a name the catalog knows: show what it is.
+    void objectActivated(unsigned int oid, slonisko::catalog::ObjectKind kind, const QString &name);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void leaveEvent(QEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
     void changeEvent(QEvent *event) override;
 
 private:
+    void updateLinkCursor(Qt::KeyboardModifiers modifiers, const QPoint &at);
+
     // Letters to type before the list appears by itself; a dot shows it at once.
     static constexpr qsizetype AutoCompleteChars = 3;
 
@@ -112,6 +127,8 @@ private:
 
     SnapshotProvider m_snapshot;
     CompletionPopup *m_popup = nullptr;
+    qsizetype m_pressedLink = -1; // Where a Ctrl+press landed, until release.
+    QPoint m_pressedAt;
     QTimer m_completionTimer;
     QFutureWatcher<catalog::Completion> m_completionWatcher;
     quint64 m_revision = 0; // Counts edits, to drop stale completions.

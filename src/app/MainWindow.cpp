@@ -209,6 +209,11 @@ void MainWindow::updateActions()
 EditorPage *MainWindow::newEditor(Session *session, const QString &database)
 {
     auto *page = new EditorPage(m_browser, tr("Script %1").arg(++m_editorCount));
+    // Ctrl+click on a name in the script opens what it is.
+    connect(page, &EditorPage::objectRequested, this,
+            [this](Session *from, const QString &db, catalog::ObjectKind kind, unsigned int oid) {
+                showObject(from, db, kind, oid, QString());
+            });
     QString db = database;
     if (!session)
         session = m_browser->currentSession(&db);

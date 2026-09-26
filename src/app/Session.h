@@ -97,6 +97,7 @@ private:
     std::map<QString, Database> m_databases;
     std::map<QString, catalog::SnapshotPtr> m_snapshots;
     std::set<QString> m_loadingSnapshots;
+    std::set<QString> m_staleSnapshots; // Changed again while loading.
     QList<QPointer<pg::Connection>> m_attached;
 };
 

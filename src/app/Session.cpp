@@ -90,18 +90,27 @@ void Session::reloadSnapshot(const QString &database)
 {
     const QString name = database.isEmpty() ? m_profile.database : database;
     pg::QueryRunner *r = runner(name);
-    if (!r || m_loadingSnapshots.contains(name))
+    if (!r)
         return;
+    if (m_loadingSnapshots.contains(name)) {
+        // Another statement changed the catalog while this load was running:
+        // what comes back is already out of date, so go round again.
+        m_staleSnapshots.insert(name);
+        return;
+    }
     m_loadingSnapshots.insert(name);
     const int version = serverVersion();
     r->run(catalog::snapshotQuery(), this, [this, name, version](const pg::QueryOutcome &outcome) {
         m_loadingSnapshots.erase(name);
-        if (!outcome.ok())
-            return; // Completion goes without; the next reload may work.
-        if (catalog::SnapshotPtr loaded = catalog::parseSnapshot(outcome.results, version)) {
-            m_snapshots[name] = std::move(loaded);
-            Q_EMIT snapshotChanged(name);
-        }
+        const bool again = m_staleSnapshots.erase(name) > 0;
+        if (outcome.ok()) {
+            if (catalog::SnapshotPtr loaded = catalog::parseSnapshot(outcome.results, version)) {
+                m_snapshots[name] = std::move(loaded);
+                Q_EMIT snapshotChanged(name);
+            }
+        } // Else completion goes without; the next reload may work.
+        if (again)
+            reloadSnapshot(name);
     });
 }
 

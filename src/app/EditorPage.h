@@ -4,6 +4,7 @@
 #pragma once
 
 #include "catalog/Export.h"
+#include "catalog/Objects.h"
 #include "pg/Connection.h"
 #include "sql/PsqlVariables.h"
 
@@ -103,6 +104,9 @@ public:
 
 Q_SIGNALS:
     void runningChanged(bool running);
+    // Ctrl+click on a name in the script: show what that object is.
+    void objectRequested(slonisko::Session *session, const QString &database,
+                         slonisko::catalog::ObjectKind kind, unsigned int oid);
 
 private:
     struct Job

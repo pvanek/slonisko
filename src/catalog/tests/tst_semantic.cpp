@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Petr Vanek
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "catalog/Objects.h"
 #include "catalog/Semantic.h"
 #include "sql/EmbeddedLexer.h"
 
@@ -103,6 +104,32 @@ private Q_SLOTS:
                           "o.customer_id"),
                  (QByteArrayList {"col:total", "col:name", "fn:count", "rel:orders",
                                   "rel:customers", "col:id", "col:customer_id"}));
+    }
+
+    // What Ctrl+click in the editor needs: the object a name turned out to be.
+    void namesCarryTheirObject()
+    {
+        static const Snapshot snapshot = makeSnapshot();
+        const auto spans = analyzeScript("SELECT o.total FROM orders o, sales.invoices", &snapshot);
+        const auto relation = [&](const char *name) {
+            return std::ranges::find_if(spans, [&](const SemanticSpan &span) {
+                return span.kind == SemanticSpan::Kind::Relation
+                    && span.detail.contains(QLatin1String(name));
+            });
+        };
+        QVERIFY(relation("orders") != spans.end());
+        QCOMPARE(relation("orders")->oid, 1u);
+        QCOMPARE(relation("orders")->relationKind, 'r');
+        QCOMPARE(relationKind(relation("orders")->relationKind), ObjectKind::Table);
+
+        QCOMPARE(relation("invoices")->oid, 3u);
+        QCOMPARE(relationKind(relation("invoices")->relationKind), ObjectKind::View);
+
+        // An alias or a column names no object of its own.
+        for (const SemanticSpan &span : spans) {
+            if (span.kind == SemanticSpan::Kind::Column)
+                QCOMPARE(span.oid, 0u);
+        }
     }
 
     void schemaQualified()

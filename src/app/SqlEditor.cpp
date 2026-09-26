@@ -8,6 +8,7 @@
 #include "sql/Splitter.h"
 
 #include <QEvent>
+#include <QCursor>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QKeyEvent>
@@ -52,6 +53,10 @@ SqlEditor::SqlEditor(QWidget *parent)
     SendScintilla(SCI_INDICSETUNDER, StatementIndicator, 1);
     SendScintilla(SCI_INDICSETSTYLE, ErrorIndicator, INDIC_SQUIGGLEPIXMAP);
     SendScintilla(SCI_INDICSETFORE, ErrorIndicator, QColor(220, 40, 40));
+
+    // Without this the editor hears about the mouse only while a button is
+    // down, and Ctrl+hover could never show that a name is a link.
+    viewport()->setMouseTracking(true);
 
     m_statementTimer.setSingleShot(true);
     m_statementTimer.setInterval(100);
@@ -172,6 +177,8 @@ void SqlEditor::applyCompletion(const catalog::CompletionItem &item)
 
 void SqlEditor::keyPressEvent(QKeyEvent *event)
 {
+    if (event->key() == Qt::Key_Control)
+        updateLinkCursor(Qt::ControlModifier, viewport()->mapFromGlobal(QCursor::pos()));
     if (m_popup->handleKey(event))
         return;
     if (event->key() == Qt::Key_Space && event->modifiers() & Qt::ControlModifier) {
@@ -384,6 +391,89 @@ void SqlEditor::applySemantics()
         send(SCI_SETINDICATORCURRENT, indicatorFor(s.kind));
         send(SCI_INDICATORFILLRANGE, s.offset, s.length);
     }
+}
+
+const catalog::SemanticSpan *SqlEditor::objectAt(qsizetype pos) const
+{
+    for (const catalog::SemanticSpan &s : m_semantic) {
+        if (pos >= s.offset && pos < s.end() && s.oid != 0)
+            return &s;
+    }
+    return nullptr;
+}
+
+// Ctrl turns names the catalog knows into links.
+// Ctrl turns names the catalog knows into links. Like any link, it opens on
+// release and only if the mouse stayed where it was pressed: a Ctrl+drag is
+// a rectangular selection, not a click.
+void SqlEditor::mousePressEvent(QMouseEvent *event)
+{
+    m_pressedLink = -1;
+    if (event->modifiers() == Qt::ControlModifier && event->button() == Qt::LeftButton) {
+        const QPoint at = event->position().toPoint();
+        const auto position = qsizetype(send(SCI_POSITIONFROMPOINTCLOSE, at.x(), at.y()));
+        if (position >= 0 && objectAt(position)) {
+            m_pressedLink = position;
+            m_pressedAt = at;
+            event->accept();
+            return; // Scintilla would start selecting text under the cursor.
+        }
+    }
+    QsciScintilla::mousePressEvent(event);
+}
+
+void SqlEditor::mouseReleaseEvent(QMouseEvent *event)
+{
+    const qsizetype pressed = std::exchange(m_pressedLink, qsizetype(-1));
+    if (pressed >= 0 && event->button() == Qt::LeftButton) {
+        const QPoint at = event->position().toPoint();
+        constexpr int Slack = 4; // A hand on a mouse is never quite still.
+        if ((at - m_pressedAt).manhattanLength() <= Slack) {
+            if (const catalog::SemanticSpan *span = objectAt(pressed)) {
+                const QByteArray text = utf8Text();
+                Q_EMIT objectActivated(span->oid, catalog::relationKind(span->relationKind),
+                                       QString::fromUtf8(text.mid(span->offset, span->length)));
+            }
+        }
+        event->accept();
+        return;
+    }
+    QsciScintilla::mouseReleaseEvent(event);
+}
+
+void SqlEditor::keyReleaseEvent(QKeyEvent *event)
+{
+    QsciScintilla::keyReleaseEvent(event);
+    // Letting go of Ctrl takes the pointing hand away again.
+    if (event->key() == Qt::Key_Control)
+        updateLinkCursor(Qt::NoModifier, viewport()->mapFromGlobal(QCursor::pos()));
+}
+
+void SqlEditor::leaveEvent(QEvent *event)
+{
+    QsciScintilla::leaveEvent(event);
+    // The pointer is somewhere else now; the text cursor belongs here.
+    if (viewport()->cursor().shape() == Qt::PointingHandCursor)
+        viewport()->setCursor(Qt::IBeamCursor);
+}
+
+void SqlEditor::mouseMoveEvent(QMouseEvent *event)
+{
+    QsciScintilla::mouseMoveEvent(event);
+    updateLinkCursor(event->modifiers(), event->position().toPoint());
+}
+
+void SqlEditor::updateLinkCursor(Qt::KeyboardModifiers modifiers, const QPoint &at)
+{
+    const bool link = modifiers == Qt::ControlModifier && [&] {
+        const auto position = qsizetype(send(SCI_POSITIONFROMPOINTCLOSE, at.x(), at.y()));
+        return position >= 0 && objectAt(position) != nullptr;
+    }();
+    // Scintilla sets the text cursor itself on every mouse move, so what
+    // matters is what the cursor is now, not what we set it to last time.
+    const Qt::CursorShape wanted = link ? Qt::PointingHandCursor : Qt::IBeamCursor;
+    if (viewport()->cursor().shape() != wanted)
+        viewport()->setCursor(wanted);
 }
 
 QString SqlEditor::explanationAt(qsizetype pos) const
