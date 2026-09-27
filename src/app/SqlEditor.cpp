@@ -145,9 +145,13 @@ void SqlEditor::showCompletion()
         // down (or after a dot), and not when the word is already complete.
         const QByteArray text = utf8Text();
         const bool afterDot = m_requestCursor > 0 && text[m_requestCursor - 1] == '.';
-        show = (c.prefix.size() >= AutoCompleteChars || afterDot)
-            && !(c.items.size() == 1
-                 && c.items.front().label.compare(c.prefix, Qt::CaseInsensitive) == 0);
+        // A word that is already written needs no list, unless what it
+        // matches is a snippet: typing its abbreviation in full is how one
+        // asks for it.
+        const bool written = c.items.size() == 1
+            && c.items.front().label.compare(c.prefix, Qt::CaseInsensitive) == 0
+            && c.items.front().kind != catalog::CompletionItem::Kind::Snippet;
+        show = (c.prefix.size() >= AutoCompleteChars || afterDot) && !written;
     }
     if (!show) {
         m_popup->hide();
@@ -172,7 +176,11 @@ void SqlEditor::applyCompletion(const catalog::CompletionItem &item)
     send(SCI_SETTARGETEND, to);
     SendScintilla(SCI_REPLACETARGET, static_cast<unsigned long>(text.size()), text.constData());
     endUndoAction();
-    setCursorPosition(from + text.size());
+    // A snippet says where the caret belongs, counted in characters: "SELECT
+    // * FROM " leaves it where the table's name goes.
+    const qsizetype caret
+        = item.caret < 0 ? text.size() : item.insertText.left(item.caret).toUtf8().size();
+    setCursorPosition(from + caret);
 }
 
 void SqlEditor::keyPressEvent(QKeyEvent *event)

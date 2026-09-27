@@ -295,6 +295,43 @@ private Q_SLOTS:
         QVERIFY(labels(c).contains(QStringLiteral("SELECT")));
     }
 
+    // Short words standing for whole statements.
+    void snippets()
+    {
+        const Completion c = completeAt("sf|");
+        const CompletionItem *first = &c.items.front();
+        QCOMPARE(first->kind, Kind::Snippet);
+        QCOMPARE(first->label, QStringLiteral("sf"));
+        // Typed in lower case, so the keywords come out that way too.
+        QCOMPARE(first->insertText, QStringLiteral("select * from "));
+        QCOMPARE(first->caret, int(first->insertText.size()));
+        QVERIFY(!first->detail.isEmpty());
+
+        // The other way round for an abbreviation typed in capitals.
+        QCOMPARE(completeAt("SCF|").items.front().insertText,
+                 QStringLiteral("SELECT count(1) FROM "));
+
+        // The caret lands where the table's name goes, not at the end.
+        const CompletionItem &limit = completeAt("sfl|").items.front();
+        QCOMPARE(limit.insertText, QStringLiteral("select * from  limit 100"));
+        QCOMPARE(limit.caret, int(QStringLiteral("select * from ").size()));
+
+        // A snippet is offered beside the keywords it stands for, never
+        // instead of them.
+        // Typed in lower case, so the keyword is offered that way.
+        QVERIFY(labels(completeAt("se|"), Kind::Keyword).contains(QStringLiteral("select")));
+    }
+
+    void snippetsStayOutOfTheWay()
+    {
+        // Nothing typed: the list is about this statement, not a menu of
+        // everything that could be written.
+        QVERIFY(labels(completeAt("|"), Kind::Snippet).isEmpty());
+        // Where a table belongs, a snippet does not.
+        QVERIFY(labels(completeAt("SELECT * FROM |"), Kind::Snippet).isEmpty());
+        QVERIFY(labels(completeAt("SELECT * FROM o|"), Kind::Snippet).isEmpty());
+    }
+
     void scores()
     {
         QVERIFY(fuzzyScore(QStringLiteral("ord"), QStringLiteral("orders"))

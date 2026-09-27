@@ -4,6 +4,7 @@
 #include "catalog/Completion.h"
 
 #include "catalog/Scope.h"
+#include "catalog/Snippets.h"
 #include "sql/Keywords.h"
 #include "sql/Lexer.h"
 
@@ -347,7 +348,7 @@ public:
     explicit Candidates(const QString &prefix) : m_prefix(prefix) { }
 
     void add(Item::Kind kind, const QString &label, const QString &insert, const QString &detail,
-             int weight)
+             int weight, int caret = -1)
     {
         int match = fuzzyScore(m_prefix, label);
         if (match == 0)
@@ -358,7 +359,7 @@ public:
         if (m_seen.contains(key))
             return;
         m_seen.insert(key);
-        m_items.push_back({kind, label, insert, detail, match + weight});
+        m_items.push_back({kind, label, insert, detail, caret, match + weight});
     }
 
     std::vector<Item> take()
@@ -499,6 +500,7 @@ public:
             break;
         case Context::Keyword:
             addKeywords(candidates, lowercase, 0);
+            addSnippets(candidates, lowercase, out.prefix);
             break;
         case Context::Relation:
             addRelations(candidates, qualifiers.value(0));
@@ -524,8 +526,10 @@ public:
                     Item::Kind::Alias, s.name, quoted(s.name),
                     s.relation.isEmpty() || s.relation == s.name ? QString() : s.relation, 40);
             addFunctions(candidates, {}, 0);
-            if (!out.prefix.isEmpty())
+            if (!out.prefix.isEmpty()) {
                 addKeywords(candidates, lowercase, -60);
+                addSnippets(candidates, lowercase, out.prefix);
+            }
             break;
         }
         out.items = candidates.take();
@@ -662,6 +666,22 @@ private:
         if (schema.isEmpty()) {
             for (const QString &s : m_snapshot.schemas)
                 c.add(Item::Kind::Schema, s, quoted(s), QStringLiteral("schema"), 0);
+        }
+    }
+
+    // Short words standing for whole statements. They are worth offering
+    // first when their abbreviation was typed, and not at all when nothing
+    // was: a bare Ctrl+Space is a question about this statement, not a menu.
+    void addSnippets(Candidates &c, bool lowercase, const QString &prefix)
+    {
+        if (prefix.isEmpty())
+            return;
+        for (const Snippet &snippet : snippets()) {
+            QString text = lowercase ? snippet.text.toLower() : snippet.text;
+            const int caret = int(text.indexOf(Snippet::CaretMark));
+            if (caret >= 0)
+                text.remove(caret, int(Snippet::CaretMark.size()));
+            c.add(Item::Kind::Snippet, snippet.abbreviation, text, snippet.title, 40, caret);
         }
     }
 

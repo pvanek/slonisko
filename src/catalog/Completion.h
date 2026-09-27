@@ -26,12 +26,17 @@ struct CompletionItem
         Column,
         Function,
         Type,
+        Snippet, // A short word standing for a piece of SQL, like "sf".
     };
 
     Kind kind = Kind::Keyword;
     QString label; // What the list shows.
     QString insertText; // What goes into the text, quoted if needed.
     QString detail; // Like a column's type, or a relation's schema.
+    // Where the caret goes once the text is in, counted in characters from
+    // its start; -1 leaves it at the end. Snippets put it where the name of
+    // the table belongs.
+    int caret = -1;
     int score = 0;
 };
 

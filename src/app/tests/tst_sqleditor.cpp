@@ -278,6 +278,42 @@ private Q_SLOTS:
         QCOMPARE(e.text(), QStringLiteral("SELECT customer_id FROM orders"));
     }
 
+    // Short words that stand for whole statements.
+    void snippets()
+    {
+        auto snapshot = std::make_shared<catalog::Snapshot>();
+        snapshot->searchPath = {QStringLiteral("public")};
+        snapshot->schemas = {QStringLiteral("public")};
+
+        SqlEditor e;
+        e.setSnapshotProvider([snapshot] { return snapshot; });
+        e.resize(600, 300);
+        e.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&e));
+
+        CompletionPopup *popup = e.completionPopup();
+        QTest::keyClicks(&e, QStringLiteral("scf"));
+        QTRY_VERIFY(popup->isVisible());
+        QVERIFY(popup->current());
+        QCOMPARE(popup->current()->label, QStringLiteral("scf"));
+
+        QTest::keyClick(&e, Qt::Key_Return);
+        QCOMPARE(e.text(), QStringLiteral("select count(1) from "));
+        // The caret waits where the table's name goes.
+        QCOMPARE(e.cursorPosition(), e.utf8Text().size());
+
+        // One with the caret in the middle of what it writes.
+        e.setText(QString());
+        QTest::keyClicks(&e, QStringLiteral("sfl"));
+        QTRY_VERIFY(popup->isVisible());
+        QTest::keyClick(&e, Qt::Key_Return);
+        QCOMPARE(e.text(), QStringLiteral("select * from  limit 100"));
+        QCOMPARE(e.cursorPosition(), qsizetype(QStringLiteral("select * from ").size()));
+        // Typing carries on where the caret is.
+        QTest::keyClicks(&e, QStringLiteral("orders"));
+        QCOMPARE(e.text(), QStringLiteral("select * from orders limit 100"));
+    }
+
     void semanticHighlighting()
     {
         auto snapshot = std::make_shared<catalog::Snapshot>();

@@ -84,6 +84,9 @@ private:
             return Icons::object(K::Function);
         case Kind::Type:
             return Icons::object(K::Type);
+        case Kind::Snippet:
+            return QIcon::fromTheme(QStringLiteral("insert-text"),
+                                    QIcon::fromTheme(QStringLiteral("format-text-code")));
         }
         return {};
     }
