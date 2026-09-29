@@ -39,6 +39,15 @@ public:
     void zoomOut() { zoomBy(1 / 1.25); }
     void resetZoom();
 
+    // Saves the diagram as the file name's suffix says: .svg, .png and .pdf
+    // as it is drawn now, tables wherever they were dragged to, on white;
+    // .dot (or .gv) and .mmd as Graphviz and Mermaid source, which those
+    // tools lay out their own way.
+    bool saveDiagram(const QString &path, QString *error = nullptr);
+    // The suffixes saveDiagram() knows, each with what it means, for a file
+    // dialog; the first is the one to offer.
+    static QStringList fileFilters();
+
 Q_SIGNALS:
     // A table other than the focus was double-clicked.
     void tableActivated(unsigned int oid);
@@ -55,6 +64,11 @@ private:
     catalog::ErdMetrics metrics() const;
     void rebuild();
     void zoomBy(qreal factor);
+    // What an exported picture covers: everything drawn, with a margin.
+    QRectF exportRect() const;
+    // Draws the diagram on a light background, unselected, whatever the
+    // screen shows: a file is read away from the program's colours.
+    void renderForExport(QPainter *painter, const QRectF &target);
 
     QGraphicsScene *m_scene = nullptr;
     catalog::ErdGraph m_graph;

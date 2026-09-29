@@ -59,3 +59,33 @@ the better answer.
   diagram is about.
 - A table's diagram opens big enough to read, even if the rest has to be
   scrolled to; a schema or database diagram opens showing everything.
+
+## Saving a diagram
+
+```{index} export; diagram, SVG, PNG, PDF, Graphviz, Mermaid
+```
+
+*Export* on the diagram's toolbar opens a menu. *Copy as Mermaid* and
+*Copy as Graphviz* put the diagram's source on the clipboard, ready to paste
+into a wiki page or a README. The *Save as…* entries ask for a file, in one
+of five formats:
+
+SVG, PNG, PDF
+: The diagram as it is drawn, including tables you have moved, on a white
+  background whatever colours the program uses. SVG and PDF keep the text as
+  text, so it can be searched and stays sharp; a PNG is drawn at twice the
+  screen size, or less if the diagram is very large.
+
+Graphviz (`.dot`, `.gv`)
+: Source for Graphviz's `dot`, which lays the tables out itself, for
+  example `dot -Tsvg schema.dot -o schema.svg`. Each schema gets a frame
+  when there is more than one.
+
+Mermaid (`.mmd`)
+: An `erDiagram` for Mermaid, which GitHub, GitLab and many wikis draw in
+  Markdown. Mermaid accepts fewer characters in names and types than
+  PostgreSQL; anything it would refuse is replaced by `_`, and the original
+  spelling is kept as the column's comment.
+
+The text formats list every key column; the picture shows at most eighteen
+per table.

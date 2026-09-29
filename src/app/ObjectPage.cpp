@@ -7,14 +7,25 @@
 #include "ResultTextView.h"
 #include "Session.h"
 #include "Shortcuts.h"
+#include "catalog/ErdExport.h"
 #include "pg/QueryRunner.h"
 
 #include <QAbstractTableModel>
 #include <QAction>
+#include <QClipboard>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMenu>
+#include <QMessageBox>
+#include <QRegularExpression>
+#include <QSettings>
 #include <QTabWidget>
 #include <QToolBar>
+#include <QToolButton>
 #include <QTableView>
 #include <QVBoxLayout>
 
@@ -105,6 +116,47 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
         diagramAction(QStringLiteral("zoom-in"), tr("Zoom In"), &ErdView::zoomIn);
         diagramAction(QStringLiteral("zoom-out"), tr("Zoom Out"), &ErdView::zoomOut);
         diagramAction(QStringLiteral("zoom-original"), tr("Actual Size"), &ErdView::resetZoom);
+        diagramBar->addSeparator();
+        // Text formats are mostly pasted into documentation, so they can go
+        // straight to the clipboard; pictures only make sense as files.
+        auto *exportMenu = new QMenu(diagramBar);
+        exportMenu->setObjectName(QStringLiteral("diagramExportMenu"));
+        auto copyAction = [&](const QString &objectName, const QString &text, auto toText) {
+            QAction *action = exportMenu->addAction(text);
+            action->setObjectName(objectName);
+            connect(action, &QAction::triggered, this, [this, toText] {
+                if (m_diagram && !m_diagram->graph().isEmpty())
+                    QGuiApplication::clipboard()->setText(toText(m_diagram->graph()));
+            });
+        };
+        copyAction(QStringLiteral("copyMermaid"), tr("Copy as Mermaid"), &catalog::erdToMermaid);
+        copyAction(QStringLiteral("copyGraphviz"), tr("Copy as Graphviz"), &catalog::erdToDot);
+        exportMenu->addSeparator();
+        const QStringList filters = ErdView::fileFilters();
+        const QStringList saveTexts = {tr("Save as SVG…"), tr("Save as PNG…"), tr("Save as PDF…"),
+                                       tr("Save as Graphviz…"), tr("Save as Mermaid…")};
+        for (int i = 0; i < filters.size(); ++i) {
+            QAction *action = exportMenu->addAction(saveTexts.value(i, filters[i]));
+            connect(action, &QAction::triggered, this,
+                    [this, filter = filters[i]] { exportDiagram(filter); });
+        }
+        // Nothing to copy or save until the keys have been read.
+        connect(exportMenu, &QMenu::aboutToShow, this, [this, exportMenu] {
+            const bool ready = m_diagram && !m_diagram->graph().isEmpty();
+            for (QAction *action : exportMenu->actions())
+                action->setEnabled(ready);
+        });
+        auto *exportButton = new QToolButton(diagramBar);
+        exportButton->setIcon(
+            QIcon::fromTheme(QStringLiteral("document-export"),
+                             QIcon::fromTheme(QStringLiteral("document-save-as"))));
+        exportButton->setText(tr("Export"));
+        exportButton->setToolTip(
+            tr("Copy the diagram as Mermaid or Graphviz, or save it to a file"));
+        exportButton->setMenu(exportMenu);
+        exportButton->setPopupMode(QToolButton::InstantPopup);
+        exportButton->setToolButtonStyle(diagramBar->toolButtonStyle());
+        diagramBar->addWidget(exportButton);
         auto *hint = new QLabel(tr("Drag to move a table, Ctrl+wheel to zoom, "
                                    "double-click a neighbour to open it."),
                                 m_diagramTab);
@@ -271,6 +323,31 @@ void ObjectPage::loadDiagram()
                     = catalog::parseErd(m_kind == catalog::ObjectKind::Table ? m_oid : 0, *results);
                 m_diagram->setGraph(m_graph);
             });
+    }
+}
+
+void ObjectPage::exportDiagram(const QString &filter)
+{
+    if (!m_diagram || m_diagram->graph().isEmpty())
+        return;
+    QSettings settings;
+    // A name made from the object's, with the suffix of the format chosen.
+    static const QRegularExpression suffixOf(QStringLiteral("\\*(\\.\\w+)"));
+    const QString suffix = suffixOf.match(filter).captured(1);
+    QString name = m_name;
+    name.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")), QStringLiteral("_"));
+    const QString dir = settings.value(QStringLiteral("files/lastDirectory")).toString();
+    QString path = QFileDialog::getSaveFileName(this, tr("Export Diagram"),
+                                                QDir(dir).filePath(name + suffix), filter);
+    if (path.isEmpty())
+        return;
+    if (QFileInfo(path).suffix().isEmpty())
+        path += suffix;
+    settings.setValue(QStringLiteral("files/lastDirectory"), QFileInfo(path).absolutePath());
+    QString error;
+    if (!m_diagram->saveDiagram(path, &error)) {
+        QMessageBox::warning(this, tr("Export Diagram"),
+                             tr("Could not save %1:\n%2").arg(path, error));
     }
 }
 

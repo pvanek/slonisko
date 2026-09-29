@@ -10,6 +10,8 @@ add_library(slonisko_catalog STATIC
     Editing.h
     Erd.cpp
     Erd.h
+    ErdExport.cpp
+    ErdExport.h
     Export.cpp
     Export.h
     Monitoring.cpp

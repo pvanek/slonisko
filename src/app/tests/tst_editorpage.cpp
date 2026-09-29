@@ -13,6 +13,7 @@
 #include "ResultPanel.h"
 #include "ResultTextView.h"
 #include "ResultView.h"
+#include "catalog/ErdExport.h"
 #include "catalog/Export.h"
 #include "Session.h"
 #include "SqlEditor.h"
@@ -28,6 +29,7 @@
 #include <QTabWidget>
 #include <QFile>
 #include <QClipboard>
+#include <QMenu>
 #include <QGuiApplication>
 #include <QItemSelectionModel>
 #include <QHeaderView>
@@ -658,6 +660,17 @@ private Q_SLOTS:
         page->tabs()->setCurrentIndex(tabNamed(page, QStringLiteral("Diagram")));
         QTRY_COMPARE(page->diagram()->graph().nodes.size(), 7u);
         QTest::qWait(100);
+
+        // The export menu copies the text formats instead of asking for a file.
+        auto *exportMenu = page->findChild<QMenu *>(QStringLiteral("diagramExportMenu"));
+        QVERIFY(exportMenu);
+        QCOMPARE(exportMenu->actions().size(), 8); // Two copies, a separator, five saves.
+        QGuiApplication::clipboard()->clear();
+        exportMenu->findChild<QAction *>(QStringLiteral("copyMermaid"))->trigger();
+        QCOMPARE(QGuiApplication::clipboard()->text(),
+                 catalog::erdToMermaid(page->diagram()->graph()));
+        exportMenu->findChild<QAction *>(QStringLiteral("copyGraphviz"))->trigger();
+        QCOMPARE(QGuiApplication::clipboard()->text(), catalog::erdToDot(page->diagram()->graph()));
 
         ErdView *view = page->diagram();
         const qreal scale = view->transform().m11();

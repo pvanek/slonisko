@@ -50,6 +50,8 @@ Q_SIGNALS:
 private:
     void showDetail(const catalog::ObjectDetail &detail);
     void loadDiagram();
+    // Asks where to save the diagram, in the one format the filter names.
+    void exportDiagram(const QString &filter);
     void showMessage(const QString &text, bool error = false);
 
     QPointer<Session> m_session;
