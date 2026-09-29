@@ -82,6 +82,8 @@ private:
     void updateActions();
     void openFile();
     void saveCurrent();
+    void showHelp();
+    QString helpKeyword() const;
     void showAbout();
 
     QSettings m_settings;

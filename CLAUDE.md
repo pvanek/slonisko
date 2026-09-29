@@ -3,6 +3,14 @@
 A PostgreSQL client in Qt 6 Widgets, talking to the server through raw libpq
 and parsing SQL with libpg_query. GPLv3.
 
+## Documentation
+
+The manual is in `docs/`, written in Markdown for Sphinx (MyST). Anything
+worth explaining to a user belongs there rather than in the README, which
+keeps only what someone needs before cloning. `docs/development/` holds the
+build instructions, the architecture overview and the coding style, so this
+file stays short.
+
 ## Coding style
 
 The [Qt coding style](https://wiki.qt.io/Qt_Coding_Style), as written down in

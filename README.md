@@ -1,82 +1,58 @@
 # Slonisko
 
-A fast, keyboard-driven PostgreSQL client built with Qt 6 Widgets.
+A fast, keyboard-driven PostgreSQL client built with Qt6.
 
 Slonisko talks to the server through raw libpq, fully asynchronously, and uses
 PostgreSQL's own parser ([libpg_query](https://github.com/pganalyze/libpg_query))
 for statement splitting, error positions and context-aware completion.
 
-Status: early development. Nothing works yet.
+## Why another PostgreSQL client
 
-## Layout
+I have used DBeaver for years, and it is a fine tool. What I never got used
+to is how its editor behaves, how much of the machine it wants, and how it
+handles transactions — several of those are my own reports in its bug
+tracker, filed as *pvanek*.
 
-| Directory       | Target              | Purpose                                                  |
-|-----------------|---------------------|----------------------------------------------------------|
-| `src/pg`        | `Slonisko::Pg`      | Async connection, queries, cancel, query queue, row store, SSH tunnel |
-| `src/config`    | `Slonisko::Config`  | Connection profiles, passwords (system wallet)           |
-| `src/sql`       | `Slonisko::Sql`     | PostgreSQL lexer, statement splitting, psql variables, other languages' bodies |
-| `src/catalog`   | `Slonisko::Catalog` | Browser and monitoring queries, catalog snapshots, completion, semantic highlighting, EXPLAIN plans, result editing |
-| `src/app`       | `slonisko`          | The GUI                                                  |
+For the last few years I work with PostgreSQL and nothing else. So rather
+than a tool that speaks every database, I wanted one that speaks this one
+properly: quick to start, small while it runs, and still able to do a day's
+work.
 
-Each library keeps its Qt Test unit tests in its own `tests/` subdirectory.
+I have written a database client before: [TOra](https://github.com/tora-tool/tora),
+an Oracle client that also talks to PostgreSQL and MySQL. Its codebase is
+large and PostgreSQL was never what it was built for, so adding what I
+wanted there would have been more work than starting from something that is
+PostgreSQL-only from the first line.
 
-Only `src/app` may depend on Qt Widgets. The libraries stay headless so they
-can be tested without a display.
+That is why slonisko exists.
 
-## Connections and transactions
+The name is a joke I liked the sound of: *slonisko* is what the Czech
+translations of Winnie-the-Pooh call a Heffalump, the imaginary beast Pooh
+and Piglet set out to trap. In Czech it is also plainly a big elephant,
+which is about as close to PostgreSQL's own mascot as a name can get.
 
-Connecting a saved profile opens a *session*: one SSH tunnel, if the profile
-has one, shared by all of the session's connections. Each part of the UI then
-uses connections as follows.
+## How it compares
 
-| Who                            | Connection                               | Transactions |
-|--------------------------------|------------------------------------------|--------------|
-| SQL editor page                | Its own, one per editor                  | Yours: autocommit until you run `BEGIN` (or press Begin); open until you commit or roll back, by statement or toolbar button |
-| Explain Analyze in an editor   | The editor's                             | Wrapped in `BEGIN`/`ROLLBACK`, or a savepoint inside an open transaction, so it changes nothing |
-| Saving edited result rows      | The editor's                             | `BEGIN`/`COMMIT`, or a savepoint inside an open transaction; all rows or none |
-| Result page (DBA Tools, System Info) | Its own, one per page              | Autocommit; a running query can be stopped |
-| Object tree, completion, semantic highlighting | The session's, shared, one per database | Autocommit; its queries run one after another |
+| | Platforms | Licence | Built on | Footprint | Scope |
+|---|---|---|---|---|---|
+| **slonisko** | Linux, Windows, macOS | GPL-3.0 | C++, Qt Widgets, libpq | small | PostgreSQL only: everyday work, developer first |
+| pgAdmin 4 | Linux, Windows, macOS, web | PostgreSQL licence | Python, web UI | large | PostgreSQL, administration first |
+| DBeaver CE | Linux, Windows, macOS | Apache-2.0 | Java, Eclipse RCP | large | Many databases, very broad |
+| DataGrip | Linux, Windows, macOS | proprietary | Java, IntelliJ | large | Many databases, very broad |
+| Beekeeper Studio CE | Linux, Windows, macOS | GPL-3.0 | TypeScript, Electron | medium | Several databases, everyday work |
+| TablePlus | macOS, Windows, Linux | proprietary | native | small | Many databases, everyday work |
+| psql, pgcli | anywhere with a terminal | PostgreSQL licence, BSD | C, Python | tiny | PostgreSQL, scripting and the shell |
 
-So N editors and M result pages on one profile use N + M + 1 connections,
-plus one for each further database the object tree browses.
+Footprint is a rough impression of start-up time and memory while idle, not
+a benchmark; scope is what each tool sets out to do rather than how well it
+does it. Corrections are welcome — the point of the table is to say where
+slonisko fits, not to score anyone.
 
-- Editors are isolated from each other and from the tree: what one editor has
-  not committed, nothing else sees. That includes completion and highlighting,
-  which learn about new tables only once their DDL is committed.
-- An open transaction is never lost silently. Closing an editor or the window,
-  or switching the editor to another connection, asks whether to commit or
-  roll back (a failed transaction can only be rolled back), and a running
-  statement is stopped only if you say so. If the commit fails, the editor
-  stays open with the error in Messages.
-- Disconnecting a profile asks first if any of its editors has a transaction
-  open or a statement running; disconnecting rolls those back.
+## LLM/AI Note
 
-## Coding style
-
-The code follows the [Qt coding style](https://wiki.qt.io/Qt_Coding_Style),
-with `.clang-format` in the repository root as its written form:
-
-- Four spaces, never tabs; lines up to 100 characters.
-- Braces on their own line for classes, structs and function bodies,
-  attached everywhere else (`if (x) {`, `} else {`).
-- `*` and `&` next to the name: `Session *session`, `const QString &name`.
-- A space after control keywords, none after a function name: `if (ok)`,
-  `run(sql)`.
-- Braces may be left out for single-statement bodies, but then the whole
-  statement, `else` branch included, goes without them.
-- Names: `CamelCase` types, `camelCase` functions and variables, `m_` for
-  members, `SCREAMING_CASE` only for macros.
-
-Before committing:
-
-```sh
-clang-format -i $(git ls-files '*.cpp' '*.h')
-```
-
-Beyond the formatter: comments say why something is done, not what the next
-line already says; anything that is not obvious from the code gets a
-sentence. Qt Designer `.ui` files hold every dialog's layout, so that it can
-be changed without touching code. Only `src/app` may use Qt Widgets.
+I created this tool as a pet project by hand. Mostly. Some functionality is created
+by LLM though. All code has been reviewed by a human.
+I added `CLAUDE.md` instructions for further patches.
 
 ## Requirements
 
@@ -130,6 +106,41 @@ temporary objects.
 
 Any CMake generator works; add `-G Ninja` for faster incremental builds if you
 have Ninja installed.
+
+## Layout
+
+| Directory       | Target              | Purpose                                                  |
+|-----------------|---------------------|----------------------------------------------------------|
+| `src/pg`        | `Slonisko::Pg`      | Async connection, queries, cancel, query queue, row store, SSH tunnel |
+| `src/config`    | `Slonisko::Config`  | Connection profiles, passwords (system wallet)           |
+| `src/sql`       | `Slonisko::Sql`     | PostgreSQL lexer, statement splitting, psql variables, other languages' bodies |
+| `src/catalog`   | `Slonisko::Catalog` | Browser and monitoring queries, catalog snapshots, completion, semantic highlighting, EXPLAIN plans, result editing |
+| `src/app`       | `slonisko`          | The GUI                                                  |
+
+Each library keeps its Qt Test unit tests in its own `tests/` subdirectory.
+
+Only `src/app` may depend on Qt Widgets. The libraries stay headless so they
+can be tested without a display.
+
+## Documentation
+
+The manual lives in [`docs/`](docs/index.md): using the program, and how it
+is put together. From the same sources it builds into a website and into a
+Qt help file, which the program shows itself — Help → Manual, or F1 on the
+page you are looking at.
+
+```sh
+cmake -S . -B build -DSLONISKO_WITH_DOCS=ON
+cmake --build build --target docs           # build/docs/html and slonisko.qch
+```
+
+Building it needs Sphinx with the MyST parser; the help file also needs
+`qhelpgenerator` from Qt's tools, and showing it in the program needs Qt's
+Help module. See [building](docs/development/building.md) for the details.
+
+Start with [getting started](docs/getting-started.md),
+[connections and transactions](docs/connections.md) or the
+[coding style](docs/development/coding-style.md).
 
 ## License
 

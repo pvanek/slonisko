@@ -12,6 +12,7 @@
 #include "ResultModel.h"
 #include "ObjectPage.h"
 #include "ResultPage.h"
+#include "HelpWindow.h"
 #include "ResultPanel.h"
 #include "ResultView.h"
 #include "Session.h"
@@ -19,6 +20,7 @@
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDesktopServices>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMenuBar>
@@ -392,8 +394,35 @@ void MainWindow::setupMenus()
     quit->setShortcut(QKeySequence::Quit);
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
+    QAction *manual = help->addAction(QIcon::fromTheme(QStringLiteral("help-contents")),
+                                      tr("&Manual"), this, &MainWindow::showHelp);
+    manual->setShortcut(QKeySequence::HelpContents); // F1
+    manual->setShortcutContext(Qt::ApplicationShortcut);
+    help->addSeparator();
     help->addAction(tr("&About Slonisko"), this, &MainWindow::showAbout);
     help->addAction(tr("About &Qt"), qApp, &QApplication::aboutQt);
+}
+
+void MainWindow::showHelp()
+{
+    // The manual as built into the help file; without one, the website,
+    // which is the same manual.
+    if (HelpWindow::show(helpKeyword()))
+        return;
+    QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/petrvanek/slonisko")));
+}
+
+// What the window is showing decides which page the manual opens.
+QString MainWindow::helpKeyword() const
+{
+    const WorkspacePage *page = currentPage();
+    if (qobject_cast<const EditorPage *>(page))
+        return QStringLiteral("editor");
+    if (qobject_cast<const ObjectPage *>(page))
+        return QStringLiteral("diagrams");
+    if (qobject_cast<const ResultPage *>(page))
+        return QStringLiteral("results");
+    return {};
 }
 
 void MainWindow::showAbout()

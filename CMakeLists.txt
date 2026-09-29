@@ -17,10 +17,17 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 option(SLONISKO_BUILD_TESTS "Build unit tests" ON)
 option(SLONISKO_WERROR "Treat compiler warnings as errors" OFF)
+option(SLONISKO_WITH_DOCS "Build the manual; needs Sphinx with the MyST parser" ON)
 option(SLONISKO_WITH_KEYCHAIN
     "Store passwords in the system wallet via QtKeychain when it is available" ON)
 
 set(SLONISKO_QT_COMPONENTS Concurrent Core Network Gui Widgets)
+# The manual is shown in the program itself when Qt Help is there; without
+# it the Help menu opens the website instead.
+find_package(Qt6 6.5 QUIET COMPONENTS Help)
+if(Qt6Help_FOUND)
+    list(APPEND SLONISKO_QT_COMPONENTS Help)
+endif()
 if(SLONISKO_BUILD_TESTS)
     list(APPEND SLONISKO_QT_COMPONENTS Test)
 endif()
@@ -54,3 +61,7 @@ add_subdirectory(src/config)
 add_subdirectory(src/sql)
 add_subdirectory(src/catalog)
 add_subdirectory(src/app)
+
+if(SLONISKO_WITH_DOCS)
+    add_subdirectory(docs)
+endif()

@@ -6,3 +6,6 @@ compile_commands.json
 *.user
 .vscode/
 .idea/
+
+# Rendered from src/app/icons/slonisko.svg, by the docs build or generate.sh.
+docs/images/slonisko.png
