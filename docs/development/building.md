@@ -80,3 +80,13 @@ Sphinx takes images only from its own directory, so `docs/images/slonisko.png`
 is copied there from `src/app/icons`. The documentation build does that
 itself, and `src/app/icons/generate.sh` writes it along with the other
 sizes; the file is not in the repository.
+
+## Packages
+
+```{index} packaging, RPM, openSUSE Build Service
+```
+
+Packaging lives in `tools/`, one directory per target; `tools/README.md`
+says what is there and how to build each. The openSUSE spec builds without
+network access, as the Build Service requires, by shipping libpg_query's
+tarball as a second source.
