@@ -1,0 +1,4 @@
+# What the manual's build needs. python3-docs.yaml is generated from this
+# file; see tools/README.md.
+sphinx==9.1.0
+myst-parser==5.1.0

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Petr Vanek -->
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<component type="desktop-application">
+  <id>cz.yarpen.slonisko</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Slonisko</name>
+  <summary>Query and manage PostgreSQL databases</summary>
+  <developer id="cz.yarpen">
+    <name>Petr Vanek</name>
+  </developer>
+
+  <description>
+    <p>
+      A fast, keyboard-driven PostgreSQL client. It talks to the server
+      asynchronously, so a long query never freezes the window, and parses
+      SQL with PostgreSQL's own parser.
+    </p>
+    <ul>
+      <li>An SQL editor with completion that knows the database's catalog</li>
+      <li>Results in grids that can be edited and exported</li>
+      <li>A browser for schemas and everything in them</li>
+      <li>Query plans and entity-relationship diagrams</li>
+      <li>Connections through SSH tunnels, passwords in the system wallet</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">cz.yarpen.slonisko.desktop</launchable>
+  <provides>
+    <binary>slonisko</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/pvanek/slonisko</url>
+  <url type="bugtracker">https://github.com/pvanek/slonisko/issues</url>
+  <url type="vcs-browser">https://github.com/pvanek/slonisko</url>
+
+  <categories>
+    <category>Development</category>
+    <category>Database</category>
+  </categories>
+  <keywords>
+    <keyword>PostgreSQL</keyword>
+    <keyword>SQL</keyword>
+    <keyword>database</keyword>
+  </keywords>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-05"/>
+  </releases>
+</component>

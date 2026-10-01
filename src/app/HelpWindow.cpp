@@ -56,12 +56,13 @@ QPointer<HelpWindow> theWindow;
 QString HelpWindow::helpFilePath()
 {
     // Beside the program when running from the build directory, in the data
-    // directory once installed.
+    // directory once installed, in Resources inside a macOS bundle.
     const QString name = QStringLiteral("slonisko.qch");
     QStringList places {QCoreApplication::applicationDirPath() + QLatin1Char('/') + name};
     for (const QString &data : QStandardPaths::standardLocations(QStandardPaths::AppDataLocation))
         places << data + QLatin1Char('/') + name;
     places << QCoreApplication::applicationDirPath() + QStringLiteral("/../share/slonisko/") + name;
+    places << QCoreApplication::applicationDirPath() + QStringLiteral("/../Resources/") + name;
     for (const QString &path : std::as_const(places)) {
         if (QFileInfo::exists(path))
             return QDir::cleanPath(path);

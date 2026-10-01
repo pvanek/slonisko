@@ -95,14 +95,46 @@ slonisko_target_defaults(slonisko)
 
 set_target_properties(slonisko PROPERTIES
     WIN32_EXECUTABLE ON
-    MACOSX_BUNDLE ON)
+    MACOSX_BUNDLE ON
+    MACOSX_BUNDLE_BUNDLE_NAME Slonisko
+    MACOSX_BUNDLE_GUI_IDENTIFIER cz.yarpen.slonisko
+    MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_COPYRIGHT "Copyright 2026 Petr Vanek, GPL-3.0-or-later"
+    MACOSX_BUNDLE_ICON_FILE slonisko.icns)
+
+if(APPLE)
+    # iconutil comes with every Mac, so the .icns is made from the PNGs at
+    # build time instead of being one more rendered file in the repository.
+    set(iconset "${CMAKE_CURRENT_BINARY_DIR}/slonisko.iconset")
+    set(icns "${CMAKE_CURRENT_BINARY_DIR}/slonisko.icns")
+    set(iconset_commands COMMAND ${CMAKE_COMMAND} -E make_directory "${iconset}")
+    foreach(pair 16:16x16 32:16x16@2x 32:32x32 64:32x32@2x 128:128x128 256:128x128@2x
+                 256:256x256 512:256x256@2x 512:512x512)
+        string(REPLACE ":" ";" pair "${pair}")
+        list(GET pair 0 size)
+        list(GET pair 1 name)
+        list(APPEND iconset_commands COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/icons/slonisko-${size}.png"
+            "${iconset}/icon_${name}.png")
+    endforeach()
+    add_custom_command(OUTPUT "${icns}"
+        ${iconset_commands}
+        COMMAND iconutil --convert icns --output "${icns}" "${iconset}"
+        DEPENDS ${slonisko_icons}
+        COMMENT "Making the macOS application icon"
+        VERBATIM)
+    target_sources(slonisko PRIVATE "${icns}")
+    set_source_files_properties("${icns}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+endif()
 
 include(GNUInstallDirs)
 install(TARGETS slonisko
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if(UNIX AND NOT APPLE)
-    install(FILES slonisko.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES cz.yarpen.slonisko.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+    install(FILES cz.yarpen.slonisko.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
     install(FILES icons/slonisko.svg
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
     foreach(size 16 22 24 32 48 64 128 256 512)

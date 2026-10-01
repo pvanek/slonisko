@@ -83,10 +83,13 @@ sizes; the file is not in the repository.
 
 ## Packages
 
-```{index} packaging, RPM, openSUSE Build Service
+```{index} packaging, RPM, openSUSE Build Service, macOS, Windows, Flatpak
 ```
 
 Packaging lives in `tools/`, one directory per target; `tools/README.md`
 says what is there and how to build each. The openSUSE spec builds without
 network access, as the Build Service requires, by shipping libpg_query's
-tarball as a second source.
+tarball as a second source. On macOS and Windows a script builds the package
+with every library inside it: `tools/macos/build.sh` makes a disk image,
+`tools/windows/build.ps1` a zip and an installer, and
+`tools/flatpak/build.sh` a Flatpak bundle.

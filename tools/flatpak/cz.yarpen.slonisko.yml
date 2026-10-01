@@ -1,0 +1,107 @@
+# SPDX-FileCopyrightText: 2026 Petr Vanek
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Flatpak manifest. tools/flatpak/build.sh builds it from this checkout;
+# see tools/README.md.
+
+id: cz.yarpen.slonisko
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+command: slonisko
+rename-icon: slonisko
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # SQL scripts are opened and saved anywhere, and the file browser lists
+  # whole directories; ~/.pgpass and ~/.ssh are read from there too.
+  - --filesystem=home
+  # SSH tunnels use the agent's keys.
+  - --socket=ssh-auth
+  # Passwords in the system wallet, through QtKeychain.
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.kde.kwalletd6
+  - --talk-name=org.kde.kwalletd5
+
+cleanup:
+  - /include
+  - /lib/cmake
+  - /lib/pkgconfig
+  - /lib/*.a
+  - /mkspecs
+  - /share/doc
+  # The server's catalog files and a sample, from PostgreSQL's install.
+  - /share/postgresql
+
+modules:
+  # The client library only: the server, psql and the rest are not built.
+  - name: libpq
+    buildsystem: simple
+    build-commands:
+      - ./configure --prefix=${FLATPAK_DEST} --with-openssl --without-readline --without-icu
+      - make -C src/include install
+      - make -C src/interfaces/libpq -j${FLATPAK_BUILDER_N_JOBS} install
+    sources:
+      - type: archive
+        url: https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.bz2
+        sha256: 555610c24d53e4316da5b7d3fc25c279d96856d5e0e23ee308c328c5fa881d9f
+
+  - name: qtkeychain
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TRANSLATIONS=OFF
+      - -DBUILD_TEST_APPLICATION=OFF
+    sources:
+      - type: archive
+        url: https://github.com/frankosterfeld/qtkeychain/archive/refs/tags/0.17.0.tar.gz
+        sha256: 3b85c3929034b0a99da777130c34d99f006fcd3a9d56564159399a33fee0e504
+
+  # Sphinx and the MyST parser, for the manual; removed once it is built.
+  - python3-docs.yaml
+
+  - name: slonisko
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DSLONISKO_BUILD_TESTS=OFF
+      - -DSLONISKO_WITH_KEYCHAIN=ON
+      - -DSLONISKO_WITH_DOCS=ON
+      # Neither is in the runtime. They are built into the program from the
+      # tarballs below, as the build has no network to download them.
+      - -DSLONISKO_BUNDLED_PGQUERY=ON
+      - -DSLONISKO_BUNDLED_QSCINTILLA=ON
+      - -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+      - -DFETCHCONTENT_SOURCE_DIR_LIBPG_QUERY=/run/build/slonisko/third-party/libpg_query
+      - -DFETCHCONTENT_SOURCE_DIR_QSCINTILLA=/run/build/slonisko/third-party/qscintilla
+    # Run between the build and the install, which then takes the help file
+    # along. Not part of "all": that would make every build wait for Sphinx.
+    build-commands:
+      - ninja docs-qch
+    sources:
+      # This checkout. A Flathub manifest takes a release tag instead:
+      #   type: git, url: https://github.com/pvanek/slonisko.git, tag: v<version>
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - build
+          - build-flatpak
+          - build-macos
+          - build-windows
+      # The versions and hashes pinned in cmake/SloniskoPgQuery.cmake and
+      # cmake/SloniskoQScintilla.cmake; update them together.
+      - type: archive
+        url: https://github.com/pganalyze/libpg_query/archive/refs/tags/18.0.0.tar.gz
+        sha256: 6ad7783f272acfd116455c66a03298a0cac9a9168281df547969219112f0260f
+        dest: third-party/libpg_query
+      - type: archive
+        url: https://www.riverbankcomputing.com/static/Downloads/QScintilla/2.14.1/QScintilla_src-2.14.1.tar.gz
+        sha256: dfe13c6acc9d85dfcba76ccc8061e71a223957a6c02f3c343b30a9d43a4cdd4d
+        dest: third-party/qscintilla

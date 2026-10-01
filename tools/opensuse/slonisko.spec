@@ -1,0 +1,107 @@
+#
+# spec file for package slonisko
+#
+# SPDX-FileCopyrightText: 2026 Petr Vanek
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Please submit bugfixes or comments via https://github.com/pvanek/slonisko/issues
+#
+
+# The libpg_query release that cmake/SloniskoPgQuery.cmake pins; update both
+# together.
+%define pgquery_version 18.0.0
+
+# The manual, shown by the program itself through Qt Help.
+%bcond_without docs
+
+Name:           slonisko
+Version:        0.1.0
+Release:        0
+Summary:        PostgreSQL GUI client
+# The program is GPL-3.0-or-later; the statically linked libpg_query is
+# BSD-3-Clause, with the parser it takes from PostgreSQL under its licence.
+License:        BSD-3-Clause AND GPL-3.0-or-later AND PostgreSQL
+Group:          Productivity/Databases/Tools
+URL:            https://github.com/pvanek/slonisko
+Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
+# Not packaged for openSUSE, and OBS builds have no network, so the copy the
+# build would otherwise download is shipped alongside.
+Source1:        https://github.com/pganalyze/libpg_query/archive/refs/tags/%{pgquery_version}.tar.gz#/libpg_query-%{pgquery_version}.tar.gz
+BuildRequires:  cmake >= 3.25
+BuildRequires:  AppStream
+BuildRequires:  desktop-file-utils
+BuildRequires:  gcc-c++
+BuildRequires:  hicolor-icon-theme
+BuildRequires:  qscintilla-qt6-devel >= 2.13
+BuildRequires:  cmake(Qt6Concurrent) >= 6.5
+BuildRequires:  cmake(Qt6Core) >= 6.5
+BuildRequires:  cmake(Qt6Gui) >= 6.5
+BuildRequires:  cmake(Qt6Keychain)
+BuildRequires:  cmake(Qt6Network) >= 6.5
+BuildRequires:  cmake(Qt6Test) >= 6.5
+BuildRequires:  cmake(Qt6Widgets) >= 6.5
+# Chunked rows mode and the non-blocking cancel API.
+BuildRequires:  pkgconfig(libpq) >= 17
+%if %{with docs}
+BuildRequires:  python3-Sphinx
+BuildRequires:  python3-myst-parser
+BuildRequires:  python3-sphinxcontrib-qthelp
+BuildRequires:  qt6-tools-helpgenerators
+BuildRequires:  cmake(Qt6Help) >= 6.5
+%endif
+# SSH tunnels run the OpenSSH client.
+Recommends:     openssh-clients
+Provides:       bundled(libpg_query) = %{pgquery_version}
+
+%description
+Slonisko is a PostgreSQL client for the desktop. It edits and runs SQL with
+completion that knows the database's catalog, shows results in editable
+grids, browses schemas and their objects, draws query plans and ER diagrams,
+and reaches servers through SSH tunnels.
+
+SQL is parsed with PostgreSQL's own parser (libpg_query), and passwords are
+kept in the system wallet.
+
+%prep
+%autosetup -p1
+mkdir -p third-party/libpg_query
+tar -xzf %{SOURCE1} -C third-party/libpg_query --strip-components=1
+
+%build
+%cmake \
+    -DSLONISKO_BUNDLED_PGQUERY=ON \
+    -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+    -DFETCHCONTENT_SOURCE_DIR_LIBPG_QUERY="$PWD/../third-party/libpg_query" \
+    -DSLONISKO_BUNDLED_QSCINTILLA=OFF \
+    -DSLONISKO_WITH_KEYCHAIN=ON \
+    -DSLONISKO_BUILD_TESTS=ON \
+    -DSLONISKO_WITH_DOCS=%{?with_docs:ON}%{!?with_docs:OFF}
+%cmake_build
+%if %{with docs}
+# Not part of "all": it would make every build wait for Sphinx.
+%cmake_build docs-qch
+%endif
+
+%install
+%cmake_install
+
+%check
+desktop-file-validate %{buildroot}%{_datadir}/applications/cz.yarpen.%{name}.desktop
+appstreamcli validate --no-net %{buildroot}%{_datadir}/metainfo/cz.yarpen.%{name}.metainfo.xml
+# The database tests need Docker, which OBS does not have; they skip
+# themselves without it.
+export QT_QPA_PLATFORM=offscreen
+%ctest
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/%{name}
+%{_datadir}/applications/cz.yarpen.%{name}.desktop
+%{_datadir}/metainfo/cz.yarpen.%{name}.metainfo.xml
+%{_datadir}/icons/hicolor/*/apps/%{name}.*
+%if %{with docs}
+%{_datadir}/%{name}
+%endif
+
+%changelog

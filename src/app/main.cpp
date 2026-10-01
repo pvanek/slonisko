@@ -19,8 +19,9 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(QStringLiteral(SLONISKO_VERSION));
     QApplication::setOrganizationName(QStringLiteral("yarpen.cz"));
     QApplication::setOrganizationDomain(QStringLiteral("yarpen.cz"));
-    // Lets Wayland shells match windows with slonisko.desktop and its icon.
-    QGuiApplication::setDesktopFileName(QStringLiteral("slonisko"));
+    // Lets Wayland shells match windows with cz.yarpen.slonisko.desktop and
+    // its icon.
+    QGuiApplication::setDesktopFileName(QStringLiteral("cz.yarpen.slonisko"));
 
     QIcon icon;
     for (const int size : {16, 22, 24, 32, 48, 64, 128, 256, 512})

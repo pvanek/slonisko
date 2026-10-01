@@ -13,3 +13,18 @@ slonisko_add_test(tst_erdview slonisko_ui)
 slonisko_add_db_test(tst_editorpage slonisko_ui)
 set_property(TEST tst_connectiondialog tst_browser tst_sqleditor tst_resulttextview tst_exportdialog tst_editorpage tst_filebrowser tst_pagewindows tst_shortcuts tst_erdview APPEND PROPERTY
     ENVIRONMENT QT_QPA_PLATFORM=offscreen)
+
+# Software centres and Flathub reject an invalid desktop or metainfo file,
+# and the packaging only finds out after a full build.
+find_program(SLONISKO_DESKTOP_FILE_VALIDATE desktop-file-validate)
+if(SLONISKO_DESKTOP_FILE_VALIDATE)
+    add_test(NAME desktop_file
+        COMMAND "${SLONISKO_DESKTOP_FILE_VALIDATE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../cz.yarpen.slonisko.desktop")
+endif()
+find_program(SLONISKO_APPSTREAMCLI appstreamcli)
+if(SLONISKO_APPSTREAMCLI)
+    add_test(NAME metainfo_file
+        COMMAND "${SLONISKO_APPSTREAMCLI}" validate --no-net
+            "${CMAKE_CURRENT_SOURCE_DIR}/../cz.yarpen.slonisko.metainfo.xml")
+endif()

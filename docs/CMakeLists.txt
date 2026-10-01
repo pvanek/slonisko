@@ -42,7 +42,8 @@ add_dependencies(docs-html docs-logo)
 # project; qhelpgenerator turns those into one .qch, full-text index and all.
 find_program(SLONISKO_QHELPGENERATOR
     NAMES qhelpgenerator qhelpgenerator-qt6
-    HINTS "${QT6_INSTALL_PREFIX}/libexec" /usr/libexec/qt6 /usr/lib64/qt6/libexec
+    HINTS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_LIBEXECS}" "${QT6_INSTALL_PREFIX}/libexec"
+        /usr/libexec/qt6 /usr/lib64/qt6/libexec
     PATH_SUFFIXES libexec)
 
 if(SLONISKO_QHELPGENERATOR)
@@ -64,8 +65,14 @@ if(SLONISKO_QHELPGENERATOR)
         VERBATIM)
     add_dependencies(docs-qch docs-logo)
 
+    # A macOS bundle keeps its data inside itself.
+    if(APPLE)
+        set(qch_destination slonisko.app/Contents/Resources)
+    else()
+        set(qch_destination "${CMAKE_INSTALL_DATADIR}/slonisko")
+    endif()
     install(FILES "${docs_binary}/slonisko.qch"
-        DESTINATION "${CMAKE_INSTALL_DATADIR}/slonisko"
+        DESTINATION "${qch_destination}"
         OPTIONAL)
 else()
     message(STATUS "qhelpgenerator was not found: no help file will be built")

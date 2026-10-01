@@ -409,7 +409,7 @@ void MainWindow::showHelp()
     // which is the same manual.
     if (HelpWindow::show(helpKeyword()))
         return;
-    QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/petrvanek/slonisko")));
+    QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/pvanek/slonisko")));
 }
 
 // What the window is showing decides which page the manual opens.

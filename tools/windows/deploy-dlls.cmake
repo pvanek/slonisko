@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 Petr Vanek
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Copies the DLLs a program needs, other than Windows' own, next to it.
+# windeployqt does that for Qt only; this is for the rest, so the list of
+# what libpq happens to load (OpenSSL, zlib, lz4, gettext...) never has to
+# be kept by hand.
+#
+#   cmake -DEXECUTABLE=dir/prog.exe -DSEARCH_DIRS="a;b" -P deploy-dlls.cmake
+
+cmake_minimum_required(VERSION 3.25)
+
+if(NOT EXECUTABLE OR NOT SEARCH_DIRS)
+    message(FATAL_ERROR "Pass -DEXECUTABLE=<program> and -DSEARCH_DIRS=<dir;dir>")
+endif()
+cmake_path(GET EXECUTABLE PARENT_PATH target_dir)
+
+# The plugins windeployqt put there can load libraries too.
+file(GLOB_RECURSE plugins "${target_dir}/*.dll")
+
+file(GET_RUNTIME_DEPENDENCIES
+    EXECUTABLES "${EXECUTABLE}"
+    LIBRARIES ${plugins}
+    DIRECTORIES "${target_dir}" ${SEARCH_DIRS}
+    PRE_EXCLUDE_REGEXES "^[Aa][Pp][Ii]-[Mm][Ss]-" "^[Ee][Xx][Tt]-[Mm][Ss]-"
+    # Windows' own.
+    POST_EXCLUDE_REGEXES "[/\\\\][Ss]ystem32[/\\\\]" "[/\\\\][Ww]in[Ss]x[Ss][/\\\\]"
+    RESOLVED_DEPENDENCIES_VAR resolved
+    UNRESOLVED_DEPENDENCIES_VAR unresolved
+    CONFLICTING_DEPENDENCIES_PREFIX conflicting)
+
+if(unresolved)
+    message(FATAL_ERROR "Not found in ${SEARCH_DIRS}: ${unresolved}")
+endif()
+foreach(name IN LISTS conflicting_FILENAMES)
+    message(WARNING "${name} found in more than one place: ${conflicting_${name}}; "
+        "using the first")
+    list(GET conflicting_${name} 0 first)
+    list(APPEND resolved "${first}")
+endforeach()
+
+foreach(dll IN LISTS resolved)
+    cmake_path(GET dll PARENT_PATH dir)
+    cmake_path(COMPARE "${dir}" EQUAL "${target_dir}" already_there)
+    if(NOT already_there)
+        message(STATUS "Bundling ${dll}")
+        file(COPY "${dll}" DESTINATION "${target_dir}")
+    endif()
+endforeach()
