@@ -81,7 +81,8 @@ enum class ErdScope {
 };
 
 // The queries run in order; their results go to parseErd() the same way.
-// For a schema, focus is the schema's oid and no table is singled out.
+// oid is the table's or the schema's, unused for a database; focus is the
+// table's, or 0 when no table is singled out.
 std::vector<QByteArray> erdQueries(ErdScope scope, Oid oid);
 ErdGraph parseErd(Oid focus, const std::vector<pg::Result> &results);
 
@@ -138,8 +139,8 @@ struct ErdLayout
     std::vector<QPointF> route(Oid from, Oid to) const;
 };
 
-// The focus table in the middle, what it references in a row above, what
-// references it in a row below. Deterministic: the same graph always comes
+// The focus table in the middle, what it references in an arc above, what
+// references it in an arc below. Deterministic: the same graph always comes
 // out the same way, whatever order the server listed things in.
 ErdLayout starLayout(const ErdGraph &graph, const ErdMetrics &metrics = {});
 

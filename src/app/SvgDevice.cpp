@@ -32,7 +32,7 @@ QString attribute(const char *name, const QString &value)
     return QStringLiteral(" %1=\"%2\"").arg(QLatin1String(name), value.toHtmlEscaped());
 }
 
-// A colour as SVG wants it: the opacity is an attribute of its own.
+// A color as SVG wants it: the opacity is an attribute of its own.
 QString paint(const char *what, const QColor &color)
 {
     QString text = attribute(what, color.name(QColor::HexRgb));

@@ -9,8 +9,8 @@
 namespace slonisko {
 
 // A page of the main window's work area, one per tab: a SQL editor with its
-// results, a result on its own, and in time diagrams, object details and
-// the like. The main window knows pages only through this interface.
+// results, a result on its own, or an object's details. The main window
+// knows pages only through this interface.
 class WorkspacePage : public QWidget
 {
     Q_OBJECT

@@ -11,9 +11,12 @@
 A fast, keyboard-driven PostgreSQL client built with Qt6.
 
 slonisko talks to the server through raw libpq, fully asynchronously, and
-uses PostgreSQL's own parser for statement splitting, error positions and
-context-aware completion. It is free software under the GPL, version 3 or
-later.
+uses PostgreSQL's own parser for context-aware completion and
+highlighting. It is free software under the GPL, version 3 or later.
+
+```{figure} images/main-window.png
+:alt: The main window: the object browser, a SQL editor and its results
+```
 
 ## Why another PostgreSQL client
 
@@ -60,6 +63,45 @@ Footprint is a rough impression of start-up time and memory while idle, not
 a benchmark; scope is what each tool sets out to do rather than how well it
 does it. Corrections are welcome — the point of the table is to say where
 slonisko fits, not to score anyone.
+
+## Changelog
+
+```{index} changelog, releases, version history
+```
+
+What changed in each version is written up with its release on GitHub:
+[github.com/pvanek/slonisko/releases](https://github.com/pvanek/slonisko/releases).
+Help → *About Slonisko* tells which version is running. For changes not
+released yet, see the
+[commit history](https://github.com/pvanek/slonisko/commits/main).
+
+## Author
+
+```{index} author, contact, support, donation
+```
+
+slonisko is written by Petr Vanek, in Czechia. I have been writing and
+maintaining open source software for a long time, mostly in C++ and Qt:
+[TOra](https://github.com/tora-tool/tora), [Scribus](https://scribus.net),
+Razor-qt and a few smaller tools along the way. More about me is on
+[yarpen.cz](https://yarpen.cz).
+
+Bugs and ideas are best reported as
+[issues on GitHub](https://github.com/pvanek/slonisko/issues), where others
+can find them too. Anything else goes to
+[petr@yarpen.cz](mailto:petr@yarpen.cz).
+
+### Supporting the work
+
+```{index} donation, supporting slonisko
+```
+
+I write slonisko primarily for myself, and it is free and will stay so.
+Doing it properly — packages for several platforms, testing, downloads —
+still takes time and some money. If slonisko is useful to you and you would
+like to help, [Buy me a coffee](https://buymeacoffee.com/pvanek) or visit the
+[open source page on yarpen.cz](https://yarpen.cz/en:opensource) to see how
+to send a small donation. Thank you.
 
 ```{toctree}
 :caption: Using slonisko

@@ -22,7 +22,7 @@ public:
         Default,
         Comment,
         Keyword,
-        UnreservedKeyword, // Also usable as a name, like "name" or "type".
+        UnreservedKeyword, // Also usable as a name, like "value" or "type".
         Type,
         Identifier,
         QuotedIdentifier,

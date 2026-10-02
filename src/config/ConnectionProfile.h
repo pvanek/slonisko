@@ -72,7 +72,7 @@ struct ConnectionProfile
     // The name, or user@host:port/database when there is none.
     QString displayName() const;
 
-    // A libpq conninfo string for this profile. database overrides the
+    // A libpq conninfo string for this profile. databaseName overrides the
     // profile's database; via, if set, is where to actually connect (the
     // profile's host is still used to verify SSL certificates).
     QByteArray conninfo(const QString &password, const QString &databaseName = {},

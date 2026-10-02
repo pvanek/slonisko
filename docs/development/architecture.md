@@ -22,7 +22,7 @@ tests in its own `tests/` subdirectory.
 
 ## How a statement gets run
 
-1. `sql::Splitter` cuts the script into statements and blocks, psql
+1. `sql::splitStatements()` cuts the script into statements and blocks, psql
    meta-commands and `COPY` data included.
 2. `sql::PsqlVariables` substitutes `:variables`, remembering where
    everything was so error positions still point at the script.

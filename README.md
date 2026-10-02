@@ -4,7 +4,9 @@ A fast, keyboard-driven PostgreSQL client built with Qt6.
 
 Slonisko talks to the server through raw libpq, fully asynchronously, and uses
 PostgreSQL's own parser ([libpg_query](https://github.com/pganalyze/libpg_query))
-for statement splitting, error positions and context-aware completion.
+for context-aware completion and highlighting.
+
+![The main window: the object browser, a SQL editor and its results](docs/images/main-window.png)
 
 ## Why another PostgreSQL client
 
@@ -58,7 +60,7 @@ I added `CLAUDE.md` instructions for further patches.
 
 - CMake 3.25+
 - A C++20 compiler
-- Qt 6.5+ (Core, Widgets, Test)
+- Qt 6.5+ (Core, Gui, Widgets, Network, Concurrent; Test for the tests; optionally Help)
 - libpq 17+ (client library only; any supported server version works)
 - libpg_query
 - [QScintilla](https://riverbankcomputing.com/software/qscintilla) for Qt 6. When no
@@ -67,6 +69,8 @@ I added `CLAUDE.md` instructions for further patches.
 - Optional: [QtKeychain](https://github.com/frankosterfeld/qtkeychain) for Qt 6, to keep
   passwords in the system wallet (Secret Service, KWallet, macOS Keychain, Windows
   Credential Manager). Without it they are stored in plain text in the settings file.
+- Sphinx with the MyST parser, for the manual, which is on by default: configure
+  with `-DSLONISKO_WITH_DOCS=OFF` to build without it
 - Optional at run time: the OpenSSH `ssh` client, for SSH tunnels
 
 On openSUSE Tumbleweed:
@@ -97,12 +101,14 @@ ctest --test-dir build --output-on-failure
 ./build/src/app/slonisko
 ```
 
-The database tests (`src/pg`) need a PostgreSQL server. `ctest` starts a
-throwaway `postgres:18` container for them with Docker and removes it
-afterwards (`-DSLONISKO_TEST_POSTGRES_IMAGE=...` picks another image). Without
-Docker they are skipped; to use an existing server instead, set
-`SLONISKO_TEST_CONNINFO` to a libpq connection string. The tests create only
-temporary objects.
+The database tests (in `src/pg`, `src/catalog` and `src/app`) need a
+PostgreSQL server. `ctest` starts a throwaway `postgres:18` container for
+them with Docker and removes it afterwards
+(`-DSLONISKO_TEST_POSTGRES_IMAGE=...` picks another image). Without Docker
+they are skipped; to use an existing server instead, set
+`SLONISKO_TEST_CONNINFO` to a libpq connection string. The tests create
+schemas, tables and a database of their own and drop them again, so use a
+server where that is harmless.
 
 Any CMake generator works; add `-G Ninja` for faster incremental builds if you
 have Ninja installed.
@@ -114,7 +120,7 @@ have Ninja installed.
 | `src/pg`        | `Slonisko::Pg`      | Async connection, queries, cancel, query queue, row store, SSH tunnel |
 | `src/config`    | `Slonisko::Config`  | Connection profiles, passwords (system wallet)           |
 | `src/sql`       | `Slonisko::Sql`     | PostgreSQL lexer, statement splitting, psql variables, other languages' bodies |
-| `src/catalog`   | `Slonisko::Catalog` | Browser and monitoring queries, catalog snapshots, completion, semantic highlighting, EXPLAIN plans, result editing |
+| `src/catalog`   | `Slonisko::Catalog` | Browser and monitoring queries, object details, catalog snapshots, completion, snippets, semantic highlighting, EXPLAIN plans, result editing and export, ER diagrams |
 | `src/app`       | `slonisko`          | The GUI                                                  |
 
 Each library keeps its Qt Test unit tests in its own `tests/` subdirectory.
@@ -134,7 +140,8 @@ cmake -S . -B build -DSLONISKO_WITH_DOCS=ON
 cmake --build build --target docs           # build/docs/html and slonisko.qch
 ```
 
-Building it needs Sphinx with the MyST parser; the help file also needs
+Building it needs Sphinx with the MyST parser (and the Furo theme for the
+website); the help file also needs
 `qhelpgenerator` from Qt's tools, and showing it in the program needs Qt's
 Help module. See [building](docs/development/building.md) for the details.
 

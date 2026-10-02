@@ -26,8 +26,8 @@ public:
     // Shows a page's current title, color and tooltip on its tab.
     void updatePage(WorkspacePage *page);
 
-    // Whether this is the main window's, which offers "Move to Main Window"
-    // for everyone else's.
+    // Whether this is the main window's; the tabs of every other window offer
+    // "Move to Main Window".
     void setMain(bool main) { m_main = main; }
     bool isMain() const { return m_main; }
 

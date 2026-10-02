@@ -255,7 +255,8 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
 
     const QString current = m_tabs->tabText(m_tabs->currentIndex());
     m_tabs->clear();
-    // clear() hands the tab widgets back with no parent; keep them here.
+    // clear() deletes no pages, it leaves them in the tab widget's stack;
+    // take these two back.
     m_definition->setParent(this);
     m_definition->hide();
     if (m_diagramTab) {

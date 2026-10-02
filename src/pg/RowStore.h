@@ -42,7 +42,7 @@ public:
     bool isNull(int row, int column) const;
     QByteArrayView value(int row, int column) const;
 
-    // Bytes held, for the status line.
+    // Bytes held, including spare capacity.
     qsizetype memoryUsed() const;
 
 private:

@@ -32,8 +32,8 @@ class Session;
 class SqlEditor;
 
 // A SQL editor with a connection of its own to one of the connected
-// sessions. Its results go to a ResultPanel, which the main window shows
-// below the editors.
+// sessions. Its results go to a ResultPanel below the editor, on the same
+// page.
 class EditorPage : public WorkspacePage
 {
     Q_OBJECT
@@ -187,7 +187,7 @@ private:
     std::deque<Job> m_jobs;
     std::optional<Job> m_current;
     QElapsedTimer m_timer;
-    bool m_failed = false; // A job failed: skip the rest but the "always" ones.
+    bool m_failed = false; // A job failed: skip the rest but the "always" and "onFailure" ones.
     bool m_rowsShown = false; // The current job's rows went to the result view.
     qint64 m_rows = 0;
     QByteArray m_commandTag;

@@ -32,7 +32,7 @@ struct ObjectDetail
     QString subtitle; // "table", "view", "extension"
     DetailTable properties; // Two columns: property and value.
     std::vector<DetailTable> tables;
-    QString definition; // A view's query, an extension's install notes, ...
+    QString definition; // A view's query, a function's source, ...
 };
 
 // Whether an object of this kind has a details page at all.

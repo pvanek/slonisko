@@ -69,7 +69,7 @@ public:
     // Reads the node's children from the server again.
     void refresh(const QModelIndex &index);
 
-    // The session and database a node's queries run in.
+    // The session a node's queries run in; DatabaseRole names the database.
     Session *sessionOf(const QModelIndex &index) const;
 
     QModelIndex index(int row, int column, const QModelIndex &parent = {}) const override;

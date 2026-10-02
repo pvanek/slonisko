@@ -58,7 +58,7 @@ static_assert(int(KeywordCategory::Unreserved) == 0 && int(KeywordCategory::Colu
               && int(KeywordCategory::TypeFunctionName) == 2
               && int(KeywordCategory::Reserved) == 3);
 
-// Built-in types whose names are not keywords, like text or jsonb. Keep sorted.
+// Built-in type names, keywords among them, like text or integer. Keep sorted.
 constexpr const char *TypeNames[] = {
     "anyarray",      "anyelement", "bigint",       "bigserial", "bit",          "bool",
     "boolean",       "box",        "bytea",        "char",      "character",    "cidr",

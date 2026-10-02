@@ -7,6 +7,12 @@ Tables, schemas and databases have a *Diagram* tab showing their foreign
 keys. The diagram is drawn by the program itself — there is no Graphviz or
 other outside tool involved — and it is loaded only when the tab is opened.
 
+```{figure} images/diagram.png
+:alt: The diagram of a schema with six tables connected by foreign keys
+
+A schema's diagram: referenced tables above the tables that reference them.
+```
+
 ## What is drawn
 
 ```{index} crow's foot notation, foreign keys
@@ -36,9 +42,9 @@ Table
 
 Schema
 : Every table of the schema, in layers: a referenced table always sits
-  above the tables referencing it. Tables that nothing connects to are
-  packed to one side. Keys that reach outside the schema bring those tables
-  in, framed separately.
+  above the tables referencing it. Groups of tables that no key connects
+  are laid out on their own, side by side. Keys that reach outside the
+  schema bring those tables in, framed separately.
 
 Database
 : Every schema the server does not own itself, each in a frame of its own,
@@ -53,7 +59,8 @@ the better answer.
 ```{index} zooming
 ```
 
-- {kbd}`Ctrl`+wheel zooms, dragging the background pans.
+- {kbd}`Ctrl`+wheel or *Zoom In* and *Zoom Out* zoom, dragging the
+  background pans. Zoomed far out, the boxes show only the tables' names.
 - Dragging a table moves it; the keys follow.
 - *Fit* shows everything, *Actual Size* goes back to 1:1 on the table the
   diagram is about.

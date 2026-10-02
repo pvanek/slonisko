@@ -539,7 +539,7 @@ private Q_SLOTS:
         QCOMPARE(recorder.finished, 0);
     }
 
-    // Runs a pg_dump-style script the way the editor will: statement by
+    // Runs a pg_dump-style script the way the editor does: statement by
     // statement, with each COPY getting the data span that follows it.
     void runSplitScript()
     {

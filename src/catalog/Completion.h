@@ -21,7 +21,7 @@ struct CompletionItem
         View,
         MaterializedView,
         ForeignTable,
-        Cte, // A WITH query, subquery or function in FROM.
+        Cte, // A WITH query.
         Alias, // A name in scope that stands for a relation.
         Column,
         Function,
@@ -34,8 +34,8 @@ struct CompletionItem
     QString insertText; // What goes into the text, quoted if needed.
     QString detail; // Like a column's type, or a relation's schema.
     // Where the caret goes once the text is in, counted in characters from
-    // its start; -1 leaves it at the end. Snippets put it where the name of
-    // the table belongs.
+    // its start; -1 leaves it at the end. Snippets put it where the rest is
+    // to be typed, like the name of a table.
     int caret = -1;
     int score = 0;
 };
@@ -68,8 +68,8 @@ struct Completion
 Completion complete(const QByteArray &statement, qsizetype cursor, const Snapshot &snapshot);
 
 // How well a candidate matches what was typed: 0 for no match, higher for
-// better (prefix, then word starts like "cnm" for customer_name, then any
-// subsequence). Case-insensitive.
+// better (prefix, then word starts like "cnm" for customer_name, then a
+// substring, then any subsequence). Case-insensitive.
 int fuzzyScore(const QString &typed, const QString &candidate);
 
 // Which letters of candidate fuzzyScore() matched, in order, for showing

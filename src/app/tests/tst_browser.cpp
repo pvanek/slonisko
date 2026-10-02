@@ -83,7 +83,7 @@ private Q_SLOTS:
         auto c = m_server->profile;
         c.id = QUuid::createUuid();
         c.name = QStringLiteral("aa");
-        m_model->addProfile(c); // Goes between "a" and "b"? Sorted among what is there.
+        m_model->addProfile(c); // Before the first name sorting after it, here "b".
         QCOMPARE(m_model->rowCount(), 3);
 
         c.name = QStringLiteral("renamed");

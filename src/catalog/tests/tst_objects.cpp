@@ -232,7 +232,8 @@ private Q_SLOTS:
 
     void monitoringQueriesForOlderServers()
     {
-        // The branches for older servers must at least parse on this one.
+        // The branch for older servers, run on this one: it works only where
+        // the columns it reads still exist.
         for (const MonitoringQuery &q : monitoringQueries()) {
             if (q.id != QLatin1String("checkpoints"))
                 continue;

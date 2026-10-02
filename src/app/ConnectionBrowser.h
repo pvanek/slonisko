@@ -72,7 +72,7 @@ private:
     void onActivated(const QModelIndex &index);
     QUuid currentProfile() const;
 
-    // Opens the details page of the node the cursor is on, if it has one.
+    // Opens the details page of the node at index, if it has one.
     void showDetails(const QModelIndex &index);
     void newConnection();
     void editConnection();

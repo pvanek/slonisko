@@ -64,8 +64,8 @@ public:
     catalog::SnapshotPtr snapshot(const QString &database = {});
     void reloadSnapshot(const QString &database = {});
 
-    // Editors' connections of their own through this session. Disconnecting
-    // the session ends them, rolling back what they have open.
+    // Editors' connections of their own through this session. The editors
+    // end them when it disconnects, rolling back what they have open.
     void attach(pg::Connection *connection);
     // How many of those are in a transaction or running a statement.
     int busyConnections() const;

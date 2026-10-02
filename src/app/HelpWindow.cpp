@@ -121,7 +121,7 @@ HelpWindow::HelpWindow(const QString &collectionFile)
     connect(m_engine->indexWidget(), &QHelpIndexWidget::documentActivated, this,
             [this](const QHelpLink &document, const QString &) { openUrl(document.url); });
 
-    // Search: the index is built into the help file, so it works offline.
+    // Search: the engine indexes the help file itself, so it works offline.
     auto *searchPage = new QWidget(m_navigation);
     auto *searchLayout = new QVBoxLayout(searchPage);
     searchLayout->setContentsMargins(4, 4, 4, 4);

@@ -100,7 +100,7 @@ ResultModel::Value ResultModel::value(int row, int column) const
 {
     if (isAdded(row)) {
         const auto &cell = m_added[std::size_t(row - m_rows.rowCount())][std::size_t(column)];
-        return cell ? *cell : Value(); // Unset: shown as NULL, inserted as the default.
+        return cell ? *cell : Value(); // Unset: shown as DEFAULT, inserted as the default.
     }
     const auto edit = m_edits.constFind({row, column});
     if (edit != m_edits.cend())

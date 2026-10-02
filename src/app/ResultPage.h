@@ -19,7 +19,7 @@ class QueryRunner;
 }
 
 // A query's rows on their own, like the DBA and System Info views. Runs the
-// query on the session's own connection; Run Again refreshes it.
+// query on a connection of its own; Run Again refreshes it.
 class ResultPage : public WorkspacePage
 {
     Q_OBJECT

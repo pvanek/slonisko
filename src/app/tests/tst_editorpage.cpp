@@ -579,8 +579,8 @@ private Q_SLOTS:
                Qt::ControlModifier);
         QCOMPARE(editor->editor()->viewport()->cursor().shape(), Qt::IBeamCursor);
 
-        // A plain click leaves the editor alone, and so does a Ctrl+drag,
-        // which selects. Only press and release in one place opens a page.
+        // A plain click leaves the editor alone, and so does a Ctrl+drag.
+        // Only press and release in one place opens a page.
         const int pages = int(w.pages().size());
         clickAt(editor->editor(), at, Qt::NoModifier);
         QCOMPARE(w.pages().size(), std::size_t(pages));
@@ -1067,8 +1067,8 @@ private Q_SLOTS:
 
     void exportsAllRowsBeyondTheLimit()
     {
-        // The grid stops at the row limit, which libpq applies per chunk of
-        // 1000 rows, so the query has to be bigger than one chunk.
+        // The grid stops at the row limit, checked once per chunk of 1000
+        // rows, so the query has to be bigger than one chunk.
         // Rows have to trickle in for the limit's cancel to land before the
         // query is over: a millisecond each, and chunks of 1000.
         m_tab->setRowLimit(2);
@@ -1302,7 +1302,7 @@ private:
         return -1;
     }
 
-    // A mouse click at a byte position in the script.
+    // The point in the viewport at a byte position in the script.
     QPointF pointAt(SqlEditor *editor, qsizetype position) const
     {
         return QPointF(

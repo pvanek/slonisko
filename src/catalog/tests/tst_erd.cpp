@@ -581,8 +581,6 @@ private Q_SLOTS:
                  (QStringList {QStringLiteral("order_id"), QStringLiteral("line")}));
     }
 
-    // A table with no keys at all must still turn up, or its diagram would
-    // be empty rather than a box on its own.
     // A whole schema: every table in it, and the ones its keys point at.
     void schemaGraph()
     {
@@ -641,6 +639,8 @@ private Q_SLOTS:
         QVERIFY(!overlap(layout));
     }
 
+    // A table with no keys at all must still turn up, or its diagram would
+    // be empty rather than a box on its own.
     void tableWithNoKeyColumns()
     {
         const ErdGraph graph = graphOf("slonisko_erd_test.keyless");

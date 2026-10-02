@@ -9,7 +9,7 @@ namespace slonisko {
 
 class PageTabWidget;
 
-// A window of its own for pages dragged out of the main window. It closes
+// A window of its own for pages moved out of the main window. It closes
 // when its last page leaves; closing it closes its pages.
 class PageWindow : public QWidget
 {

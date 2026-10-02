@@ -17,7 +17,7 @@ struct Snippet
     QString text; // What it becomes; CaretMark says where the caret lands.
     QString title; // What the list shows beside the abbreviation.
 
-    // Not a character anyone writes in SQL by accident.
+    // Not something anyone writes in SQL by accident.
     static constexpr QLatin1StringView CaretMark {"$|"};
 };
 

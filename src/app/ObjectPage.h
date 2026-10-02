@@ -36,8 +36,8 @@ public:
     catalog::ObjectKind kind() const { return m_kind; }
     const catalog::ObjectDetail &detail() const { return m_detail; }
     QTabWidget *tabs() const { return m_tabs; }
-    // The diagram of this table and its neighbours; null for kinds that
-    // have no foreign keys.
+    // The diagram of this table and its neighbours, or of the schema's or
+    // the database's tables; null for kinds that have no foreign keys.
     ErdView *diagram() const { return m_diagram; }
     // Reads everything about the object again.
     void refresh();

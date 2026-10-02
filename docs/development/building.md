@@ -12,8 +12,9 @@
 - [QScintilla](https://riverbankcomputing.com/software/qscintilla) for Qt 6
 - Optional: [QtKeychain](https://github.com/frankosterfeld/qtkeychain) for
   the system wallet, Qt's Help module to show this manual in the program,
-  the OpenSSH client for tunnels, Docker for the database tests, Sphinx for
-  building the manual
+  the OpenSSH client for tunnels, Docker for the database tests
+- Sphinx with the MyST parser for the manual, which is on by default;
+  without it, configure with `-DSLONISKO_WITH_DOCS=OFF`
 
 On openSUSE Tumbleweed:
 
@@ -44,7 +45,8 @@ ctest --test-dir build --output-on-failure
 The database tests start a throwaway `postgres:18` container with Docker and
 remove it afterwards. Without Docker they are skipped; to use a server you
 already have, set `SLONISKO_TEST_CONNINFO` to a libpq connection string. The
-tests create only temporary objects.
+tests create schemas, tables and a database of their own and drop them
+again, so use a server where that is harmless.
 
 ## Building this manual
 
@@ -66,8 +68,8 @@ cmake --build build --target docs-qch       # build/docs/slonisko.qch
 the help file next to the program so a build directory run finds it;
 `cmake --install` puts it in `share/slonisko`. For the program to show it,
 Qt's Help module has to be there when the program is built
-(`qt6-help-devel` on openSUSE); without it the Help menu opens the website
-instead.
+(`qt6-help-devel` on openSUSE); without it the Help menu opens the
+project's page on GitHub instead.
 
 Sphinx can also be run directly:
 
@@ -80,6 +82,26 @@ Sphinx takes images only from its own directory, so `docs/images/slonisko.png`
 is copied there from `src/app/icons`. The documentation build does that
 itself, and `src/app/icons/generate.sh` writes it along with the other
 sizes; the file is not in the repository.
+
+## Screenshots
+
+```{index} screenshots
+```
+
+The pictures in the manual are taken by the program itself, not by hand:
+`tools/screenshots` drives the real main window against a small sample
+database and saves each page into `docs/images`. After a change to how
+something looks, take them again:
+
+```sh
+cmake -S . -B build -DSLONISKO_SCREENSHOTS=ON
+tools/screenshots/run.sh build
+```
+
+It needs Docker, for a throwaway `postgres:18` loaded with
+`tools/screenshots/shop.sql`, and `Xvfb`, so the windows open on a display
+of their own. The settings are kept in a temporary directory: your own
+connections are neither shown nor touched.
 
 ## Packages
 

@@ -25,14 +25,16 @@ enum class KeywordCategory {
 // The category of a keyword, case-insensitively, or nullopt for other words.
 std::optional<KeywordCategory> keywordCategory(QByteArrayView word);
 
-// Built-in types that are not keywords, like text, int8 or jsonb.
+// Built-in type names, like text, int8 or jsonb, including those that are
+// also keywords, like integer or varchar.
 bool isBuiltinTypeName(QByteArrayView word);
 
 // All keywords, lowercase and sorted.
 std::vector<QByteArray> keywords();
 
 // Whether a name must be double-quoted to be used as an identifier: it is not
-// all lowercase letters, digits, _ and $, or it is a reserved-ish keyword.
+// a lowercase letter or _ followed by lowercase letters, digits, _ and $, or
+// it is a reserved-ish keyword.
 bool needsQuoting(QByteArrayView identifier);
 
 } // namespace slonisko::sql

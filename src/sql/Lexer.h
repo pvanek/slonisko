@@ -22,7 +22,7 @@ enum class TokenKind : std::uint8_t {
     DollarString, // The contents of a dollar-quoted string.
     Number,
     Operator,
-    Punctuation, // ( ) [ ] , ; .
+    Punctuation, // ( ) [ ] , ; . :
     Parameter, // $1
     PsqlVariable, // :name, :'name', :"name"
     PsqlCommand, // \set and the like, to the end of the line.

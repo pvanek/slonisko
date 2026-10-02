@@ -410,10 +410,9 @@ const catalog::SemanticSpan *SqlEditor::objectAt(qsizetype pos) const
     return nullptr;
 }
 
-// Ctrl turns names the catalog knows into links.
 // Ctrl turns names the catalog knows into links. Like any link, it opens on
 // release and only if the mouse stayed where it was pressed: a Ctrl+drag is
-// a rectangular selection, not a click.
+// not a click.
 void SqlEditor::mousePressEvent(QMouseEvent *event)
 {
     m_pressedLink = -1;

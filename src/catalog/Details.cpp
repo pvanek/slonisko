@@ -32,8 +32,8 @@ DetailTable tableOf(const QString &title, const pg::Result &result)
     return table;
 }
 
-// The first query of every object returns one row: name, value, name,
-// value, … which keeps the properties in the order the query lists them.
+// The first query of every object returns one row, a column per property
+// named after it, which keeps the properties in the order the query lists them.
 DetailTable propertiesOf(const pg::Result &result, QString *title, QString *schema)
 {
     DetailTable properties;
@@ -60,7 +60,7 @@ DetailTable propertiesOf(const pg::Result &result, QString *title, QString *sche
 // object is its properties; the rest become tabs, in this order.
 struct Section
 {
-    const char *title = nullptr; // Null for the properties.
+    const char *title = nullptr; // Null for the properties and the definition.
     QByteArray sql;
     bool definition = false; // A single value: the SQL that defines the object.
     bool hideWhenEmpty = false; // A list that is only in the way when empty.
@@ -499,8 +499,8 @@ ObjectDetail parseDetail(ObjectKind kind, const std::vector<pg::Result> &results
     QString name;
     QString schema;
     detail.properties = propertiesOf(results[0], &name, &schema);
-    // An extension's or a trigger's schema says where it lives, but its name
-    // is not qualified by it.
+    // An extension's, trigger's, policy's or constraint's schema says where
+    // it lives, but its name is not qualified by it.
     const bool qualified = kind != ObjectKind::Extension && kind != ObjectKind::Trigger
         && kind != ObjectKind::Policy && kind != ObjectKind::Constraint;
     detail.title = schema.isEmpty() || !qualified ? name : schema + QLatin1Char('.') + name;

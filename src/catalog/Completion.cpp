@@ -99,7 +99,7 @@ private:
 
     bool inside(const char *node, const char *key) const
     {
-        // The innermost frame below the ResTarget itself.
+        // The innermost frame is the ResTarget itself, the one before it its parent.
         if (m_stack.size() < 2)
             return false;
         const Frame &target = m_stack.back();
@@ -812,7 +812,7 @@ Match match(const QString &typed, const QString &candidate)
 
     const Alignment alignment = align(t, candidate);
     if (alignment.quality == 0)
-        return out; // Not even out of order: no match at all.
+        return out; // Not even scattered: no match at all.
 
     // An acronym, every letter starting a word: cnm for customer_name.
     std::vector<qsizetype> starts;
