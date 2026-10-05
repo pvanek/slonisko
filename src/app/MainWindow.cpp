@@ -31,6 +31,10 @@
 
 namespace slonisko {
 
+namespace {
+const QString ProjectUrl = QStringLiteral("https://github.com/pvanek/slonisko");
+} // namespace
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_mainSplitter(new QSplitter(Qt::Horizontal, this)),
       m_left(new QTabWidget(m_mainSplitter)),
@@ -409,7 +413,7 @@ void MainWindow::showHelp()
     // which is the same manual.
     if (HelpWindow::show(helpKeyword()))
         return;
-    QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/pvanek/slonisko")));
+    QDesktopServices::openUrl(QUrl(ProjectUrl));
 }
 
 // What the window is showing decides which page the manual opens.
@@ -430,8 +434,9 @@ void MainWindow::showAbout()
     QMessageBox::about(this, tr("About Slonisko"),
                        tr("<h3>Slonisko %1</h3>"
                           "<p>A PostgreSQL client.</p>"
+                          "<p><a href=\"%2\">%2</a></p>"
                           "<p>Licensed under the GNU General Public License v3 or later.</p>")
-                           .arg(QApplication::applicationVersion()));
+                           .arg(QApplication::applicationVersion(), ProjectUrl));
 }
 
 } // namespace slonisko

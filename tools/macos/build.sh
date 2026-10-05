@@ -20,7 +20,10 @@ version=$(sed -n 's/^ *VERSION \([0-9.]*\)$/\1/p' "$source_dir/CMakeLists.txt" |
 with_docs=${SLONISKO_WITH_DOCS:-ON}
 
 echo "== Dependencies"
-brew install cmake ninja qt libpq qtkeychain
+# Only the Qt modules the program uses. Homebrew's "qt" is every module
+# there is, and macdeployqt would bundle the plugins of all of them (PDF,
+# the virtual keyboard, ...). Some still come along: see below.
+brew install cmake ninja qtbase qttools libpq qtkeychain
 brew_prefix=$(brew --prefix)
 # Keg-only: Homebrew does not link it into its prefix.
 pq_prefix=$(brew --prefix libpq)
@@ -57,6 +60,57 @@ echo "== Bundling libraries"
 # the program reaches (libpq, OpenSSL, Kerberos, QtKeychain), into
 # Contents/Frameworks, and points the program at those copies.
 macdeployqt "$app" -verbose=1
+
+# Homebrew keeps the plugins of all its Qt modules in one directory, and
+# macdeployqt takes them all, but not the frameworks of modules the program
+# does not use: the SVG plugins come with qttools, through qtdeclarative,
+# without QtSvg. Such a plugin could never load; leave it out.
+find "$app/Contents/PlugIns" -name '*.dylib' | while read -r plugin; do
+    for framework in $(otool -L "$plugin" | awk '$1 ~ "^@rpath/Qt[^/]*[.]framework/" {
+            sub("^@rpath/", "", $1); sub("/.*", "", $1); print $1 }'); do
+        if [ ! -e "$app/Contents/Frameworks/$framework" ]; then
+            echo "Leaving out ${plugin#"$app/Contents/PlugIns/"}: it needs $framework"
+            rm "$plugin"
+            break
+        fi
+    done
+done
+
+# macdeployqt misses a library now and then that is reached only through
+# another one, such as brotli through FreeType. Copy whatever still comes
+# from Homebrew into the bundle and point the references there; the check
+# below has the last word. The new name is @rpath/..., which resolves to
+# Contents/Frameworks: a reference can only be replaced by one no longer
+# than itself, and @executable_path/../Frameworks/... often is longer.
+frameworks="$app/Contents/Frameworks"
+# Lines of "binary<tab>library" for every library taken from Homebrew.
+homebrew_refs() {
+    find "$app/Contents" -type f \( -perm -u+x -o -name '*.dylib' \) -print0 \
+        | xargs -0 otool -L 2>/dev/null \
+        | awk '/^[^\t].*:$/ { binary = substr($0, 1, length($0) - 1); next }
+               $1 ~ "^(/opt/homebrew|/usr/local)/" { print binary "\t" $1 }'
+}
+for _ in 1 2 3 4 5; do
+    refs=$(homebrew_refs)
+    [ -z "$refs" ] && break
+    printf '%s\n' "$refs" | while IFS="$(printf '\t')" read -r binary library; do
+        name=$(basename "$library")
+        if [ ! -e "$frameworks/$name" ]; then
+            echo "Bundling $library"
+            cp "$library" "$frameworks/$name"
+            chmod u+w "$frameworks/$name"
+            install_name_tool -id "@rpath/$name" "$frameworks/$name"
+        fi
+        if [ "$(basename "$binary")" = "$name" ]; then
+            # A copy keeps its own name, which is where it came from.
+            echo "Renaming the bundled $name"
+            install_name_tool -id "@rpath/$name" "$binary"
+        else
+            echo "Pointing $(basename "$binary") at the bundled $name"
+            install_name_tool -change "$library" "@rpath/$name" "$binary"
+        fi
+    done
+done
 
 # Anything still referring to Homebrew would work here and nowhere else.
 leaks=$(find "$app/Contents" -type f \( -perm -u+x -o -name '*.dylib' \) -print0 \

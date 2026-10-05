@@ -48,6 +48,14 @@ find_program(SLONISKO_QHELPGENERATOR
 
 if(SLONISKO_QHELPGENERATOR)
     set(qthelp_dir "${docs_binary}/qthelp")
+    # Beside the program, so a build directory run finds it too; in a macOS
+    # bundle that is Resources, as anything in Contents/MacOS is taken for
+    # code by macdeployqt and codesign.
+    if(APPLE)
+        set(qch_beside "$<TARGET_BUNDLE_CONTENT_DIR:slonisko>/Resources")
+    else()
+        set(qch_beside "$<TARGET_FILE_DIR:slonisko>")
+    endif()
     # A plain target, run whenever it is asked for: Sphinx is incremental
     # itself, and listing every page as a dependency here would go stale the
     # moment a page is added.
@@ -57,9 +65,9 @@ if(SLONISKO_QHELPGENERATOR)
             -d "${docs_binary}/cache/qthelp" "${docs_source}" "${qthelp_dir}"
         COMMAND "${SLONISKO_QHELPGENERATOR}" "${qthelp_dir}/slonisko.qhp"
             -o "${docs_binary}/slonisko.qch"
-        # Beside the program, so a build directory run finds it too.
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${qch_beside}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${docs_binary}/slonisko.qch"
-            "$<TARGET_FILE_DIR:slonisko>/slonisko.qch"
+            "${qch_beside}/slonisko.qch"
         WORKING_DIRECTORY "${docs_source}"
         COMMENT "Building the manual as a Qt help file"
         VERBATIM)

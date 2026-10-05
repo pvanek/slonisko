@@ -1,0 +1,174 @@
+# SPDX-FileCopyrightText: 2026 Petr Vanek
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Packages for macOS, Windows and Flatpak, for every tag v<version>. Each job
+# runs the same script as a build by hand (see tools/README.md); the last one
+# collects the packages into a draft release, to be given its notes and
+# published by hand.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  # A dry run from any branch: the packages are built and kept as the run's
+  # artifacts, and no release is made.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        # A tag that disagrees with CMakeLists.txt would ship packages named
+        # and labelled with the other version.
+        run: |
+          version=$(sed -n 's/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt | head -n 1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME, but CMakeLists.txt says $version"
+              exit 1
+          fi
+
+  macos:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        # Homebrew builds for the processor it runs on, so one runner each.
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    env:
+      # Secrets cannot be tested in "if:"; their presence can, through env.
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Without these secrets the bundle is signed ad hoc, as build.sh does
+      # on a Mac with no Developer ID.
+      - name: Developer ID and notary credentials
+        if: env.MACOS_CERTIFICATE != ''
+        env:
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(uuidgen)
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" \
+              -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/certificate.p12"
+          xcrun notarytool store-credentials slonisko-notary --keychain "$keychain" \
+              --apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD"
+          echo "SLONISKO_NOTARY_PROFILE=slonisko-notary" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          SLONISKO_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+        run: tools/macos/build.sh
+
+      # Both processors make Slonisko-<version>.dmg; the release needs both.
+      - name: Name the disk image after its processor
+        run: |
+          mkdir dist
+          mv "build-macos/Slonisko-${{ needs.version.outputs.version }}.dmg" \
+              "dist/Slonisko-${{ needs.version.outputs.version }}-macos-${{ matrix.arch }}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    # Comes with Visual Studio 2022, Python, Git's tar and Inno Setup 6.
+    runs-on: windows-2022
+    env:
+      # The EDB binaries zip libpq is taken from; any 17 or later will do.
+      PG_VERSION: '17.6-1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: libpq
+        shell: pwsh
+        run: |
+          $zip = "$env:RUNNER_TEMP\pgsql.zip"
+          Invoke-WebRequest "https://get.enterprisedb.com/postgresql/postgresql-$env:PG_VERSION-windows-x64-binaries.zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
+
+      - name: Build
+        shell: pwsh
+        run: tools\windows\build.ps1 -QtDir $env:QT_ROOT_DIR -PgDir "$env:RUNNER_TEMP\pgsql"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            build-windows/Slonisko-*-win64.zip
+            build-windows/Slonisko-*-setup.exe
+          if-no-files-found: error
+
+  flatpak:
+    needs: version
+    runs-on: ubuntu-24.04
+    # flatpak-builder and the KDE SDK the manifest names, ready to use.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: flathub-infra/flatpak-github-actions/flatpak-builder@master
+        with:
+          manifest-path: tools/flatpak/cz.yarpen.slonisko.yml
+          bundle: Slonisko-${{ needs.version.outputs.version }}.flatpak
+          cache-key: flatpak-builder-${{ github.sha }}
+
+  release:
+    needs: [version, macos, windows, flatpak]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      # A draft: the notes are what the manual's changelog points to, and
+      # they are written by hand before publishing.
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+              --repo "$GITHUB_REPOSITORY" --verify-tag --draft --generate-notes \
+              --title "Slonisko ${{ needs.version.outputs.version }}"

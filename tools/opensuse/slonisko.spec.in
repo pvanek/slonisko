@@ -1,6 +1,9 @@
 #
 # spec file for package slonisko
 #
+# A template: tools/opensuse/make-spec.cmake writes slonisko.spec from it,
+# with the version from CMakeLists.txt.
+#
 # SPDX-FileCopyrightText: 2026 Petr Vanek
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
@@ -15,7 +18,7 @@
 %bcond_without docs
 
 Name:           slonisko
-Version:        0.1.0
+Version:        @PROJECT_VERSION@
 Release:        0
 Summary:        PostgreSQL GUI client
 # The program is GPL-3.0-or-later; the statically linked libpg_query is
@@ -30,6 +33,9 @@ Source1:        https://github.com/pganalyze/libpg_query/archive/refs/tags/%{pgq
 BuildRequires:  cmake >= 3.25
 BuildRequires:  AppStream
 BuildRequires:  desktop-file-utils
+# For the tests: without any font, text has no size, and the ones that drive
+# the editors with the mouse never get anywhere.
+BuildRequires:  dejavu-fonts
 BuildRequires:  gcc-c++
 BuildRequires:  hicolor-icon-theme
 BuildRequires:  qscintilla-qt6-devel >= 2.13
@@ -51,6 +57,11 @@ BuildRequires:  cmake(Qt6Help) >= 6.5
 %endif
 # SSH tunnels run the OpenSSH client.
 Recommends:     openssh-clients
+%if %{with docs}
+# The help viewer keeps its index in SQLite, through a Qt plugin that
+# nothing finds a dependency on by itself.
+Requires:       qt6-sql-sqlite
+%endif
 Provides:       bundled(libpg_query) = %{pgquery_version}
 
 %description

@@ -6,9 +6,13 @@
 #include "PageWindow.h"
 #include "WorkspacePage.h"
 
+#include <QAction>
+#include <QApplication>
+#include <QMessageBox>
 #include <QPointer>
 #include <QStandardPaths>
 #include <QTest>
+#include <QTimer>
 
 using namespace slonisko;
 
@@ -169,6 +173,29 @@ private Q_SLOTS:
         w->addPage(page);
         w->detachPage(page);
         w.reset();
+    }
+
+    void aboutLinksToTheProject()
+    {
+        MainWindow w;
+        QAction *about = nullptr;
+        for (QAction *action : w.findChildren<QAction *>()) {
+            if (action->text() == QLatin1String("&About Slonisko"))
+                about = action;
+        }
+        QVERIFY(about);
+
+        // The dialog is modal: read it from inside its own event loop.
+        QString text;
+        QTimer::singleShot(0, &w, [&text] {
+            if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+                text = box->text();
+                box->accept();
+            }
+        });
+        about->trigger();
+        QVERIFY2(text.contains(QLatin1String("href=\"https://github.com/pvanek/slonisko\"")),
+                 qPrintable(text));
     }
 };
 

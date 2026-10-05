@@ -18,13 +18,18 @@ cmake_path(GET EXECUTABLE PARENT_PATH target_dir)
 # The plugins windeployqt put there can load libraries too.
 file(GLOB_RECURSE plugins "${target_dir}/*.dll")
 
+# Only Windows itself besides SEARCH_DIRS. CMake also looks in every PATH
+# directory, and on a build machine those hold the DLLs of all its tools:
+# one of those would be bundled, and its dependencies looked for too.
+set(ENV{PATH} "$ENV{SystemRoot}\\System32;$ENV{SystemRoot}")
+
 file(GET_RUNTIME_DEPENDENCIES
     EXECUTABLES "${EXECUTABLE}"
     LIBRARIES ${plugins}
     DIRECTORIES "${target_dir}" ${SEARCH_DIRS}
     PRE_EXCLUDE_REGEXES "^[Aa][Pp][Ii]-[Mm][Ss]-" "^[Ee][Xx][Tt]-[Mm][Ss]-"
-    # Windows' own.
-    POST_EXCLUDE_REGEXES "[/\\\\][Ss]ystem32[/\\\\]" "[/\\\\][Ww]in[Ss]x[Ss][/\\\\]"
+    # Windows' own: anything in its directory, however the path is spelled.
+    POST_EXCLUDE_REGEXES "^[A-Za-z]:[/\\\\][Ww][Ii][Nn][Dd][Oo][Ww][Ss][/\\\\]"
     RESOLVED_DEPENDENCIES_VAR resolved
     UNRESOLVED_DEPENDENCIES_VAR unresolved
     CONFLICTING_DEPENDENCIES_PREFIX conflicting)

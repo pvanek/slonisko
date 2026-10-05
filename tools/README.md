@@ -4,7 +4,7 @@ One directory per target, each self-contained:
 
 | Directory   | What is there                                    |
 |-------------|--------------------------------------------------|
-| `opensuse/` | RPM spec for the openSUSE Build Service          |
+| `opensuse/` | RPM spec template for the openSUSE Build Service |
 | `macos/`    | App bundle and disk image                        |
 | `windows/`  | Portable zip and Inno Setup installer            |
 | `flatpak/`  | Flatpak manifest and a bundle of it              |
@@ -14,9 +14,22 @@ build installs it, not copied here: the desktop file and the AppStream
 metainfo, both named after the application ID `cz.yarpen.slonisko`, are in
 `src/app`.
 
+The version is kept in one place, `project()` in `CMakeLists.txt`, with the
+release date beside it. Everything else is made from there: the metainfo
+and the RPM spec from their `.in` templates, the program's own version, the
+macOS bundle's, the package names and the manual's. A release changes those
+two lines and nothing else.
+
 ## openSUSE
 
-`opensuse/slonisko.spec` builds offline, as OBS requires: libpg_query is not
+The spec is generated from `opensuse/slonisko.spec.in`, which has no version
+of its own, by a CMake script that needs nothing else from the build:
+
+```sh
+cmake -P tools/opensuse/make-spec.cmake     # build-opensuse/slonisko.spec
+```
+
+It builds offline, as OBS requires: libpg_query is not
 packaged for openSUSE, so its tarball is a second source and CMake is pointed
 at it instead of downloading. Its version in the spec follows the one pinned
 in `cmake/SloniskoPgQuery.cmake`. QScintilla, QtKeychain and libpq come from
@@ -26,14 +39,16 @@ the distribution. The manual is built into the Qt help file;
 To try it locally:
 
 ```sh
+version=$(sed -n 's/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt | head -n 1)
 mkdir -p ~/rpmbuild/SOURCES
-git archive --prefix=slonisko-0.1.0/ -o ~/rpmbuild/SOURCES/slonisko-0.1.0.tar.gz HEAD
+git archive --prefix=slonisko-$version/ -o ~/rpmbuild/SOURCES/slonisko-$version.tar.gz HEAD
 curl -L -o ~/rpmbuild/SOURCES/libpg_query-18.0.0.tar.gz \
     https://github.com/pganalyze/libpg_query/archive/refs/tags/18.0.0.tar.gz
-rpmbuild -bb tools/opensuse/slonisko.spec
+cmake -P tools/opensuse/make-spec.cmake
+rpmbuild -bb build-opensuse/slonisko.spec
 ```
 
-On OBS, upload the same two tarballs with the spec, or let the
+On OBS, upload the same two tarballs with the generated spec, or let the
 `download_files` service fetch them from the `Source` URLs.
 
 ## What goes into the macOS and Windows packages
@@ -46,7 +61,7 @@ Neither system has the libraries, so the package carries them all:
 | QScintilla   | The same                                                     |
 | Qt           | `macdeployqt` / `windeployqt`, plugins included              |
 | libpq        | Copied with everything it loads (OpenSSL, Kerberos, zlib...) |
-| QtKeychain   | Copied the same way                                          |
+| QtKeychain   | Copied like libpq on macOS; built statically on Windows      |
 
 Each script fails rather than produce a package that still reaches for a
 library on the build machine. The manual goes in as the Qt help file:
@@ -99,7 +114,7 @@ tools\windows\build.ps1 -QtDir C:\Qt\6.8.3\msvc2022_64
 ```
 
 It enters the Visual Studio environment itself, builds QtKeychain (pinned
-in the script) once into `build-windows\deps`, then Slonisko. The program
+in the script) as a static library once into `build-windows\deps`, then Slonisko. The program
 is assembled in `build-windows\Slonisko`, Qt DLLs by `windeployqt` and the
 rest by `deploy-dlls.cmake`, which asks CMake what the program and its
 plugins load and copies whatever is not part of Windows; the C++ runtime
@@ -150,3 +165,33 @@ flatpak-pip-generator --runtime org.kde.Sdk//6.11 --build-only --yaml \
 
 For Flathub, the manifest's first source becomes the release tag in git
 instead of this checkout, and the metainfo wants screenshots.
+
+## Releases
+
+`.github/workflows/release.yml` runs these scripts on GitHub for every tag
+`v<version>`: macOS on Apple silicon and on Intel, Windows, and the Flatpak.
+The tag has to match `VERSION` in `CMakeLists.txt`, or nothing is built.
+The packages, with a `SHA256SUMS` of them, go into a draft release; its
+notes are written by hand before it is published, as they are the changelog
+the manual points to. Started by hand instead (*Run workflow*), it builds
+the packages from any branch and keeps them as the run's artifacts, without
+a release.
+
+```sh
+version=$(sed -n 's/^ *VERSION \([0-9.]*\)$/\1/p' CMakeLists.txt | head -n 1)
+git tag -a "v$version" -m "Slonisko $version"
+git push origin "v$version"
+```
+
+Without further setup the macOS disk images are signed ad hoc, and the
+Windows program is not signed. For a Developer ID signature and
+notarisation, set these repository secrets:
+
+| Secret                       | What it holds                                      |
+|------------------------------|----------------------------------------------------|
+| `MACOS_CERTIFICATE`          | The Developer ID Application certificate, `.p12`, base64 |
+| `MACOS_CERTIFICATE_PASSWORD` | The `.p12`'s password                              |
+| `MACOS_SIGN_IDENTITY`        | `Developer ID Application: Name (TEAMID)`          |
+| `MACOS_NOTARY_APPLE_ID`      | The Apple ID notarisation runs as                  |
+| `MACOS_NOTARY_PASSWORD`      | An app-specific password of that Apple ID          |
+| `MACOS_NOTARY_TEAM_ID`       | The team ID                                        |

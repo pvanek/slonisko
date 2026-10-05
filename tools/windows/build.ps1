@@ -23,7 +23,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
-# The QtKeychain release built here; nothing on Windows provides it.
+# The QtKeychain release built here; nothing on Windows provides it. It is
+# linked in statically: windeployqt takes qt6keychain.dll for a Qt module by
+# its name, looks for it in the Qt kit and fails.
 $KeychainVersion = '0.17.0'
 
 $SourceDir = (Resolve-Path "$PSScriptRoot\..\..").Path
@@ -52,7 +54,7 @@ $Deps = Join-Path $WorkDir 'deps'
 $env:PATH = "$QtDir\bin;$env:PATH"
 
 Write-Host '== QtKeychain'
-$KeychainPrefix = Join-Path $Deps "qtkeychain-$KeychainVersion"
+$KeychainPrefix = Join-Path $Deps "qtkeychain-$KeychainVersion-static"
 if (-not (Test-Path "$KeychainPrefix\lib\cmake\Qt6Keychain")) {
     $tarball = Join-Path $Deps "qtkeychain-$KeychainVersion.tar.gz"
     New-Item -ItemType Directory -Force $Deps | Out-Null
@@ -62,6 +64,7 @@ if (-not (Test-Path "$KeychainPrefix\lib\cmake\Qt6Keychain")) {
         -DCMAKE_BUILD_TYPE=Release `
         -DCMAKE_PREFIX_PATH="$QtDir" `
         -DCMAKE_INSTALL_PREFIX="$KeychainPrefix" `
+        -DBUILD_SHARED_LIBS=OFF `
         -DBUILD_TRANSLATIONS=OFF `
         -DBUILD_TEST_APPLICATION=OFF
     cmake --build "$Deps\qtkeychain-build"
@@ -101,9 +104,11 @@ $Exe = "$Stage\bin\slonisko.exe"
 
 Write-Host '== Bundling libraries'
 # Qt's DLLs and plugins. The Help module brings Qt SQL, and with it the
-# SQLite driver the help engine keeps its index in.
+# SQLite driver the help engine keeps its index in. The other drivers stay
+# out: nothing uses them, and they need their databases' client libraries
+# (Mimer's MIMAPI64.dll, ODBC).
 windeployqt --release --no-translations --no-system-d3d-compiler --no-opengl-sw `
-    --no-compiler-runtime $Exe
+    --no-compiler-runtime --exclude-plugins qsqlmimer,qsqlodbc,qsqlpsql $Exe
 
 # The C++ runtime goes beside the program rather than through the
 # redistributable installer, so the zip runs on a bare system too. Before
@@ -111,8 +116,8 @@ windeployqt --release --no-translations --no-system-d3d-compiler --no-opengl-sw 
 Copy-Item "$env:VCToolsRedistDir\x64\Microsoft.VC*.CRT\*.dll" "$Stage\bin"
 
 # Everything else the program loads: libpq and what it loads in turn
-# (OpenSSL, zlib, ...), and QtKeychain.
-cmake "-DEXECUTABLE=$Exe" "-DSEARCH_DIRS=$PgDir\bin;$KeychainPrefix\bin" `
+# (OpenSSL, zlib, ...).
+cmake "-DEXECUTABLE=$Exe" "-DSEARCH_DIRS=$PgDir\bin" `
     -P "$PSScriptRoot\deploy-dlls.cmake"
 
 Copy-Item "$SourceDir\LICENSE" "$Stage\LICENSE.txt"

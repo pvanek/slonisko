@@ -128,13 +128,17 @@ if(APPLE)
     set_source_files_properties("${icns}" PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 endif()
 
+# The version and the release date come from the top-level CMakeLists.txt.
+set(SLONISKO_METAINFO "${CMAKE_CURRENT_BINARY_DIR}/cz.yarpen.slonisko.metainfo.xml")
+configure_file(cz.yarpen.slonisko.metainfo.xml.in "${SLONISKO_METAINFO}" @ONLY)
+
 include(GNUInstallDirs)
 install(TARGETS slonisko
     BUNDLE DESTINATION .
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 if(UNIX AND NOT APPLE)
     install(FILES cz.yarpen.slonisko.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-    install(FILES cz.yarpen.slonisko.metainfo.xml DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+    install(FILES "${SLONISKO_METAINFO}" DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
     install(FILES icons/slonisko.svg
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
     foreach(size 16 22 24 32 48 64 128 256 512)

@@ -131,9 +131,10 @@ can be tested without a display.
 ## Documentation
 
 The manual lives in [`docs/`](docs/index.md): using the program, and how it
-is put together. From the same sources it builds into a website and into a
-Qt help file, which the program shows itself — Help → Manual, or F1 on the
-page you are looking at.
+is put together, and it is online at <https://pvanek.github.io/slonisko/>.
+From the same sources it builds into that website and into a Qt help file,
+which the program shows itself — Help → Manual, or F1 on the page you are
+looking at.
 
 ```sh
 cmake -S . -B build -DSLONISKO_WITH_DOCS=ON

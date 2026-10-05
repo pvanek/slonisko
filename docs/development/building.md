@@ -65,17 +65,25 @@ cmake --build build --target docs-qch       # build/docs/slonisko.qch
 ```
 
 `docs-qch` needs `qhelpgenerator`, which comes with Qt's tools, and copies
-the help file next to the program so a build directory run finds it;
-`cmake --install` puts it in `share/slonisko`. For the program to show it,
+the help file next to the program so a build directory run finds it (into
+`Contents/Resources` of a macOS bundle); `cmake --install` puts it in
+`share/slonisko`. For the program to show it,
 Qt's Help module has to be there when the program is built
 (`qt6-help-devel` on openSUSE); without it the Help menu opens the
 project's page on GitHub instead.
 
-Sphinx can also be run directly:
+Sphinx can also be run directly, once the icon is in place (see below):
 
 ```sh
+cp src/app/icons/slonisko-128.png docs/images/slonisko.png
 sphinx-build -b html docs build/docs/html
 ```
+
+The website is published on GitHub Pages, at
+<https://pvanek.github.io/slonisko/>, by `.github/workflows/website.yml`:
+whenever the manual changes on `main`, it is built the same way, with
+warnings treated as errors, and deployed. For that, the repository's Pages
+source has to be set to *GitHub Actions*, once.
 
 One generated file is involved: the manual shows the program's icon, and
 Sphinx takes images only from its own directory, so `docs/images/slonisko.png`

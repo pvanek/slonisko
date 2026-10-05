@@ -174,7 +174,9 @@ void SqlEditor::applyCompletion(const catalog::CompletionItem &item)
     beginUndoAction();
     send(SCI_SETTARGETSTART, from);
     send(SCI_SETTARGETEND, to);
-    SendScintilla(SCI_REPLACETARGET, static_cast<unsigned long>(text.size()), text.constData());
+    // uintptr_t, the one overload taking text: with unsigned long, Win64
+    // finds the QColor one, which a const char * converts to, as good a match.
+    SendScintilla(SCI_REPLACETARGET, static_cast<uintptr_t>(text.size()), text.constData());
     endUndoAction();
     // A snippet says where the caret belongs, counted in characters: "SELECT
     // * FROM " leaves it where the table's name goes.

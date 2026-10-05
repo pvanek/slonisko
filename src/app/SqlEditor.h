@@ -42,6 +42,8 @@ public:
 
     QByteArray utf8Text() const;
     qsizetype cursorPosition() const;
+    // In bytes; QScintilla's line and index version stays usable beside it.
+    using QsciScintilla::setCursorPosition;
     void setCursorPosition(qsizetype pos);
     void selectRange(qsizetype from, qsizetype to);
 

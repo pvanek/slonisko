@@ -26,5 +26,5 @@ find_program(SLONISKO_APPSTREAMCLI appstreamcli)
 if(SLONISKO_APPSTREAMCLI)
     add_test(NAME metainfo_file
         COMMAND "${SLONISKO_APPSTREAMCLI}" validate --no-net
-            "${CMAKE_CURRENT_SOURCE_DIR}/../cz.yarpen.slonisko.metainfo.xml")
+            "${SLONISKO_METAINFO}")
 endif()

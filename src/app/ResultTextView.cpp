@@ -45,11 +45,13 @@ void ResultTextView::selectBlock(qsizetype anchor, qsizetype caret)
 
 QString ResultTextView::selection() const
 {
-    const auto length = SendScintilla(SCI_GETSELTEXT, 0UL, static_cast<char *>(nullptr));
+    // void *, not char *: on Win64, where unsigned long is narrower than
+    // uintptr_t, a char * matches two overloads equally well.
+    const auto length = SendScintilla(SCI_GETSELTEXT, 0UL, static_cast<void *>(nullptr));
     if (length <= 0)
         return {};
     QByteArray text(int(length), Qt::Uninitialized);
-    SendScintilla(SCI_GETSELTEXT, 0UL, text.data());
+    SendScintilla(SCI_GETSELTEXT, 0UL, static_cast<void *>(text.data()));
     // Scintilla counts the terminating zero in older versions.
     if (!text.isEmpty() && text.back() == '\0')
         text.chop(1);

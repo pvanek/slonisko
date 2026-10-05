@@ -8,6 +8,11 @@ project(slonisko
     DESCRIPTION "PostgreSQL GUI client"
     LANGUAGES CXX)
 
+# The version above is the only one there is: the AppStream metainfo, the RPM
+# spec, the packages and the program itself all take it from here. A release
+# changes it and this date, the day it is released, for the metainfo.
+set(SLONISKO_RELEASE_DATE 2026-10-05)
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -35,6 +40,10 @@ endif()
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS ${SLONISKO_QT_COMPONENTS})
 qt_standard_project_setup(REQUIRES 6.5)
+# It gives installed programs a RUNPATH of $ORIGIN, for libraries installed
+# beside them. There are none, as every library here is linked in
+# statically, and distributions refuse such a RUNPATH in their packages.
+set(CMAKE_INSTALL_RPATH "")
 
 # libpq 17+: chunked rows mode and the non-blocking cancel API.
 find_package(PostgreSQL 17 REQUIRED)
@@ -55,6 +64,23 @@ include(SloniskoCompilerOptions)
 if(SLONISKO_BUILD_TESTS)
     enable_testing()
     include(SloniskoTesting)
+
+    # The RPM spec is generated from a template: it has to come out with this
+    # version, as rpm itself reads it.
+    find_program(SLONISKO_RPMSPEC rpmspec)
+    if(SLONISKO_RPMSPEC)
+        add_test(NAME rpm_spec_make
+            COMMAND ${CMAKE_COMMAND} "-DOUTPUT=${CMAKE_BINARY_DIR}/slonisko.spec"
+                -P "${CMAKE_SOURCE_DIR}/tools/opensuse/make-spec.cmake")
+        add_test(NAME rpm_spec_version
+            COMMAND "${SLONISKO_RPMSPEC}" -q --srpm --queryformat "<%{version}>"
+                "${CMAKE_BINARY_DIR}/slonisko.spec")
+        string(REPLACE "." "\\." version_regex "${PROJECT_VERSION}")
+        set_tests_properties(rpm_spec_make PROPERTIES FIXTURES_SETUP rpm_spec)
+        set_tests_properties(rpm_spec_version PROPERTIES
+            FIXTURES_REQUIRED rpm_spec
+            PASS_REGULAR_EXPRESSION "<${version_regex}>")
+    endif()
 endif()
 
 add_subdirectory(src/pg)
