@@ -276,6 +276,11 @@ ObjectPage *MainWindow::showObject(Session *session, const QString &database,
                    unsigned int neighbour) {
                 showObject(from, db, neighbourKind, neighbour, QString());
             });
+    // The tree owns the connection, and asks first if editors would lose work.
+    connect(page, &ObjectPage::reconnectRequested, this,
+            [this](Session *s) { m_browser->reconnectProfile(s->profile().id); });
+    connect(page, &ObjectPage::disconnectRequested, this,
+            [this](Session *s) { m_browser->disconnectProfile(s->profile().id); });
     addPage(page);
     return page;
 }

@@ -4,6 +4,7 @@
 #include "ObjectPage.h"
 
 #include "ErdView.h"
+#include "Icons.h"
 #include "ResultTextView.h"
 #include "Session.h"
 #include "Shortcuts.h"
@@ -27,6 +28,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QTableView>
+#include <QHBoxLayout>
 #include <QVBoxLayout>
 
 #include <memory>
@@ -182,7 +184,26 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(m_heading);
+    // The heading, with the connection's actions beside it: what is waiting
+    // here for an answer that never comes waits on that connection.
+    auto *top = new QHBoxLayout;
+    top->setContentsMargins(0, 0, 0, 0);
+    top->addWidget(m_heading, 1);
+    auto *connectionBar = new QToolBar(this);
+    connectionBar->setIconSize(QSize(16, 16));
+    m_reconnect = connectionBar->addAction(Icons::reconnect(), tr("Reconnect"), this, [this] {
+        if (m_session)
+            Q_EMIT reconnectRequested(m_session);
+    });
+    m_reconnect->setToolTip(tr("Close the connection to this server and open it again, e.g. "
+                               "when the network left it hanging"));
+    m_disconnect = connectionBar->addAction(Icons::disconnect(), tr("Disconnect"), this, [this] {
+        if (m_session)
+            Q_EMIT disconnectRequested(m_session);
+    });
+    m_disconnect->setToolTip(tr("Disconnect from this server"));
+    top->addWidget(connectionBar);
+    layout->addLayout(top);
     layout->addWidget(m_message);
     layout->addWidget(m_tabs, 1);
 
@@ -193,13 +214,36 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
     connect(refreshAction, &QAction::triggered, this, &ObjectPage::refresh);
     addAction(refreshAction);
 
-    if (m_session) {
-        connect(m_session, &Session::stateChanged, this, [this] {
-            if (m_session && m_session->state() != Session::State::Connected)
-                showMessage(tr("Not connected."));
-        });
-    }
+    if (m_session)
+        connect(m_session, &Session::stateChanged, this, &ObjectPage::onSessionState);
+    m_reconnect->setEnabled(m_session);
+    m_disconnect->setEnabled(m_session);
     refresh();
+}
+
+void ObjectPage::onSessionState()
+{
+    const Session::State state = m_session ? m_session->state() : Session::State::Disconnected;
+    // Gone for good once disconnected: the tree makes a new session to
+    // connect again, and this page stays with the old one.
+    m_reconnect->setEnabled(m_session && state != Session::State::Disconnected);
+    m_disconnect->setEnabled(m_session && state != Session::State::Disconnected);
+    switch (state) {
+    case Session::State::Connected:
+        refresh(); // Back after reconnecting.
+        break;
+    case Session::State::Connecting:
+        // What was asked of the old connections now fails; that is no news.
+        ++m_generation;
+        showMessage(tr("Reconnecting…"));
+        break;
+    case Session::State::Failed:
+        showMessage(tr("Could not reconnect: %1").arg(m_session->errorMessage()), true);
+        break;
+    case Session::State::Disconnected:
+        showMessage(tr("Not connected."));
+        break;
+    }
 }
 
 QColor ObjectPage::color() const

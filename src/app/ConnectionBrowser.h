@@ -42,6 +42,10 @@ public:
     // Disconnects, first asking if editors on the connection have
     // transactions open or statements running. False if the user said no.
     bool disconnectProfile(const QUuid &id, bool ask = true);
+    // Drops the session's connections and makes them again, asking the same
+    // way; for a connection the network left hanging. Editors and pages on
+    // it stay on it. Without a session, connects.
+    bool reconnectProfile(const QUuid &id, bool ask = true);
     // How to ask; tests answer instead of a message box.
     void setConfirm(std::function<bool(const QString &question)> confirm)
     {
@@ -93,6 +97,9 @@ private:
                 config::PasswordMode mode, const QString &prompt,
                 std::function<void(std::optional<QString>)> done);
     void onSessionStateChanged(const QUuid &id, Session::State state);
+    // Whether to go on although editors on session have work in progress,
+    // which doing (e.g. "Disconnecting") rolls back.
+    bool confirmBusy(const Session *session, const QString &title, const QString &doing);
 
     config::ProfileStore m_profiles;
     config::PasswordStore *m_passwords = nullptr;
@@ -106,6 +113,7 @@ private:
     QAction *m_delete = nullptr;
     QAction *m_connect = nullptr;
     QAction *m_disconnect = nullptr;
+    QAction *m_reconnect = nullptr;
     QAction *m_refresh = nullptr;
     QAction *m_openEditor = nullptr;
     QAction *m_showDetails = nullptr;

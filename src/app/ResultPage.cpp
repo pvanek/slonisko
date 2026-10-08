@@ -25,15 +25,26 @@ ResultPage::ResultPage(Session *session, const QString &title, const QByteArray 
             // Disconnected: its tunnel, if any, is gone, and so is this connection.
             if (state != Session::State::Connected && m_connection)
                 m_connection->close();
+            // Back after reconnecting: so is this page.
+            if (state == Session::State::Connected) {
+                openConnection();
+                refresh();
+            }
             Q_EMIT titleChanged();
         });
-        if (m_session->state() == Session::State::Connected) {
-            m_connection = new pg::Connection(this);
-            m_runner = new pg::QueryRunner(m_connection, this);
-            m_connection->open(m_session->conninfo());
-        }
+        if (m_session->state() == Session::State::Connected)
+            openConnection();
     }
     refresh();
+}
+
+void ResultPage::openConnection()
+{
+    if (!m_connection) {
+        m_connection = new pg::Connection(this);
+        m_runner = new pg::QueryRunner(m_connection, this);
+    }
+    m_connection->open(m_session->conninfo());
 }
 
 QColor ResultPage::color() const

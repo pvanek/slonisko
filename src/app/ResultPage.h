@@ -40,6 +40,8 @@ public:
     void refresh();
 
 private:
+    void openConnection();
+
     QPointer<Session> m_session;
     QString m_title;
     QByteArray m_sql;

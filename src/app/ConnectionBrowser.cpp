@@ -7,6 +7,7 @@
 #include "BrowserModel.h"
 #include "catalog/Details.h"
 #include "ConnectionDialog.h"
+#include "Icons.h"
 #include "Shortcuts.h"
 #include "catalog/Monitoring.h"
 
@@ -58,6 +59,7 @@ ConnectionBrowser::ConnectionBrowser(QSettings &settings, bool useWallet, QWidge
     toolbar->addAction(m_edit);
     toolbar->addSeparator();
     toolbar->addAction(m_connect);
+    toolbar->addAction(m_reconnect);
     toolbar->addAction(m_disconnect);
     toolbar->addAction(m_refresh);
 
@@ -95,6 +97,11 @@ void ConnectionBrowser::createActions()
                        [this] { connectProfile(currentProfile()); });
     m_disconnect = action(QStringLiteral("network-disconnect"), tr("Dis&connect"),
                           [this] { disconnectProfile(currentProfile()); });
+    m_disconnect->setIcon(Icons::disconnect());
+    m_reconnect = action({}, tr("Reco&nnect"), [this] { reconnectProfile(currentProfile()); });
+    m_reconnect->setIcon(Icons::reconnect());
+    m_reconnect->setToolTip(tr("Close the connection and open it again, e.g. when the network "
+                               "left it hanging"));
     m_refresh = action(QStringLiteral("view-refresh"), tr("&Refresh"),
                        &ConnectionBrowser::refreshCurrent);
     m_openEditor = action(QStringLiteral("document-new"), tr("Open SQL &Editor"), [this] {
@@ -126,6 +133,7 @@ void ConnectionBrowser::updateActions()
     m_delete->setEnabled(!id.isNull());
     m_connect->setEnabled(!id.isNull() && !busy);
     m_disconnect->setEnabled(busy);
+    m_reconnect->setEnabled(s && s->state() != Session::State::Disconnected);
     m_refresh->setEnabled(s && s->state() == Session::State::Connected);
     m_openEditor->setEnabled(s && s->state() == Session::State::Connected);
     const QModelIndex index = m_view->currentIndex();
@@ -180,6 +188,7 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
         const auto type = index.data(BrowserModel::NodeTypeRole).value<NodeType>();
         if (type == NodeType::Connection) {
             menu.addAction(m_connect);
+            menu.addAction(m_reconnect);
             menu.addAction(m_disconnect);
         }
         if (m_openEditor->isEnabled()
@@ -189,6 +198,13 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
             menu.addAction(m_showDetails);
         if (m_refresh->isEnabled())
             menu.addAction(m_refresh);
+        // Anywhere in a connection's tree, as what hangs is usually deep in
+        // it: a folder that keeps loading.
+        if (type != NodeType::Connection && m_reconnect->isEnabled()) {
+            menu.addSeparator();
+            menu.addAction(m_reconnect);
+            menu.addAction(m_disconnect);
+        }
         if (type == NodeType::Connection) {
             menu.addSeparator();
             menu.addAction(m_edit);
@@ -271,20 +287,8 @@ bool ConnectionBrowser::disconnectProfile(const QUuid &id, bool ask)
     if (it == m_sessions.end())
         return true;
     Session *session = it->second;
-    if (const int busy = session->busyConnections(); ask && busy > 0) {
-        const QString question = tr("%n editor(s) on %1 have a transaction open or a statement "
-                                    "running. Disconnecting rolls "
-                                    "them back. Disconnect anyway?",
-                                    nullptr, busy)
-                                     .arg(session->profile().displayName());
-        const bool yes = m_confirm
-            ? m_confirm(question)
-            : QMessageBox::warning(this, tr("Disconnect"), question,
-                                   QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel)
-                == QMessageBox::Yes;
-        if (!yes)
-            return false;
-    }
+    if (ask && !confirmBusy(session, tr("Disconnect"), tr("Disconnecting")))
+        return false;
     m_sessions.erase(it);
     session->disconnect(this);
     m_model->setSession(id, nullptr);
@@ -293,6 +297,38 @@ bool ConnectionBrowser::disconnectProfile(const QUuid &id, bool ask)
     updateActions();
     Q_EMIT sessionsChanged();
     return true;
+}
+
+bool ConnectionBrowser::reconnectProfile(const QUuid &id, bool ask)
+{
+    const auto it = m_sessions.find(id);
+    if (it == m_sessions.end()) {
+        connectProfile(id);
+        return true;
+    }
+    Session *session = it->second;
+    if (ask && !confirmBusy(session, tr("Reconnect"), tr("Reconnecting")))
+        return false;
+    session->reconnect();
+    updateActions();
+    return true;
+}
+
+bool ConnectionBrowser::confirmBusy(const Session *session, const QString &title,
+                                    const QString &doing)
+{
+    const int busy = session->busyConnections();
+    if (busy == 0)
+        return true;
+    const QString question = tr("%n editor(s) on %1 have a transaction open or a statement "
+                                "running. %2 rolls them back. Go on anyway?",
+                                nullptr, busy)
+                                 .arg(session->profile().displayName(), doing);
+    if (m_confirm)
+        return m_confirm(question);
+    return QMessageBox::warning(this, title, question, QMessageBox::Yes | QMessageBox::Cancel,
+                                QMessageBox::Cancel)
+        == QMessageBox::Yes;
 }
 
 void ConnectionBrowser::onSessionStateChanged(const QUuid &id, Session::State state)

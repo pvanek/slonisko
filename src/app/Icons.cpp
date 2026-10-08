@@ -91,6 +91,38 @@ QIcon monitoring()
     return themed(QStringLiteral("utilities-system-monitor"), QStyle::SP_ComputerIcon);
 }
 
+QIcon reconnect()
+{
+    // No theme has one. Connect's plug with a small refresh arrow in its
+    // corner: Refresh, right beside it in the tree, has the arrow alone.
+    // Made afresh each time, as the theme's icons follow the palette.
+    const QIcon plug = themed(QStringLiteral("network-connect"), QStyle::SP_DriveNetIcon);
+    const QIcon arrow = themed(QStringLiteral("view-refresh"), QStyle::SP_BrowserReload);
+    QIcon icon;
+    for (const int size : {16, 22, 32}) {
+        QPixmap pixmap(size, size);
+        pixmap.fill(Qt::transparent);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.drawPixmap(0, 0, plug.pixmap(size));
+        const int badge = size * 5 / 8;
+        const QRect corner(size - badge, size - badge, badge, badge);
+        // A disc of the background under the arrow, so it does not run
+        // into the plug's lines.
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QApplication::palette().color(QPalette::Window));
+        painter.drawEllipse(corner);
+        painter.drawPixmap(corner, arrow.pixmap(badge));
+        icon.addPixmap(pixmap);
+    }
+    return icon;
+}
+
+QIcon disconnect()
+{
+    return themed(QStringLiteral("network-disconnect"), QStyle::SP_DialogCancelButton);
+}
+
 QIcon error()
 {
     return themed(QStringLiteral("dialog-error"), QStyle::SP_MessageBoxCritical);

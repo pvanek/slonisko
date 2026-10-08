@@ -37,6 +37,7 @@
 #include <QPlainTextEdit>
 #include <QLabel>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTest>
@@ -827,6 +828,129 @@ private Q_SLOTS:
         Q_EMIT m_browser->sessionsChanged();
         QCOMPARE(m_tab->connection()->state(), pg::Connection::State::Disconnected);
         QVERIFY(!m_tab->session());
+    }
+
+    // A statement the network left hanging ends at once, without waiting
+    // for the server; the editor stays on the session and connects again.
+    void reconnectEndsAHangingStatement()
+    {
+        auto session = std::make_unique<Session>(m_server->profile,
+                                                 Session::Credentials {m_server->password, {}});
+        session->open();
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        m_tab->setSession(session.get());
+        QTRY_COMPARE(m_tab->connection()->state(), pg::Connection::State::Ready);
+
+        setText("SELECT pg_sleep(30);");
+        m_tab->run();
+        QVERIFY(m_tab->isRunning());
+        session->reconnect();
+        QVERIFY(!m_tab->isRunning());
+        QVERIFY2(messages().contains(QLatin1String("closed to reconnect")), qPrintable(messages()));
+        QCOMPARE(m_tab->session(), session.get());
+
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        QTRY_COMPARE(m_tab->connection()->state(), pg::Connection::State::Ready);
+        QCOMPARE(m_tab->session(), session.get());
+        setText("SELECT 42;");
+        runAndWait();
+        QCOMPARE(model()->index(0, 0).data().toString(), QStringLiteral("42"));
+    }
+
+    // Through the tree, which asks first when editors would lose work.
+    void reconnectAsksWhenEditorsHaveWork()
+    {
+        QSettings settings(m_dir.filePath(QStringLiteral("reconnect.ini")), QSettings::IniFormat);
+        config::ConnectionProfile profile = m_server->profile;
+        profile.id = QUuid::createUuid();
+        profile.passwordMode = config::PasswordMode::Save;
+        config::ProfileStore(settings).save(profile);
+        config::PasswordStore(settings, false)
+            .write(profile.id, config::PasswordStore::Secret::Postgres, m_server->password, this);
+        ConnectionBrowser browser(settings, false);
+        browser.connectProfile(profile.id);
+        QTRY_COMPARE(browser.connectedSessions().size(), std::size_t(1));
+        Session *session = browser.connectedSessions().front();
+
+        EditorPage editor(&browser, QStringLiteral("Busy"));
+        editor.setSession(session);
+        QTRY_COMPARE(editor.connection()->state(), pg::Connection::State::Ready);
+        editor.begin();
+        QTRY_COMPARE(editor.connection()->transactionStatus(), PQTRANS_INTRANS);
+
+        QString asked;
+        browser.setConfirm([&asked](const QString &question) {
+            asked = question;
+            return false;
+        });
+        QVERIFY(!browser.reconnectProfile(profile.id));
+        QVERIFY2(asked.contains(QLatin1String("Reconnecting")), qPrintable(asked));
+        QCOMPARE(session->state(), Session::State::Connected);
+        QCOMPARE(editor.connection()->transactionStatus(), PQTRANS_INTRANS);
+
+        browser.setConfirm([](const QString &) { return true; });
+        QVERIFY(browser.reconnectProfile(profile.id));
+        QCOMPARE(session->state(), Session::State::Connecting);
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        QCOMPARE(browser.connectedSessions().front(), session); // The same one.
+        QCOMPARE(editor.session(), session);
+        QTRY_COMPARE(editor.connection()->state(), pg::Connection::State::Ready);
+        QCOMPARE(editor.connection()->transactionStatus(), PQTRANS_IDLE); // Rolled back.
+    }
+
+    // A details page waiting behind a query that never comes back loads
+    // again once the session has reconnected.
+    void detailsPageComesBackAfterReconnect()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        auto session = std::make_unique<Session>(m_server->profile,
+                                                 Session::Credentials {m_server->password, {}});
+        session->open();
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        ObjectPage *page = w.showObject(session.get(), {}, catalog::ObjectKind::Extension,
+                                        extensionOid(), QStringLiteral("plpgsql"));
+        QTRY_COMPARE(page->detail().title, QStringLiteral("plpgsql"));
+        QVERIFY(!page->tabs()->isHidden());
+
+        // Its Reconnect asks the tree, which owns the session.
+        QAction *reconnect = nullptr;
+        for (QAction *action : page->findChildren<QAction *>()) {
+            if (action->text() == QLatin1String("Reconnect"))
+                reconnect = action;
+        }
+        QVERIFY(reconnect && reconnect->isEnabled());
+        QSignalSpy asked(page, &ObjectPage::reconnectRequested);
+        reconnect->trigger();
+        QCOMPARE(asked.size(), 1);
+        QCOMPARE(asked.front().front().value<Session *>(), session.get());
+
+        session->runner()->run("SELECT pg_sleep(30)", this, [](const pg::QueryOutcome &) { });
+        page->refresh(); // Waits behind it.
+        session->reconnect();
+        QVERIFY(page->tabs()->isHidden()); // "Reconnecting…"
+        QTRY_VERIFY(!page->tabs()->isHidden());
+        QCOMPARE(page->detail().title, QStringLiteral("plpgsql"));
+    }
+
+    // A DBA view hanging on its own connection runs again after a reconnect.
+    void resultPageComesBackAfterReconnect()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        auto session = std::make_unique<Session>(m_server->profile,
+                                                 Session::Credentials {m_server->password, {}});
+        session->open();
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        ResultPage *page = w.showResult(session.get(), QStringLiteral("Slow, then not"),
+                                        "SELECT g FROM generate_series(1, 3) g, pg_sleep(0.5)");
+        QVERIFY(page->results()->isRunning());
+
+        session->reconnect();
+        QCOMPARE(page->connection()->state(), pg::Connection::State::Disconnected);
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        QTRY_COMPARE(page->results()->model()->rowCount(), 3);
+        QCOMPARE(page->connection()->state(), pg::Connection::State::Ready);
     }
 
     void commitsBeforeClosing()

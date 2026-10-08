@@ -26,6 +26,20 @@ int Session::serverVersion() const
 void Session::open()
 {
     close();
+    start();
+}
+
+void Session::reconnect()
+{
+    // Connecting first: nothing should take the closing below for the end of
+    // the session.
+    setState(State::Connecting);
+    closeConnections();
+    start();
+}
+
+void Session::start()
+{
     m_error.clear();
     setState(State::Connecting);
 
@@ -69,7 +83,7 @@ void Session::close()
 
 pg::QueryRunner *Session::runner(const QString &database)
 {
-    if (m_state != State::Connected)
+    if (m_state != State::Connected || m_closing)
         return nullptr;
     const QString name = database.isEmpty() ? m_profile.database : database;
     const auto it = m_databases.find(name);
@@ -181,6 +195,7 @@ void Session::setState(State state)
 void Session::closeConnections()
 {
     // Runners fail their queued queries when their connection closes.
+    m_closing = true;
     std::map<QString, Database> databases;
     databases.swap(m_databases);
     for (auto &[name, db] : databases) {
@@ -198,6 +213,8 @@ void Session::closeConnections()
     m_endpoint = {};
     m_snapshots.clear();
     m_loadingSnapshots.clear();
+    m_staleSnapshots.clear();
+    m_closing = false;
 }
 
 } // namespace slonisko

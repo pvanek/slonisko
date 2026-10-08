@@ -34,6 +34,34 @@ plus one for each further database the object tree browses.
 - **Disconnecting asks first** when any editor of that connection has a
   transaction open or a statement running.
 
+## When the network goes away
+
+```{index} reconnect, disconnect, network problems, hanging connection
+```
+
+A connection whose network went away does not always notice: a folder in
+the tree keeps saying *Loading…*, an object's page never fills in, a
+statement keeps running. *Reconnect* is the way out. It closes all of the
+session's connections, and its SSH tunnel, without waiting for the server,
+and opens them again with the same credentials, so no password is asked
+for.
+
+*Reconnect* and *Disconnect* are in three places, and do the same in each:
+
+- the object tree's toolbar, and its context menu on any node of the
+  connection, including one that is still loading;
+- each SQL editor's toolbar, beside the connection box;
+- the top right of an object's page.
+
+Whatever was waiting fails at once. Editors stay on their connection and
+connect again with it; a statement that was running is reported as ended
+in *Messages*. Object pages and DBA Tools or System Info pages load again
+by themselves, and the tree shows the connection's contents afresh. Like
+disconnecting, reconnecting first asks when an editor has a transaction
+open or a statement running, as either is rolled back. If the server cannot
+be reached yet, the connection shows as failed and the editors wait;
+*Reconnect* can be tried again.
+
 ## The transaction toolbar
 
 ```{index} commit, rollback, transaction state

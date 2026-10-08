@@ -46,6 +46,10 @@ Q_SIGNALS:
     // A neighbour in the diagram was double-clicked.
     void objectRequested(slonisko::Session *session, const QString &database,
                          slonisko::catalog::ObjectKind kind, unsigned int oid);
+    // Reconnect or Disconnect was chosen for the page's connection, as in
+    // the object tree, which owns it.
+    void reconnectRequested(slonisko::Session *session);
+    void disconnectRequested(slonisko::Session *session);
 
 private:
     void showDetail(const catalog::ObjectDetail &detail);
@@ -53,6 +57,7 @@ private:
     // Asks where to save the diagram, in the one format the filter names.
     void exportDiagram(const QString &filter);
     void showMessage(const QString &text, bool error = false);
+    void onSessionState();
 
     QPointer<Session> m_session;
     QString m_database;
@@ -62,6 +67,8 @@ private:
     catalog::ObjectDetail m_detail;
 
     QLabel *m_heading = nullptr;
+    QAction *m_reconnect = nullptr;
+    QAction *m_disconnect = nullptr;
     QLabel *m_message = nullptr;
     QTabWidget *m_tabs = nullptr;
     ResultTextView *m_definition = nullptr;

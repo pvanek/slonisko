@@ -45,6 +45,12 @@ public:
 
     void open();
     void close();
+    // Drops every connection and the tunnel, and connects again with the same
+    // credentials: the way out when the network went away under a query that
+    // will now never finish. The session stays the same object, and goes
+    // through Connecting rather than Disconnected, so what works through it
+    // can tell this from the end of the session.
+    void reconnect();
 
     // A conninfo for a connection of one's own to a database (empty: the
     // profile's), through the session's SSH tunnel if it has one. Only valid
@@ -81,6 +87,7 @@ private:
         pg::QueryRunner *runner = nullptr;
     };
 
+    void start();
     void openMainConnection();
     Database &addDatabase(const QString &name);
     void onMainStateChanged(pg::Connection::State state);
@@ -91,6 +98,9 @@ private:
     config::ConnectionProfile m_profile;
     Credentials m_credentials;
     State m_state = State::Disconnected;
+    // Closing connections fails their queued queries, whose callbacks may ask
+    // for a runner again; there is none to be had while closing.
+    bool m_closing = false;
     QString m_error;
     pg::SshTunnel *m_tunnel = nullptr;
     config::Endpoint m_endpoint; // The tunnel's local end, if any.

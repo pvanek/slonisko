@@ -248,6 +248,36 @@ private Q_SLOTS:
         QCOMPARE(m_model->rowCount(connection), 0);
     }
 
+    // A folder stuck behind a query that never comes back: reconnecting
+    // fails what was waiting, at once, and loads the tree again.
+    void reconnectFreesTheTree()
+    {
+        const QModelIndex connection = connect(m_server->profile);
+        QVERIFY(connection.isValid());
+        Session *session = m_session.get();
+        std::optional<pg::QueryOutcome> hung;
+        bool runnerWhileClosing = true;
+        session->runner()->run("SELECT pg_sleep(30)", this, [&](const pg::QueryOutcome &o) {
+            hung = o;
+            // What fails here must not make the session open a new connection.
+            runnerWhileClosing = session->runner() != nullptr;
+        });
+        const QModelIndex db = child(connection, m_server->profile.database);
+        m_model->fetchMore(db); // "Loading…", for good.
+
+        session->reconnect();
+        QVERIFY(hung.has_value());
+        QVERIFY(!hung->ok());
+        QVERIFY(!runnerWhileClosing);
+        QCOMPARE(session->state(), Session::State::Connecting);
+        QCOMPARE(m_model->rowCount(connection), 0);
+
+        QTRY_COMPARE(session->state(), Session::State::Connected);
+        QTRY_COMPARE(m_model->rowCount(connection), 3);
+        QVERIFY(childNames(expand(child(connection, m_server->profile.database)))
+                    .contains(QStringLiteral("Schemas")));
+    }
+
     void failedConnection()
     {
         m_model->setProfiles({m_server->profile});

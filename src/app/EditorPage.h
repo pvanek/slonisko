@@ -158,6 +158,9 @@ private:
     void onFinished();
     void onConnectionState(pg::Connection::State state);
     void finishAll();
+    // Closes the connection without waiting for the server, which may never
+    // answer: what was running ends here, saying why.
+    void dropConnection(const QString &why);
     void lookUpEditTarget();
     // Replaces psql variables in a statement, noting the ones not set.
     QByteArray substitute(const QByteArray &sql, Job &job);
@@ -179,10 +182,15 @@ private:
     QAction *m_begin = nullptr;
     QAction *m_commit = nullptr;
     QAction *m_rollback = nullptr;
+    QAction *m_reconnect = nullptr;
+    QAction *m_disconnect = nullptr;
 
     QPointer<Session> m_session;
     QString m_database;
     pg::Connection *m_connection = nullptr;
+    // The session is reconnecting or failed to: the editor stays on it and
+    // opens its connection again once it is back.
+    bool m_awaitingSession = false;
 
     std::deque<Job> m_jobs;
     std::optional<Job> m_current;

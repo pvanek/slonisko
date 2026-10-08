@@ -32,6 +32,8 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <algorithm>
+
 namespace slonisko {
 
 namespace {
@@ -78,6 +80,21 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     m_commit->setToolTip(tr("Commit the transaction"));
     m_rollback = action({}, tr("Ro&llback"), {}, &EditorPage::rollback);
     m_rollback->setToolTip(tr("Roll the transaction back"));
+    // The connection the editor is on, the same as in the object tree's
+    // menu: they act on all of the server's connections, this one included.
+    m_reconnect = action({}, tr("Reco&nnect"), {}, [this] {
+        if (m_session)
+            m_browser->reconnectProfile(m_session->profile().id);
+    });
+    m_reconnect->setIcon(Icons::reconnect());
+    m_reconnect->setToolTip(tr("Close the connection to this server and open it again, e.g. "
+                               "when the network left a statement hanging"));
+    m_disconnect = action({}, tr("&Disconnect"), {}, [this] {
+        if (m_session)
+            m_browser->disconnectProfile(m_session->profile().id);
+    });
+    m_disconnect->setIcon(Icons::disconnect());
+    m_disconnect->setToolTip(tr("Disconnect from this server"));
     // Ctrl+Enter on the keypad too.
     auto *enter = new QAction(this);
     enter->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Enter));
@@ -96,6 +113,8 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     auto *toolbar = new QToolBar(this);
     toolbar->setIconSize(QSize(16, 16));
     toolbar->addWidget(m_target);
+    toolbar->addAction(m_reconnect);
+    toolbar->addAction(m_disconnect);
     toolbar->addSeparator();
     toolbar->addAction(m_run);
     toolbar->addAction(m_explain);
@@ -340,6 +359,7 @@ bool EditorPage::maybeEndTransaction(const QString &doing)
 
 void EditorPage::setSession(Session *session, const QString &database)
 {
+    m_awaitingSession = false;
     if (isRunning())
         cancel();
     m_jobs.clear();
@@ -352,6 +372,9 @@ void EditorPage::setSession(Session *session, const QString &database)
     m_database = database;
     if (m_session) {
         m_session->attach(m_connection);
+        // Its own session directly, not only through the tree: a reconnect
+        // has to reach the editor whoever started it.
+        connect(m_session, &Session::stateChanged, this, &EditorPage::updateSessions);
         // New catalog data: completion takes it as it comes; colors need a nudge.
         connect(m_session, &Session::snapshotChanged, this, [this](const QString &db) {
             if (db == (m_database.isEmpty() ? m_session->profile().database : m_database))
@@ -370,9 +393,22 @@ void EditorPage::updateSessions()
 {
     // A session that went away takes the editor's connection with it: its
     // SSH tunnel is gone.
-    if (m_session && m_session->state() != Session::State::Connected) {
+    const Session::State state = m_session ? m_session->state() : Session::State::Disconnected;
+    if (m_session && state == Session::State::Disconnected) {
         setSession(nullptr);
         return;
+    }
+    // One reconnecting takes it too, but the editor stays on the session and
+    // comes back with it; so it does after a reconnect that failed, which
+    // may be tried again.
+    if (m_session && state != Session::State::Connected && !m_awaitingSession) {
+        m_awaitingSession = true;
+        dropConnection(tr("The connection to %1 was closed to reconnect.")
+                           .arg(m_session->profile().displayName()));
+        m_panel->log(tr("Reconnecting to %1…").arg(m_session->profile().displayName()));
+    } else if (m_session && state == Session::State::Connected && m_awaitingSession) {
+        m_awaitingSession = false;
+        m_connection->open(m_session->conninfo(m_database));
     }
     const bool gone = !m_session && m_connection->state() != pg::Connection::State::Disconnected;
     if (gone)
@@ -381,11 +417,18 @@ void EditorPage::updateSessions()
     QSignalBlocker block(m_target);
     m_target->clear();
     m_target->addItem(tr("(not connected)"));
-    for (Session *s : m_browser->connectedSessions()) {
+    std::vector<Session *> sessions = m_browser->connectedSessions();
+    if (m_session && std::ranges::find(sessions, m_session.data()) == sessions.end())
+        sessions.insert(sessions.begin(), m_session.data()); // Reconnecting.
+    for (Session *s : sessions) {
         const QString db = m_session == s ? m_database : QString();
-        const QString label = db.isEmpty() || db == s->profile().database
+        QString label = db.isEmpty() || db == s->profile().database
             ? s->profile().displayName()
             : s->profile().displayName() + QLatin1Char('/') + db;
+        if (s->state() == Session::State::Connecting)
+            label = tr("%1 (reconnecting…)").arg(label);
+        else if (s->state() != Session::State::Connected)
+            label = tr("%1 (not connected)").arg(label);
         m_target->addItem(Icons::connection(s->profile().color, true), label);
         const int i = m_target->count() - 1;
         m_target->setItemData(i, QVariant::fromValue(QPointer<Session>(s)), Qt::UserRole);
@@ -394,6 +437,7 @@ void EditorPage::updateSessions()
             m_target->setCurrentIndex(i);
     }
     updateTargetColor();
+    updateActions();
 }
 
 void EditorPage::updateTargetColor()
@@ -427,6 +471,8 @@ void EditorPage::updateActions()
     m_begin->setEnabled(ready && status == PQTRANS_IDLE);
     m_commit->setEnabled(ready && status == PQTRANS_INTRANS);
     m_rollback->setEnabled(ready && (status == PQTRANS_INTRANS || status == PQTRANS_INERROR));
+    m_reconnect->setEnabled(m_session);
+    m_disconnect->setEnabled(m_session);
 }
 
 void EditorPage::updateStatus()
@@ -911,6 +957,18 @@ void EditorPage::saveChanges(bool confirm)
     if (m_lastQuery)
         jobs.push_back(*m_lastQuery);
     start(std::move(jobs));
+}
+
+void EditorPage::dropConnection(const QString &why)
+{
+    if (isRunning()) {
+        m_panel->results()->showError(why);
+        finishAll();
+    }
+    m_jobs.clear();
+    m_current.reset();
+    m_connection->close();
+    m_panel->log(why, true);
 }
 
 void EditorPage::finishAll()
