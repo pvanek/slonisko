@@ -7,6 +7,7 @@
 #include <QColor>
 #include <QFont>
 #include <QGuiApplication>
+#include <QLocale>
 #include <QPalette>
 #include <QRegularExpression>
 
@@ -324,7 +325,11 @@ void ResultModel::applySort()
         }
         // A column of sizes may hold plain byte counts too; numbers they are.
         const bool byNumber = (m_numeric[std::size_t(column)] && allNumbers) || allSizes;
-        QCollator collator;
+        // The C locale, which a build host or a bare environment runs in,
+        // compares code points and ignores numeric mode: "b10" before "B2".
+        QCollator collator(QLocale().language() == QLocale::C
+                               ? QLocale(QLocale::English, QLocale::UnitedStates)
+                               : QLocale());
         collator.setNumericMode(true);
         collator.setCaseSensitivity(Qt::CaseInsensitive);
         const bool descending = m_sortOrder == Qt::DescendingOrder;

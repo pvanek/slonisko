@@ -9,6 +9,7 @@
 #include <QGuiApplication>
 #include <QHeaderView>
 #include <QItemSelectionModel>
+#include <QLocale>
 #include <QTableView>
 #include <QTest>
 
@@ -96,6 +97,18 @@ private Q_SLOTS:
         model.sort(-1); // The query's own order again.
         QCOMPARE(shown(model, 0), QStringLiteral("b10|B2|a|c"));
         QVERIFY(model.order().empty());
+    }
+
+    // Build hosts and bare environments run in the C locale.
+    void sortsNaturallyInTheCLocale()
+    {
+        const QLocale previous;
+        QLocale::setDefault(QLocale::c());
+        ResultModel model;
+        model.setResult(tables());
+        model.sort(0);
+        QLocale::setDefault(previous);
+        QCOMPARE(shown(model, 0), QStringLiteral("a|B2|b10|c"));
     }
 
     void sortedRowsStaySorted()
