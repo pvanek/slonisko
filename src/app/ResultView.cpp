@@ -263,6 +263,12 @@ ResultView::ResultView(QWidget *parent)
         updateView();
     });
     connect(m_model, &ResultModel::rowsInserted, this, [this] { m_textStale = true; });
+    // Sorted: the text shows the new order, the record view its row's place.
+    connect(m_model, &ResultModel::layoutChanged, this, [this] {
+        m_textStale = true;
+        if (m_mode != ViewMode::Grid)
+            updateView();
+    });
     connect(m_model, &ResultModel::dataChanged, this, [this] {
         m_textStale = true;
         if (m_mode == ViewMode::Record)
@@ -445,6 +451,7 @@ void ResultView::updateView(bool force)
             // Rendering a huge result would block; export writes them all.
             catalog::ExportOptions options = exportOptions(catalog::ExportFormat::Text);
             options.maxRows = MaxTextRows;
+            options.rows = m_model->order();
             m_text->setText(catalog::exportRows(m_model->rows(), options));
             m_textStale = false;
         }
@@ -500,7 +507,18 @@ std::vector<int> ResultView::selectedRows() const
             rows.push_back(index.row());
     }
     std::ranges::sort(rows);
+    for (int &row : rows)
+        row = m_model->sourceRow(row);
     return rows;
+}
+
+void ResultView::setSortable(bool sortable)
+{
+    QHeaderView *header = m_table->horizontalHeader();
+    header->setSortIndicatorClearable(true);
+    // Not sorted at first: the query's ORDER BY is usually the point.
+    header->setSortIndicator(-1, Qt::AscendingOrder);
+    m_table->setSortingEnabled(sortable);
 }
 
 void ResultView::setAllRowsFetched(bool all)
@@ -545,10 +563,13 @@ void ResultView::exportWithDialog()
     catalog::ExportOptions options = dialog.options();
     if (dialog.scope() == ExportDialog::Scope::Selected)
         options.rows = selectedRows();
+    const bool rerun = dialog.scope() == ExportDialog::Scope::All && !m_allFetched;
+    if (options.rows.empty() && !rerun)
+        options.rows = m_model->order(); // What was fetched, as shown.
 
     // Every row, but some are still on the server: whoever ran the query
     // runs it again and streams what comes back.
-    if (dialog.scope() == ExportDialog::Scope::All && !m_allFetched) {
+    if (rerun) {
         if (dialog.toClipboard()) {
             QMessageBox::information(this, tr("Export"),
                                      tr("Only the rows that were fetched can be copied to the "
@@ -574,8 +595,10 @@ void ResultView::copyAs(catalog::ExportFormat format)
     if (!m_model->hasColumns())
         return;
     catalog::ExportOptions options = exportOptions(format);
-    // What is selected is what is meant; with no selection, everything.
+    // What is selected is what is meant; with no selection, everything, as shown.
     options.rows = selectedRows();
+    if (options.rows.empty())
+        options.rows = m_model->order();
     QGuiApplication::clipboard()->setText(catalog::exportRows(m_model->rows(), options));
 }
 

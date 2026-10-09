@@ -473,6 +473,7 @@ private Q_SLOTS:
         QCOMPARE(page->title(), QStringLiteral("Five"));
         QTRY_COMPARE(page->results()->model()->rowCount(), 5);
         QVERIFY(!page->results()->model()->isEditable());
+        QVERIFY(page->results()->table()->isSortingEnabled()); // Read-only: sortable.
 
         // The same query again: the same page, shown and run again.
         w.newEditor(m_session.get());

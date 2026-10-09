@@ -111,8 +111,10 @@ private Q_SLOTS:
         QCOMPARE(detail.subtitle, kindName(ObjectKind::Table));
         QVERIFY(property(detail, QStringLiteral("owner")).size() > 0);
         QCOMPARE(property(detail, QStringLiteral("comment")), QStringLiteral("Things"));
-        QVERIFY(property(detail, QStringLiteral("size")).contains(QLatin1String("bytes"))
-                || property(detail, QStringLiteral("size")).contains(QLatin1String("kB")));
+        // Bytes as B, like kB and MB.
+        const QString size = property(detail, QStringLiteral("size"));
+        QVERIFY2(size.endsWith(QLatin1String(" B")) || size.endsWith(QLatin1String(" kB")),
+                 qPrintable(size));
 
         const DetailTable columns = table(detail, QStringLiteral("Columns"));
         QCOMPARE(columns.rows.size(), 4u);

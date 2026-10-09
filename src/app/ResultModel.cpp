@@ -3,13 +3,16 @@
 
 #include "ResultModel.h"
 
+#include <QCollator>
 #include <QColor>
 #include <QFont>
 #include <QGuiApplication>
 #include <QPalette>
+#include <QRegularExpression>
 
 #include <algorithm>
 #include <map>
+#include <numeric>
 
 namespace slonisko {
 
@@ -35,6 +38,25 @@ bool isNumeric(Oid type)
     }
 }
 
+// A size as the program's queries write them, such as "8192 B" or
+// "1.5 GB", or as pg_size_pretty() itself does ("8192 bytes"), in bytes;
+// nullopt for anything else.
+std::optional<double> prettySize(const QString &text)
+{
+    static const QRegularExpression size(
+        QStringLiteral(R"(^(-?\d+(?:\.\d+)?) (B|bytes|kB|MB|GB|TB|PB)$)"));
+    const QRegularExpressionMatch m = size.match(text);
+    if (!m.hasMatch())
+        return std::nullopt;
+    static const QStringList units {QStringLiteral("B"),  QStringLiteral("kB"),
+                                    QStringLiteral("MB"), QStringLiteral("GB"),
+                                    QStringLiteral("TB"), QStringLiteral("PB")};
+    double bytes = m.captured(1).toDouble();
+    for (qsizetype i = units.indexOf(m.captured(2)); i > 0; --i) // "bytes": -1, as B.
+        bytes *= 1024;
+    return bytes;
+}
+
 bool isDark()
 {
     return QGuiApplication::palette().color(QPalette::Base).lightness() < 128;
@@ -51,6 +73,7 @@ void ResultModel::clear()
     m_edits.clear();
     m_deleted.clear();
     m_added.clear();
+    m_order.clear();
     endResetModel();
     Q_EMIT changesChanged();
     Q_EMIT editTargetChanged();
@@ -67,19 +90,31 @@ void ResultModel::append(const pg::Result &result)
         for (int c = 0; c < m_rows.columnCount(); ++c)
             m_numeric[std::size_t(c)] = isNumeric(m_rows.column(c).type);
         endResetModel();
+        applySort();
         return;
     }
     if (result.rowCount() == 0)
         return;
-    // Fetched rows go before rows the user added.
+    // Fetched rows go before rows the user added; sorted, they go at the end
+    // first, then to their places.
     const int first = m_rows.rowCount();
     beginInsertRows({}, first, first + result.rowCount() - 1);
     m_rows.append(result);
+    if (!m_order.empty()) {
+        for (int row = first; row < m_rows.rowCount(); ++row)
+            m_order.push_back(row);
+    }
     endInsertRows();
+    applySort();
 }
 
 void ResultModel::setEditTarget(const catalog::EditTarget &target)
 {
+    // Edits are kept by a row's place; editable rows stay where they came.
+    if (target.editable()) {
+        m_sortColumn = -1;
+        applySort();
+    }
     m_target = target;
     if (rowCount() > 0 && columnCount() > 0)
         Q_EMIT dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
@@ -105,9 +140,10 @@ ResultModel::Value ResultModel::value(int row, int column) const
     const auto edit = m_edits.constFind({row, column});
     if (edit != m_edits.cend())
         return *edit;
-    if (m_rows.isNull(row, column))
+    const int source = sourceRow(row);
+    if (m_rows.isNull(source, column))
         return std::nullopt;
-    return m_rows.value(row, column).toByteArray();
+    return m_rows.value(source, column).toByteArray();
 }
 
 bool ResultModel::isEdited(int row, int column) const
@@ -246,6 +282,86 @@ void ResultModel::toggleDeleted(const QList<int> &rows)
             Q_EMIT dataChanged(index(row, 0), index(row, columnCount() - 1));
     }
     Q_EMIT changesChanged();
+}
+
+void ResultModel::sort(int column, Qt::SortOrder order)
+{
+    m_sortColumn = column;
+    m_sortOrder = order;
+    applySort();
+}
+
+void ResultModel::applySort()
+{
+    if (isEditable() || hasChanges())
+        return;
+    const int rows = m_rows.rowCount();
+    const int column = m_sortColumn < columnCount() ? m_sortColumn : -1;
+    if (column < 0 && m_order.empty())
+        return; // Already as the rows came.
+
+    std::vector<int> order;
+    if (column >= 0) {
+        // The keys once, not once per comparison.
+        std::vector<std::optional<QString>> texts(static_cast<std::size_t>(rows));
+        std::vector<double> numbers(static_cast<std::size_t>(rows));
+        bool allNumbers = true;
+        bool allSizes = true;
+        for (int row = 0; row < rows; ++row) {
+            if (m_rows.isNull(row, column))
+                continue;
+            const QString text = QString::fromUtf8(m_rows.value(row, column));
+            texts[std::size_t(row)] = text;
+            bool ok = false;
+            numbers[std::size_t(row)] = text.toDouble(&ok);
+            allNumbers = allNumbers && ok;
+            if (allSizes && !ok) {
+                const std::optional<double> bytes = prettySize(text);
+                allSizes = bytes.has_value();
+                if (bytes)
+                    numbers[std::size_t(row)] = *bytes;
+            }
+        }
+        // A column of sizes may hold plain byte counts too; numbers they are.
+        const bool byNumber = (m_numeric[std::size_t(column)] && allNumbers) || allSizes;
+        QCollator collator;
+        collator.setNumericMode(true);
+        collator.setCaseSensitivity(Qt::CaseInsensitive);
+        const bool descending = m_sortOrder == Qt::DescendingOrder;
+
+        order.resize(std::size_t(rows));
+        std::iota(order.begin(), order.end(), 0);
+        auto compare = [&](int a, int b) {
+            if (!byNumber)
+                return collator.compare(*texts[std::size_t(a)], *texts[std::size_t(b)]);
+            const double x = numbers[std::size_t(a)];
+            const double y = numbers[std::size_t(b)];
+            return x < y ? -1 : x > y ? 1 : 0;
+        };
+        std::ranges::stable_sort(order, [&](int a, int b) {
+            const bool nullA = !texts[std::size_t(a)];
+            const bool nullB = !texts[std::size_t(b)];
+            if (nullA || nullB)
+                return !nullA && nullB; // NULLs last.
+            const int c = compare(a, b);
+            return descending ? c > 0 : c < 0;
+        });
+    }
+
+    Q_EMIT layoutAboutToBeChanged({}, QAbstractItemModel::VerticalSortHint);
+    // Selection and the current cell stay on their rows.
+    std::vector<int> placeOf(static_cast<std::size_t>(rows));
+    for (int row = 0; row < rows; ++row)
+        placeOf[std::size_t(order.empty() ? row : order[std::size_t(row)])] = row;
+    const QModelIndexList before = persistentIndexList();
+    QModelIndexList after;
+    for (const QModelIndex &i : before) {
+        const int source = sourceRow(i.row());
+        after << (source < rows ? index(placeOf[std::size_t(source)], i.column()) : i);
+    }
+    m_order = std::move(order);
+    changePersistentIndexList(before, after);
+    Q_EMIT layoutChanged({}, QAbstractItemModel::VerticalSortHint);
 }
 
 bool ResultModel::hasChanges() const

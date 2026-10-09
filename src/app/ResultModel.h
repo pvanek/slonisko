@@ -52,6 +52,19 @@ public:
     std::vector<catalog::RowEdit> changes() const;
     void discardChanges();
     bool isDeleted(int row) const { return m_deleted.contains(row); }
+
+    // Sorting, for results nobody edits: numbers by value, sizes such as
+    // "8 kB" by size, text naturally, NULLs last either way. Column -1 is
+    // the order the rows came in. It is kept for the next result, so a
+    // query run again comes back sorted the same way.
+    void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override;
+    // Where a row on screen is in rows(); they differ once sorted.
+    int sourceRow(int row) const
+    {
+        return row < int(m_order.size()) ? m_order[std::size_t(row)] : row;
+    }
+    // The rows of rows() in the order shown; empty while it is their own.
+    const std::vector<int> &order() const { return m_order; }
     bool isAdded(int row) const { return row >= m_rows.rowCount(); }
 
     int rowCount(const QModelIndex &parent = {}) const override;
@@ -71,6 +84,8 @@ private:
     Value value(int row, int column) const;
     bool isEdited(int row, int column) const;
     void setValue(int row, int column, const Value &v);
+    // Puts the rows in the order asked for, moving what points at them along.
+    void applySort();
 
     pg::RowStore m_rows;
     std::vector<bool> m_numeric; // Per column: right-align.
@@ -78,6 +93,9 @@ private:
     QHash<std::pair<int, int>, Value> m_edits; // Of fetched rows.
     QSet<int> m_deleted;
     std::vector<std::vector<std::optional<Value>>> m_added; // Unset cells take the default.
+    std::vector<int> m_order; // Row on screen -> row in m_rows; empty: the same.
+    int m_sortColumn = -1;
+    Qt::SortOrder m_sortOrder = Qt::AscendingOrder;
 };
 
 } // namespace slonisko

@@ -53,7 +53,8 @@ QByteArray changedSettings(int)
 
 QByteArray databaseSizes(int)
 {
-    return "SELECT d.datname AS database, pg_size_pretty(s.bytes) AS size, s.bytes "
+    return "SELECT d.datname AS database, "
+           "replace(pg_size_pretty(s.bytes), ' bytes', ' B') AS size, s.bytes "
            "FROM pg_database d CROSS JOIN LATERAL (SELECT CASE WHEN "
            "has_database_privilege(d.oid, 'CONNECT') THEN pg_database_size(d.oid) END AS bytes) s "
            "ORDER BY s.bytes DESC NULLS LAST";
@@ -62,9 +63,9 @@ QByteArray databaseSizes(int)
 QByteArray largestTables(int)
 {
     return "SELECT n.nspname AS schema, c.relname AS table, "
-           "pg_size_pretty(pg_total_relation_size(c.oid)) AS total, "
-           "pg_size_pretty(pg_relation_size(c.oid)) AS data, "
-           "pg_size_pretty(pg_indexes_size(c.oid)) AS indexes, "
+           "replace(pg_size_pretty(pg_total_relation_size(c.oid)), ' bytes', ' B') AS total, "
+           "replace(pg_size_pretty(pg_relation_size(c.oid)), ' bytes', ' B') AS data, "
+           "replace(pg_size_pretty(pg_indexes_size(c.oid)), ' bytes', ' B') AS indexes, "
            "c.reltuples::bigint AS estimated_rows "
            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
            "WHERE c.relkind IN ('r', 'm') AND n.nspname NOT IN ('pg_catalog', "
@@ -84,7 +85,7 @@ QByteArray indexUsage(int)
 {
     return "SELECT schemaname AS schema, relname AS table, indexrelname AS index, idx_scan AS "
            "scans, "
-           "pg_size_pretty(pg_relation_size(indexrelid)) AS size "
+           "replace(pg_size_pretty(pg_relation_size(indexrelid)), ' bytes', ' B') AS size "
            "FROM pg_stat_user_indexes ORDER BY idx_scan, pg_relation_size(indexrelid) DESC LIMIT "
            "100";
 }
@@ -128,7 +129,8 @@ QByteArray replicationSlots(int)
     // pg_current_wal_lsn() fails on a standby.
     return "SELECT slot_name, plugin, slot_type, database, active, restart_lsn, "
            "CASE WHEN NOT pg_is_in_recovery() THEN "
-           "pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)) END AS retained_wal "
+           "replace(pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), "
+           "' bytes', ' B') END AS retained_wal "
            "FROM pg_replication_slots ORDER BY slot_name";
 }
 

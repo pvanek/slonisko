@@ -15,12 +15,20 @@ The grid with the editing tools open and two changed cells waiting to be saved.
 
 ## Grid
 
-```{index} grid, editing rows, primary key
+```{index} grid, editing rows, primary key, sorting
 ```
 
 The default: one row per row, columns sized to their contents and their
 headers, numbers right-aligned, NULLs shown as `NULL` in grey. A long value
 is cut short in the cell; its tooltip shows more of it.
+
+On DBA Tools and System Info pages, **clicking a column's header sorts by
+it**; a second click sorts the other way, a third goes back to the order
+the query gave. Numbers sort by value, sizes such as `8192 B` or
+`1.5 GB` by size, text naturally (`B2` before `b10`), and NULLs come last
+either way. The order is kept when the page runs again, and the text view,
+the record view, copying and exporting all follow it. A SQL editor's grid
+keeps the order of the query, as its rows can be edited.
 
 In a SQL editor, rows can be **edited in place** when the result comes
 from a single table, that table has a primary key and the result includes

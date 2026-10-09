@@ -43,6 +43,9 @@ public:
     void showMessage(const QString &text);
     // What the Run Again button does; none disables it.
     void setRerun(std::function<void()> rerun);
+    // Clicking a column's header sorts by it, again the other way round, a
+    // third time back to the query's own order. For rows nobody edits.
+    void setSortable(bool sortable);
 
     // How the rows are shown.
     enum class ViewMode {
@@ -59,6 +62,7 @@ public:
                   QString *error = nullptr) const;
     catalog::ExportOptions exportOptions(catalog::ExportFormat format) const;
     // The rows selected in the grid, in order.
+    // The selected rows, as rows of model()->rows(), in the order shown.
     std::vector<int> selectedRows() const;
     // False when the server has more rows than were fetched, which makes
     // "all rows" an export that runs the query again.

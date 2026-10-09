@@ -79,7 +79,7 @@ const char *RelationProperties
       "persistence, "
       "  CASE WHEN c.relrowsecurity THEN 'enabled' END AS \"row security\", "
       "  t.spcname AS tablespace, "
-      "  pg_size_pretty(pg_total_relation_size(c.oid)) AS size, "
+      "  replace(pg_size_pretty(pg_total_relation_size(c.oid)), ' bytes', ' B') AS size, "
       "  CASE WHEN c.reltuples >= 0 THEN c.reltuples::bigint::text END AS \"estimated rows\", "
       "  obj_description(c.oid, 'pg_class') AS comment "
       "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
@@ -97,7 +97,7 @@ const char *Columns
 const char *Indexes
     = "SELECT ic.relname AS name, "
       "  CASE WHEN i.indisprimary THEN 'primary key' WHEN i.indisunique THEN 'unique' END AS kind, "
-      "  pg_size_pretty(pg_relation_size(i.indexrelid)) AS size, "
+      "  replace(pg_size_pretty(pg_relation_size(i.indexrelid)), ' bytes', ' B') AS size, "
       "  pg_get_indexdef(i.indexrelid) AS definition "
       "FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid WHERE i.indrelid = ";
 
@@ -166,7 +166,8 @@ std::vector<Section> sectionsOf(ObjectKind kind, Oid oid)
                  "  pg_encoding_to_char(d.encoding) AS encoding, d.datcollate AS collation, "
                  "  d.datctype AS ctype, t.spcname AS tablespace, "
                  "  CASE WHEN has_database_privilege(d.oid, 'connect') "
-                 "    THEN pg_size_pretty(pg_database_size(d.oid)) END AS size, "
+                 "    THEN replace(pg_size_pretty(pg_database_size(d.oid)), ' bytes', ' B') "
+                 "  END AS size, "
                  "  CASE WHEN d.datconnlimit >= 0 THEN d.datconnlimit::text END AS \"connection "
                  "limit\", "
                  "  CASE WHEN NOT d.datallowconn THEN 'no connections allowed' END AS state, "
@@ -306,7 +307,8 @@ std::vector<Section> sectionsOf(ObjectKind kind, Oid oid)
              "  CASE WHEN i.indisprimary THEN 'primary key' WHEN i.indisunique THEN 'unique' "
              "    ELSE 'non-unique' END AS kind, "
              "  CASE WHEN NOT i.indisvalid THEN 'invalid' END AS state, "
-             "  ts.spcname AS tablespace, pg_size_pretty(pg_relation_size(ic.oid)) AS size, "
+             "  ts.spcname AS tablespace, "
+             "  replace(pg_size_pretty(pg_relation_size(ic.oid)), ' bytes', ' B') AS size, "
              "  obj_description(ic.oid, 'pg_class') AS comment "
              "FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid "
              "JOIN pg_class tc ON tc.oid = i.indrelid "
@@ -458,7 +460,7 @@ std::vector<Section> sectionsOf(ObjectKind kind, Oid oid)
         return {{nullptr,
                  "SELECT t.spcname AS name, pg_get_userbyid(t.spcowner) AS owner, "
                  "  pg_tablespace_location(t.oid) AS location, "
-                 "  pg_size_pretty(pg_tablespace_size(t.oid)) AS size, "
+                 "  replace(pg_size_pretty(pg_tablespace_size(t.oid)), ' bytes', ' B') AS size, "
                  "  array_to_string(t.spcoptions, ', ') AS options, "
                  "  shobj_description(t.oid, 'pg_tablespace') AS comment "
                  "FROM pg_tablespace t WHERE t.oid = "

@@ -19,6 +19,8 @@ ResultPage::ResultPage(Session *session, const QString &title, const QByteArray 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(m_view);
+    // Nothing here is edited, so its rows can be put in any order.
+    m_view->setSortable(true);
     if (m_session) {
         setToolTip(m_session->profile().displayName());
         connect(m_session, &Session::stateChanged, this, [this](Session::State state) {
