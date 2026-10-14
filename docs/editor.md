@@ -64,6 +64,23 @@ Matching is not only by prefix. Typing `leapa` finds `learning_package`,
 `cnm` finds `customer_name`, and the letters that matched are highlighted in
 the list, so it is clear why something is being offered.
 
+### Aliases
+
+```{index} aliases, table aliases
+```
+
+A table, view, materialized view or foreign table chosen after `FROM` or
+`JOIN` comes with an alias made of the initials of its name: `foo_bar` goes
+in as `foo_bar fb`, `OrderItems` as `"OrderItems" oi`. The alias is one the
+statement does not use yet, so the same table joined a second time gets
+`fb2`, a third time `fb3`; an initial that is a keyword, like `do` for
+`data_object`, gets a number too. The same goes for `UPDATE … FROM`,
+`DELETE … USING` and `MERGE … USING`.
+
+No alias is added where it is not wanted: for the table an `INSERT`,
+`UPDATE`, `DELETE` or `TRUNCATE` works on, or when the name being completed
+has an alias after it already.
+
 ### Snippets
 
 ```{index} snippets, abbreviations

@@ -33,6 +33,7 @@ Snapshot makeSnapshot()
         {5, QStringLiteral("sales"), QStringLiteral("invoices"), 'r', columns({"id", "amount"})},
         {6, QStringLiteral("pg_catalog"), QStringLiteral("pg_class"), 'r',
          columns({"oid", "relname"})},
+        {7, QStringLiteral("public"), QStringLiteral("data_object"), 'm', columns({"id"})},
     };
     s.functions = {
         {QStringLiteral("pg_catalog"), QStringLiteral("count"), QStringLiteral("\"any\""),
@@ -96,10 +97,55 @@ private Q_SLOTS:
         QVERIFY(labels(c, Kind::Schema).contains(QStringLiteral("sales")));
         // Needs quotes.
         QCOMPARE(item(c, QStringLiteral("OrderItems"))->insertText,
-                 QStringLiteral("\"OrderItems\""));
+                 QStringLiteral("\"OrderItems\" oi"));
         // User objects before system ones.
         QVERIFY(labels(c).indexOf(QStringLiteral("orders"))
                 < labels(c).indexOf(QStringLiteral("pg_class")));
+    }
+
+    // Relations put into FROM come with an alias of their initials, one
+    // the statement does not use yet.
+    void aliases()
+    {
+        auto insert = [](const char *sql, const char *label) {
+            const Completion c = completeAt(sql);
+            const CompletionItem *i = item(c, QString::fromUtf8(label));
+            return i ? i->insertText : QStringLiteral("(not offered)");
+        };
+        QCOMPARE(insert("SELECT * FROM |", "orders"), QStringLiteral("orders o"));
+        QCOMPARE(insert("SELECT * FROM |", "recent_orders"), QStringLiteral("recent_orders ro"));
+        // A keyword would not do.
+        QCOMPARE(insert("SELECT * FROM |", "data_object"), QStringLiteral("data_object do2"));
+        // What was typed of the name is not a name in use.
+        QCOMPARE(insert("SELECT * FROM o|", "orders"), QStringLiteral("orders o"));
+
+        // The same table again, or another with the same initials.
+        QCOMPARE(insert("SELECT * FROM orders o JOIN |", "orders"), QStringLiteral("orders o2"));
+        QCOMPARE(insert("SELECT * FROM orders o JOIN orders o2 ON true JOIN ord|", "orders"),
+                 QStringLiteral("orders o3"));
+        QCOMPARE(insert("SELECT * FROM orders o, |", "customers"), QStringLiteral("customers c"));
+        QCOMPARE(insert("SELECT * FROM o, |", "orders"), QStringLiteral("orders o2"));
+        QCOMPARE(insert("WITH o AS (SELECT 1) SELECT * FROM |", "orders"),
+                 QStringLiteral("orders o2"));
+        // Not parsed, guessed from the tokens.
+        QCOMPARE(insert("SELECT * FROM orders o JOIN | ON o.id =", "orders"),
+                 QStringLiteral("orders o2"));
+
+        QCOMPARE(insert("SELECT * FROM sales.|", "invoices"), QStringLiteral("invoices i"));
+        QCOMPARE(insert("UPDATE orders SET total = 0 FROM |", "customers"),
+                 QStringLiteral("customers c"));
+        QCOMPARE(insert("DELETE FROM orders USING |", "customers"), QStringLiteral("customers c"));
+        QCOMPARE(
+            insert("MERGE INTO orders o USING | ON true WHEN MATCHED THEN DO NOTHING", "orders"),
+            QStringLiteral("orders o2"));
+
+        // Where an alias is not wanted, or there is one already.
+        QCOMPARE(insert("INSERT INTO |", "orders"), QStringLiteral("orders"));
+        QCOMPARE(insert("UPDATE |", "orders"), QStringLiteral("orders"));
+        QCOMPARE(insert("DELETE FROM |", "orders"), QStringLiteral("orders"));
+        QCOMPARE(insert("TRUNCATE |", "orders"), QStringLiteral("orders"));
+        QCOMPARE(insert("SELECT * FROM ord| x", "orders"), QStringLiteral("orders"));
+        QCOMPARE(insert("SELECT * FROM ord| AS x", "orders"), QStringLiteral("orders"));
     }
 
     void relationsInSchema()
@@ -285,7 +331,7 @@ private Q_SLOTS:
         const Completion c = completeAt("SELECT * FROM \"Ord|");
         QCOMPARE(c.prefix, QStringLiteral("Ord"));
         QCOMPARE(c.replaceFrom, 14);
-        QCOMPARE(c.items.front().insertText, QStringLiteral("\"OrderItems\""));
+        QCOMPARE(c.items.front().insertText, QStringLiteral("\"OrderItems\" oi"));
     }
 
     void emptyStatement()

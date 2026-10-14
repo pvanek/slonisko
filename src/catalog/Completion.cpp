@@ -41,6 +41,8 @@ struct TreeInfo
     QStringList qualifiers;
     std::optional<Source> target; // INSERT INTO or UPDATE relation, for their column lists.
     bool targetColumns = false; // The cursor is in such a column list.
+    // The cursor names a FROM item that has no alias yet.
+    bool aliasable = false;
     Scope scope;
 };
 
@@ -112,6 +114,14 @@ private:
         if (type == QLatin1String("RangeVar")) {
             if (n.value(QLatin1String("relname")).toString() == Sentinel) {
                 m_info.context = Context::Relation;
+                // FROM and JOIN in SELECT, UPDATE ... FROM, DELETE ... USING
+                // and MERGE ... USING; not the relation an INSERT, UPDATE or
+                // DELETE changes, nor TRUNCATE's or LOCK's.
+                const QString &key = m_stack.back().key;
+                m_info.aliasable = !n.contains(QLatin1String("alias"))
+                    && (key == QLatin1String("fromClause") || key == QLatin1String("usingClause")
+                        || key == QLatin1String("larg") || key == QLatin1String("rarg")
+                        || key == QLatin1String("sourceRelation"));
                 const QString schema = n.value(QLatin1String("schemaname")).toString();
                 m_info.qualifiers = schema.isEmpty() ? QStringList() : QStringList {schema};
             } else {
@@ -235,7 +245,8 @@ bool insideLiteral(const Token &t, qsizetype cursor, const QByteArray &sql)
 }
 
 // Guesses the context from the tokens before the cursor.
-Context heuristicContext(const Tokens &t, int wordStart, bool qualified, bool *insertColumns)
+Context heuristicContext(const Tokens &t, int wordStart, bool qualified, bool *insertColumns,
+                         bool *aliasable)
 {
     if (qualified)
         return Context::Qualified;
@@ -278,8 +289,10 @@ Context heuristicContext(const Tokens &t, int wordStart, bool qualified, bool *i
             continue;
         if (t.isAnyOf(i,
                       {"from", "join", "update", "into", "table", "truncate", "only", "lateral"})) {
-            if (i == prev || (t.isPunct(prev, ',') && t.is(i, "from")))
+            if (i == prev || (t.isPunct(prev, ',') && t.is(i, "from"))) {
+                *aliasable = t.is(i, "join") || (t.is(i, "from") && !t.is(i - 1, "delete"));
                 return Context::Relation;
+            }
             return Context::Keyword; // After a name: an alias, or WHERE and the like.
         }
         if (t.isAnyOf(i,
@@ -380,6 +393,26 @@ private:
     std::vector<Item> m_items;
 };
 
+bool isWordStart(const QString &candidate, qsizetype i);
+
+// A short name for a relation in FROM: the initials of its words, fb for
+// foo_bar or oi for OrderItems, numbered from 2 when taken already.
+QString aliasFor(const QString &relation, const QSet<QString> &taken)
+{
+    QString base;
+    for (qsizetype i = 0; i < relation.size(); ++i) {
+        if (relation[i].isLetter() && isWordStart(relation, i))
+            base += relation[i].toLower();
+    }
+    if (base.isEmpty())
+        base = QStringLiteral("t");
+    // A keyword, like "on" for order_number, would not read as an alias.
+    QString alias = base;
+    for (int n = 2; taken.contains(alias) || sql::needsQuoting(alias.toUtf8()); ++n)
+        alias = base + QString::number(n);
+    return alias;
+}
+
 bool isSystemSchema(const QString &schema)
 {
     return schema == QLatin1String("pg_catalog") || schema == QLatin1String("information_schema");
@@ -462,6 +495,7 @@ public:
         Scope scope = tokenScope(tokens);
         bool insertColumns = false;
         std::optional<Source> target;
+        bool aliasable = false;
         if (tree) {
             out.context = tree->context;
             if (!tree->qualifiers.isEmpty())
@@ -480,9 +514,10 @@ public:
             scope = tree->scope;
             insertColumns = tree->targetColumns;
             target = tree->target;
+            aliasable = tree->aliasable;
         } else {
             out.context = heuristicContext(tokens, int(out.replaceFrom), !qualifiers.isEmpty(),
-                                           &insertColumns);
+                                           &insertColumns, &aliasable);
             if (insertColumns) {
                 // INSERT INTO t ( ...: the relation named after INTO.
                 for (const Source &s : scope.sources) {
@@ -503,6 +538,8 @@ public:
             addSnippets(candidates, lowercase, out.prefix);
             break;
         case Context::Relation:
+            if (aliasable && !hasAlias(tokens, out.replaceTo))
+                m_aliasesTaken = namesInScope(out.replaceFrom);
             addRelations(candidates, qualifiers.value(0));
             break;
         case Context::Qualified:
@@ -558,6 +595,39 @@ private:
         inner.replaceFrom += from;
         inner.replaceTo += from;
         return inner;
+    }
+
+    // Whether an alias follows the word ending at end, as when completing
+    // a name again in "FROM t| x".
+    static bool hasAlias(const Tokens &t, qsizetype end)
+    {
+        int i = 0;
+        while (i < t.size() && t.at(i).offset < end)
+            ++i;
+        return t.is(i, "as") || canBeAlias(t, i);
+    }
+
+    // What the statement's FROM items are called, for aliases not to clash
+    // with them; but not the word being completed, which the token scope
+    // takes for a relation.
+    QSet<QString> namesInScope(qsizetype word) const
+    {
+        QSet<QString> out;
+        for (const Source &s : m_scope.sources) {
+            if (s.offset != word)
+                out.insert(s.name);
+        }
+        for (const Source &s : m_scope.ctes)
+            out.insert(s.name);
+        return out;
+    }
+
+    // What a relation goes into the text as: with an alias, in FROM.
+    QString relationText(const QString &name) const
+    {
+        if (!m_aliasesTaken)
+            return quoted(name);
+        return quoted(name) + QLatin1Char(' ') + aliasFor(name, *m_aliasesTaken);
     }
 
     const Source *findSource(const QString &name) const
@@ -631,7 +701,7 @@ private:
         for (const Relation &r : m_snapshot.relations) {
             if (schema.isEmpty() ? !m_snapshot.searchPath.contains(r.schema) : r.schema != schema)
                 continue;
-            c.add(relationKind(r.kind), r.name, quoted(r.name), relationDetail(r),
+            c.add(relationKind(r.kind), r.name, relationText(r.name), relationDetail(r),
                   isSystemSchema(r.schema) ? 0 : 50);
         }
         if (schema.isEmpty()) {
@@ -698,6 +768,8 @@ private:
     const qsizetype m_cursor;
     const Snapshot &m_snapshot;
     Scope m_scope;
+    // Set where relations get an alias: the names it must not be.
+    std::optional<QSet<QString>> m_aliasesTaken;
 };
 
 } // namespace
