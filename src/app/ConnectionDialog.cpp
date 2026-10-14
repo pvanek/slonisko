@@ -104,6 +104,7 @@ void ConnectionDialog::setProfile(const config::ConnectionProfile &p)
 {
     Ui::ConnectionDialog &ui = *m_ui;
     m_id = p.id;
+    m_folder = p.folder;
     ui.name->setText(p.name);
     setColor(p.color);
     ui.host->setText(p.host);
@@ -150,6 +151,7 @@ config::ConnectionProfile ConnectionDialog::profile() const
     const Ui::ConnectionDialog &ui = *m_ui;
     config::ConnectionProfile p;
     p.id = m_id;
+    p.folder = m_folder;
     p.name = ui.name->text().trimmed();
     p.color = m_color;
     p.host = ui.host->text().trimmed();

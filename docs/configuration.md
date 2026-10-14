@@ -29,6 +29,41 @@ browse every database of the server, and the SSH tunnel settings.
 Profiles can be duplicated, which is the quickest way to make the test and
 production entries of the same server differ only by host and colour.
 
+## Connection folders
+
+```{index} connection folders, folders
+```
+
+Profiles can be sorted into folders, nested as deep as you like — by
+environment, by customer, by whatever keeps a long list manageable:
+
+```
+dev
+  conn1
+stage
+  env1
+    conn2
+    conn3
+  foo
+    conn4
+  conn5
+```
+
+Folders are managed in the connection tree. *New Folder*, in its toolbar
+or context menu, makes one inside the folder that is selected, or the
+folder of the selected connection.
+
+Connections and folders stay in the order you put them in. Drag one onto a
+folder to move it to the end of that folder, or between two others to put
+it there; the empty space below the tree is the end of the top level.
+*Move to Folder* in their context menu moves them without the mouse. New
+connections and folders start at the end of their folder. A folder moved
+where one of the same name exists merges into it.
+
+*Rename Folder* (F2) renames one, and *Delete Folder* removes it without
+deleting anything in it: its connections and folders move up a level.
+Empty folders are kept, and so is which folders were left open.
+
 ## Row limit
 
 ```{index} row limit

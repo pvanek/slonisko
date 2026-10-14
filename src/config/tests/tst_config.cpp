@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "config/ConnectionProfile.h"
+#include "config/Folders.h"
 #include "config/PasswordStore.h"
 #include "config/ProfileStore.h"
 
@@ -125,6 +126,7 @@ private Q_SLOTS:
         ConnectionProfile p;
         p.name = QStringLiteral("Prod");
         p.color = QStringLiteral("#cc0000");
+        p.folder = QStringLiteral("prod/eu");
         p.host = QStringLiteral("prod");
         p.port = 5433;
         p.database = QStringLiteral("app");
@@ -160,6 +162,7 @@ private Q_SLOTS:
         const ConnectionProfile &q = loaded[1];
         QCOMPARE(q.id, p.id);
         QCOMPARE(q.color, p.color);
+        QCOMPARE(q.folder, p.folder);
         QCOMPARE(q.port, 5433);
         QCOMPARE(q.passwordMode, PasswordMode::Ask);
         QVERIFY(q.showAllDatabases);
@@ -175,6 +178,85 @@ private Q_SLOTS:
 
         store.remove(p.id);
         QCOMPARE(store.load().size(), 1u);
+    }
+
+    void folderPaths()
+    {
+        QCOMPARE(normalizedFolder(QStringLiteral(" stage // env1 /")),
+                 QStringLiteral("stage/env1"));
+        QCOMPARE(folderNames(QString()), QStringList());
+        QCOMPARE(parentFolder(QStringLiteral("stage/env1")), QStringLiteral("stage"));
+        QCOMPARE(parentFolder(QStringLiteral("stage")), QString());
+        QCOMPARE(folderName(QStringLiteral("stage/env1")), QStringLiteral("env1"));
+        QCOMPARE(childFolder(QString(), QStringLiteral("dev")), QStringLiteral("dev"));
+        QCOMPARE(childFolder(QStringLiteral("stage"), QStringLiteral("foo")),
+                 QStringLiteral("stage/foo"));
+
+        QVERIFY(isWithinFolder(QStringLiteral("stage/env1"), QStringLiteral("stage")));
+        QVERIFY(isWithinFolder(QStringLiteral("stage"), QStringLiteral("stage")));
+        QVERIFY(isWithinFolder(QStringLiteral("stage"), QString()));
+        QVERIFY(!isWithinFolder(QStringLiteral("stage2"), QStringLiteral("stage")));
+        QVERIFY(!isWithinFolder(QString(), QStringLiteral("stage")));
+
+        QCOMPARE(movedFolder(QStringLiteral("stage/env1"), QStringLiteral("stage"),
+                             QStringLiteral("prod/old")),
+                 QStringLiteral("prod/old/env1"));
+        QCOMPARE(
+            movedFolder(QStringLiteral("stage2"), QStringLiteral("stage"), QStringLiteral("x")),
+            QStringLiteral("stage2"));
+        QCOMPARE(movedFolder(QStringLiteral("stage/env1"), QStringLiteral("stage"), QString()),
+                 QStringLiteral("env1"));
+    }
+
+    void folders()
+    {
+        ProfileStore store(*m_settings);
+        ConnectionProfile conn1;
+        conn1.folder = QStringLiteral("dev");
+        ConnectionProfile conn2;
+        conn2.folder = QStringLiteral("stage/env1");
+        ConnectionProfile conn5;
+        conn5.folder = QStringLiteral("stage");
+        store.save(conn1);
+        store.save(conn2);
+        store.save(conn5);
+        store.addFolder(QStringLiteral("empty/inner"));
+
+        auto sorted = [](QStringList l) {
+            l.sort();
+            return l;
+        };
+        QCOMPARE(sorted(store.folders()),
+                 (QStringList {QStringLiteral("dev"), QStringLiteral("empty"),
+                               QStringLiteral("empty/inner"), QStringLiteral("stage"),
+                               QStringLiteral("stage/env1")}));
+        auto folderOf = [&](const ConnectionProfile &p) {
+            for (const ConnectionProfile &q : store.load()) {
+                if (q.id == p.id)
+                    return q.folder;
+            }
+            return QStringLiteral("(gone)");
+        };
+        QCOMPARE(folderOf(conn2), QStringLiteral("stage/env1"));
+
+        // Renaming moves what is inside along.
+        store.moveFolder(QStringLiteral("stage"), QStringLiteral("staging"));
+        QCOMPARE(folderOf(conn2), QStringLiteral("staging/env1"));
+        QCOMPARE(folderOf(conn5), QStringLiteral("staging"));
+        QVERIFY(!store.folders().contains(QStringLiteral("stage")));
+        QVERIFY(store.folders().contains(QStringLiteral("staging/env1")));
+
+        // Moving into an existing folder merges.
+        store.moveFolder(QStringLiteral("staging/env1"), QStringLiteral("dev"));
+        QCOMPARE(folderOf(conn2), QStringLiteral("dev"));
+        QVERIFY(!store.folders().contains(QStringLiteral("staging/env1")));
+
+        // Removing one moves its contents up a level; empty folders stay.
+        store.removeFolder(QStringLiteral("staging"));
+        QCOMPARE(folderOf(conn5), QString());
+        store.removeFolder(QStringLiteral("empty"));
+        QCOMPARE(sorted(store.folders()),
+                 (QStringList {QStringLiteral("dev"), QStringLiteral("inner")}));
     }
 
     void defaultsForMissingKeys()

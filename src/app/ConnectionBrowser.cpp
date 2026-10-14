@@ -10,6 +10,7 @@
 #include "Icons.h"
 #include "Shortcuts.h"
 #include "catalog/Monitoring.h"
+#include "config/Folders.h"
 
 #include <QAction>
 #include <QHeaderView>
@@ -30,12 +31,18 @@ using config::PasswordMode;
 using NodeType = BrowserModel::NodeType;
 using Secret = config::PasswordStore::Secret;
 
+namespace {
+
+const QString ExpandedKey = QStringLiteral("browser/expandedFolders");
+
+} // namespace
+
 ConnectionBrowser::ConnectionBrowser(QSettings &settings, bool useWallet, QWidget *parent)
-    : QWidget(parent), m_profiles(settings),
+    : QWidget(parent), m_settings(settings), m_profiles(settings),
       m_passwords(new config::PasswordStore(settings, useWallet, this)),
       m_model(new BrowserModel(this)), m_view(new QTreeView(this))
 {
-    m_model->setProfiles(m_profiles.load());
+    m_model->setProfiles(m_profiles.load(), m_profiles.folders(), m_profiles.order());
 
     m_view->setModel(m_model);
     m_view->setItemDelegate(new BrowserDelegate(m_view));
@@ -49,6 +56,15 @@ ConnectionBrowser::ConnectionBrowser(QSettings &settings, bool useWallet, QWidge
             &ConnectionBrowser::showContextMenu);
     connect(m_view, &QTreeView::activated, this, &ConnectionBrowser::onActivated);
 
+    m_view->setDragDropMode(QAbstractItemView::InternalMove);
+    m_view->setDefaultDropAction(Qt::MoveAction);
+    // Not while the view is still handling the drop.
+    connect(m_model, &BrowserModel::moveRequested, this, &ConnectionBrowser::moveItems,
+            Qt::QueuedConnection);
+    connect(m_view, &QTreeView::expanded, this, &ConnectionBrowser::saveExpanded);
+    connect(m_view, &QTreeView::collapsed, this, &ConnectionBrowser::saveExpanded);
+    restoreExpanded();
+
     createActions();
     connect(m_view->selectionModel(), &QItemSelectionModel::currentChanged, this,
             &ConnectionBrowser::updateActions);
@@ -56,6 +72,7 @@ ConnectionBrowser::ConnectionBrowser(QSettings &settings, bool useWallet, QWidge
     auto *toolbar = new QToolBar(this);
     toolbar->setIconSize(QSize(16, 16));
     toolbar->addAction(m_new);
+    toolbar->addAction(m_newFolder);
     toolbar->addAction(m_edit);
     toolbar->addSeparator();
     toolbar->addAction(m_connect);
@@ -91,8 +108,16 @@ void ConnectionBrowser::createActions()
                     &ConnectionBrowser::editConnection);
     m_duplicate = action(QStringLiteral("edit-copy"), tr("D&uplicate Connection"),
                          &ConnectionBrowser::duplicateConnection);
-    m_delete = action(QStringLiteral("edit-delete"), tr("&Delete Connection"),
-                      &ConnectionBrowser::deleteConnection);
+    m_delete = action(QStringLiteral("edit-delete"), tr("&Delete Connection"), [this] {
+        if (isFolderCurrent())
+            deleteCurrentFolder();
+        else
+            deleteConnection();
+    });
+    m_newFolder
+        = action(QStringLiteral("folder-new"), tr("New &Folder…"), &ConnectionBrowser::newFolder);
+    m_renameFolder = action(QStringLiteral("edit-rename"), tr("Rena&me Folder…"),
+                            &ConnectionBrowser::renameCurrentFolder);
     m_connect = action(QStringLiteral("network-connect"), tr("&Connect"),
                        [this] { connectProfile(currentProfile()); });
     m_disconnect = action(QStringLiteral("network-disconnect"), tr("Dis&connect"),
@@ -115,11 +140,27 @@ void ConnectionBrowser::createActions()
     m_refresh->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_delete->setShortcut(QKeySequence::Delete);
     m_delete->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    m_renameFolder->setShortcut(Qt::Key_F2);
+    m_renameFolder->setShortcutContext(Qt::WidgetWithChildrenShortcut);
 }
 
 QUuid ConnectionBrowser::currentProfile() const
 {
     return m_view->currentIndex().data(BrowserModel::ProfileIdRole).toUuid();
+}
+
+QString ConnectionBrowser::currentFolder() const
+{
+    if (isFolderCurrent())
+        return m_view->currentIndex().data(BrowserModel::FolderRole).toString();
+    const config::ConnectionProfile *p = m_model->profile(currentProfile());
+    return p ? p->folder : QString();
+}
+
+bool ConnectionBrowser::isFolderCurrent() const
+{
+    return m_view->currentIndex().data(BrowserModel::NodeTypeRole).value<NodeType>()
+        == NodeType::Category;
 }
 
 void ConnectionBrowser::updateActions()
@@ -128,9 +169,12 @@ void ConnectionBrowser::updateActions()
     const Session *s = m_model->session(id);
     const bool busy = s
         && (s->state() == Session::State::Connected || s->state() == Session::State::Connecting);
+    const bool folder = isFolderCurrent();
     m_edit->setEnabled(!id.isNull());
     m_duplicate->setEnabled(!id.isNull());
-    m_delete->setEnabled(!id.isNull());
+    m_delete->setEnabled(!id.isNull() || folder);
+    m_delete->setText(folder ? tr("&Delete Folder") : tr("&Delete Connection"));
+    m_renameFolder->setEnabled(folder);
     m_connect->setEnabled(!id.isNull() && !busy);
     m_disconnect->setEnabled(busy);
     m_reconnect->setEnabled(s && s->state() != Session::State::Disconnected);
@@ -182,10 +226,18 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
 {
     const QModelIndex index = m_view->indexAt(pos);
     QMenu menu(this);
+    const auto type = index.data(BrowserModel::NodeTypeRole).value<NodeType>();
     if (!index.isValid()) {
         menu.addAction(m_new);
+        menu.addAction(m_newFolder);
+    } else if (type == NodeType::Category) {
+        menu.addAction(m_new);
+        menu.addAction(m_newFolder);
+        menu.addSeparator();
+        addMoveMenu(menu, index);
+        menu.addAction(m_renameFolder);
+        menu.addAction(m_delete);
     } else {
-        const auto type = index.data(BrowserModel::NodeTypeRole).value<NodeType>();
         if (type == NodeType::Connection) {
             menu.addAction(m_connect);
             menu.addAction(m_reconnect);
@@ -209,9 +261,11 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
             menu.addSeparator();
             menu.addAction(m_edit);
             menu.addAction(m_duplicate);
+            addMoveMenu(menu, index);
             menu.addAction(m_delete);
             menu.addSeparator();
             menu.addAction(m_new);
+            menu.addAction(m_newFolder);
         }
     }
     if (!menu.isEmpty())
@@ -462,12 +516,14 @@ void ConnectionBrowser::newConnection()
 {
     config::ConnectionProfile profile;
     profile.user = qEnvironmentVariable("USER", qEnvironmentVariable("USERNAME"));
+    profile.folder = currentFolder();
     std::optional<QString> password, sshSecret;
     if (!editProfile(profile, password, sshSecret))
         return;
     m_profiles.save(profile);
     storeSecrets(profile, password, sshSecret);
     m_model->addProfile(profile);
+    saveOrder();
     m_view->setCurrentIndex(m_model->profileIndex(profile.id));
 }
 
@@ -505,6 +561,7 @@ void ConnectionBrowser::duplicateConnection()
                           });
     }
     m_model->addProfile(copy);
+    saveOrder();
     m_view->setCurrentIndex(m_model->profileIndex(copy.id));
 }
 
@@ -526,6 +583,190 @@ void ConnectionBrowser::deleteConnection()
     m_profiles.remove(id);
     m_model->removeProfile(id);
     updateActions();
+}
+
+// Folders.
+
+void ConnectionBrowser::addFolder(const QString &path)
+{
+    m_profiles.addFolder(path);
+    m_model->addFolder(path);
+    saveOrder();
+}
+
+bool ConnectionBrowser::renameFolder(const QString &folder, const QString &name)
+{
+    const QString to = config::childFolder(config::parentFolder(folder), name);
+    if (to == folder)
+        return true;
+    if (m_model->folderIndex(to).isValid())
+        return false;
+    m_profiles.moveFolder(folder, to);
+    m_model->moveFolder(folder, to);
+    saveExpanded();
+    saveOrder();
+    return true;
+}
+
+void ConnectionBrowser::removeFolder(const QString &folder)
+{
+    m_profiles.removeFolder(folder);
+    m_model->removeFolder(folder);
+    saveExpanded();
+    saveOrder();
+    updateActions();
+}
+
+void ConnectionBrowser::moveItems(const QList<QUuid> &profiles, const QStringList &folders,
+                                  const QString &to, int row)
+{
+    // Each goes into to first, then to its row, one after another.
+    auto place = [&](const QModelIndex &index) {
+        if (row >= 0 && index.isValid())
+            m_model->setRow(index, row++);
+    };
+    for (const QUuid &id : profiles) {
+        const config::ConnectionProfile *current = m_model->profile(id);
+        if (!current)
+            continue;
+        if (current->folder != to) {
+            config::ConnectionProfile profile = *current;
+            profile.folder = to;
+            m_profiles.save(profile);
+            m_model->updateProfile(profile);
+        }
+        place(m_model->profileIndex(id));
+    }
+    for (const QString &folder : folders) {
+        if (config::isWithinFolder(to, folder))
+            continue;
+        const QString dest = config::childFolder(to, config::folderName(folder));
+        if (dest != folder) {
+            m_profiles.moveFolder(folder, dest);
+            m_model->moveFolder(folder, dest);
+        }
+        place(m_model->folderIndex(dest)); // Not there if merged into another.
+    }
+    saveExpanded();
+    saveOrder();
+}
+
+QStringList ConnectionBrowser::moveTargets(const QModelIndex &index) const
+{
+    const auto type = index.data(BrowserModel::NodeTypeRole).value<NodeType>();
+    const QString folder = index.data(BrowserModel::FolderRole).toString();
+    if (type != NodeType::Connection && type != NodeType::Category)
+        return {};
+    // Where it is now is no move; a folder cannot go into itself either.
+    const QString current = type == NodeType::Category ? config::parentFolder(folder) : folder;
+    QStringList out;
+    for (const QString &f : QStringList {QString()} + m_model->folders()) {
+        if (f == current || (type == NodeType::Category && config::isWithinFolder(f, folder)))
+            continue;
+        out << f;
+    }
+    return out;
+}
+
+void ConnectionBrowser::addMoveMenu(QMenu &menu, const QModelIndex &index)
+{
+    const QStringList targets = moveTargets(index);
+    QMenu *move = menu.addMenu(QIcon::fromTheme(QStringLiteral("go-jump")), tr("&Move to Folder"));
+    move->setEnabled(!targets.isEmpty());
+    const bool isFolder
+        = index.data(BrowserModel::NodeTypeRole).value<NodeType>() == NodeType::Category;
+    const QUuid id = index.data(BrowserModel::ProfileIdRole).toUuid();
+    const QString folder = index.data(BrowserModel::FolderRole).toString();
+    for (const QString &to : targets) {
+        QAction *a = to.isEmpty() ? move->addAction(tr("Top Level"))
+                                  : move->addAction(Icons::folder(), to);
+        connect(a, &QAction::triggered, this, [this, isFolder, id, folder, to] {
+            if (isFolder)
+                moveItems({}, {folder}, to);
+            else
+                moveItems({id}, {}, to);
+        });
+    }
+}
+
+void ConnectionBrowser::newFolder()
+{
+    const QString parent = currentFolder();
+    bool ok = false;
+    const QString name = QInputDialog::getText(
+        this, tr("New Folder"),
+        parent.isEmpty() ? tr("Folder name:") : tr("Folder name, in %1:").arg(parent),
+        QLineEdit::Normal, QString(), &ok);
+    const QString path = config::childFolder(parent, name);
+    if (!ok || path == parent)
+        return;
+    addFolder(path);
+    const QModelIndex index = m_model->folderIndex(path);
+    m_view->expand(index.parent());
+    m_view->setCurrentIndex(index);
+}
+
+void ConnectionBrowser::renameCurrentFolder()
+{
+    if (!isFolderCurrent())
+        return;
+    const QString folder = currentFolder();
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, tr("Rename Folder"), tr("Folder name:"),
+                                               QLineEdit::Normal, config::folderName(folder), &ok)
+                             .trimmed();
+    if (!ok || name.isEmpty())
+        return;
+    if (name.contains(QLatin1Char('/'))) {
+        QMessageBox::warning(this, tr("Rename Folder"),
+                             tr("A folder name cannot contain \"/\". Drag the folder to move "
+                                "it elsewhere."));
+        return;
+    }
+    if (!renameFolder(folder, name)) {
+        QMessageBox::warning(this, tr("Rename Folder"),
+                             tr("There is a folder named %1 there already.").arg(name));
+        return;
+    }
+    m_view->setCurrentIndex(
+        m_model->folderIndex(config::childFolder(config::parentFolder(folder), name)));
+}
+
+void ConnectionBrowser::deleteCurrentFolder()
+{
+    if (!isFolderCurrent())
+        return;
+    const QString folder = currentFolder();
+    const QString parent = config::parentFolder(folder);
+    const QString question = m_model->rowCount(m_model->folderIndex(folder)) == 0
+        ? tr("Delete the folder %1?").arg(folder)
+        : parent.isEmpty()
+        ? tr("Delete the folder %1? What is in it moves to the top level.").arg(folder)
+        : tr("Delete the folder %1? What is in it moves to %2.").arg(folder, parent);
+    if (QMessageBox::question(this, tr("Delete Folder"), question) != QMessageBox::Yes)
+        return;
+    removeFolder(folder);
+}
+
+void ConnectionBrowser::saveExpanded()
+{
+    QStringList expanded;
+    for (const QString &folder : m_model->folders()) {
+        if (m_view->isExpanded(m_model->folderIndex(folder)))
+            expanded << folder;
+    }
+    m_settings.setValue(ExpandedKey, expanded);
+}
+
+void ConnectionBrowser::saveOrder()
+{
+    m_profiles.setOrder(m_model->order());
+}
+
+void ConnectionBrowser::restoreExpanded()
+{
+    for (const QString &folder : m_settings.value(ExpandedKey).toStringList())
+        m_view->expand(m_model->folderIndex(folder));
 }
 
 void ConnectionBrowser::refreshCurrent()

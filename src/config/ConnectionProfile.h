@@ -48,6 +48,9 @@ struct ConnectionProfile
     QUuid id;
     QString name;
     QString color; // #rrggbb, or empty for none.
+    // The folder the browser shows it in, as a path like "stage/env1"; empty
+    // for the top level.
+    QString folder;
 
     QString host = QStringLiteral("localhost");
     int port = 5432;

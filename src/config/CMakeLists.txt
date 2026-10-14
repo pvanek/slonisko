@@ -4,6 +4,8 @@
 add_library(slonisko_config STATIC
     ConnectionProfile.cpp
     ConnectionProfile.h
+    Folders.cpp
+    Folders.h
     PasswordStore.cpp
     PasswordStore.h
     ProfileStore.cpp

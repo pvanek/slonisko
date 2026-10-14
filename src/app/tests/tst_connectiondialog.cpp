@@ -24,6 +24,7 @@ private Q_SLOTS:
         p.id = QUuid::createUuid();
         p.name = QStringLiteral("Prod");
         p.color = QStringLiteral("#cc0000");
+        p.folder = QStringLiteral("stage/env1");
         p.host = QStringLiteral("db");
         p.port = 6543;
         p.database = QStringLiteral("app");
@@ -49,6 +50,7 @@ private Q_SLOTS:
         const config::ConnectionProfile q = dialog.profile();
         QCOMPARE(q.id, p.id);
         QCOMPARE(q.color, p.color);
+        QCOMPARE(q.folder, p.folder); // Kept, though not shown.
         QCOMPARE(q.conninfo(QStringLiteral("pw")), p.conninfo(QStringLiteral("pw")));
         QCOMPARE(q.passwordMode, p.passwordMode);
         QCOMPARE(q.showAllDatabases, true);

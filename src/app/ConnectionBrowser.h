@@ -15,6 +15,7 @@
 #include <optional>
 
 class QAction;
+class QMenu;
 class QSettings;
 class QTreeView;
 
@@ -22,8 +23,9 @@ namespace slonisko {
 
 class BrowserModel;
 
-// The connection and object browser: saved connections, and for connected
-// ones their databases and objects, DBA tools and system information.
+// The connection and object browser: saved connections in their folders,
+// and for connected ones their databases and objects, DBA tools and system
+// information.
 class ConnectionBrowser : public QWidget
 {
     Q_OBJECT
@@ -37,6 +39,20 @@ public:
     BrowserModel *model() const { return m_model; }
     QTreeView *view() const { return m_view; }
     QAction *newConnectionAction() const { return m_new; }
+
+    // Folders, as the folder actions and drag and drop change them; tests
+    // call these instead of answering dialogs.
+    void addFolder(const QString &path);
+    // False if a folder of that name is there already.
+    bool renameFolder(const QString &folder, const QString &name);
+    void removeFolder(const QString &folder);
+    // Puts connections and folders into the folder to, at row of it as it
+    // is without them; at its end if row is -1.
+    void moveItems(const QList<QUuid> &profiles, const QStringList &folders, const QString &to,
+                   int row = -1);
+    // The folders the connection or folder at index can be moved to, the
+    // empty one meaning the top level; for the Move to Folder menu.
+    QStringList moveTargets(const QModelIndex &index) const;
 
     void connectProfile(const QUuid &id);
     // Disconnects, first asking if editors on the connection have
@@ -75,6 +91,13 @@ private:
     void showContextMenu(const QPoint &pos);
     void onActivated(const QModelIndex &index);
     QUuid currentProfile() const;
+    // The selected folder, or the folder of the selected connection.
+    QString currentFolder() const;
+    bool isFolderCurrent() const;
+    void addMoveMenu(QMenu &menu, const QModelIndex &index);
+    void saveExpanded();
+    void saveOrder();
+    void restoreExpanded();
 
     // Opens the details page of the node at index, if it has one.
     void showDetails(const QModelIndex &index);
@@ -82,6 +105,9 @@ private:
     void editConnection();
     void duplicateConnection();
     void deleteConnection();
+    void newFolder();
+    void renameCurrentFolder();
+    void deleteCurrentFolder();
     void refreshCurrent();
     bool editProfile(config::ConnectionProfile &profile, std::optional<QString> &password,
                      std::optional<QString> &sshSecret);
@@ -101,6 +127,7 @@ private:
     // which doing (e.g. "Disconnecting") rolls back.
     bool confirmBusy(const Session *session, const QString &title, const QString &doing);
 
+    QSettings &m_settings;
     config::ProfileStore m_profiles;
     config::PasswordStore *m_passwords = nullptr;
     BrowserModel *m_model = nullptr;
@@ -111,6 +138,8 @@ private:
     QAction *m_edit = nullptr;
     QAction *m_duplicate = nullptr;
     QAction *m_delete = nullptr;
+    QAction *m_newFolder = nullptr;
+    QAction *m_renameFolder = nullptr;
     QAction *m_connect = nullptr;
     QAction *m_disconnect = nullptr;
     QAction *m_reconnect = nullptr;

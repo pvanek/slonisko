@@ -60,6 +60,7 @@ private:
     std::unique_ptr<Ui::ConnectionDialog> m_ui; // Layout in ConnectionDialog.ui.
     config::PasswordStore *m_passwords = nullptr;
     QUuid m_id;
+    QString m_folder; // Not edited here; the browser moves connections.
     QString m_color;
     bool m_passwordEdited = false;
     bool m_sshSecretEdited = false;

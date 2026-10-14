@@ -6,18 +6,29 @@
 #include "Icons.h"
 #include "Session.h"
 #include "catalog/Monitoring.h"
+#include "config/Folders.h"
 
+#include <QDataStream>
 #include <QFont>
 #include <QGuiApplication>
+#include <QIODevice>
+#include <QMimeData>
 #include <QPalette>
 
 #include <algorithm>
+#include <functional>
 
 namespace slonisko {
 
 using catalog::Folder;
 using catalog::MonitoringQuery;
 using catalog::ObjectKind;
+
+namespace {
+
+const QString MimeType = QStringLiteral("application/x-slonisko-connections");
+
+} // namespace
 
 struct BrowserModel::Node
 {
@@ -47,25 +58,28 @@ BrowserModel::BrowserModel(QObject *parent) : QAbstractItemModel(parent) { }
 
 BrowserModel::~BrowserModel() = default;
 
-// Profiles.
+// Profiles and folders.
 
-void BrowserModel::setProfiles(const std::vector<config::ConnectionProfile> &profiles)
+void BrowserModel::setProfiles(const std::vector<config::ConnectionProfile> &profiles,
+                               const QStringList &folders, const QStringList &order)
 {
     beginResetModel();
-    for (auto &c : m_connections)
-        forget(c.get());
-    m_connections.clear();
-    m_profiles = profiles;
-    for (const auto &p : m_profiles) {
-        auto node = std::make_unique<Node>();
-        node->type = NodeType::Connection;
-        node->id = m_nextId++;
-        node->name = p.displayName();
-        node->profileId = p.id;
-        m_nodes.insert(node->id, node.get());
-        m_connections.push_back(std::move(node));
-    }
+    for (auto &n : m_roots)
+        forget(n.get());
+    m_roots.clear();
+    m_profiles.clear();
+    m_connectionNodes.clear();
     endResetModel();
+
+    m_loading = true;
+    for (int i = 0; i < order.size(); ++i)
+        m_loadingOrder.insert(order[i], i);
+    for (const QString &f : folders)
+        addFolder(f);
+    for (const auto &p : profiles)
+        addProfile(p);
+    m_loadingOrder.clear();
+    m_loading = false;
 
     for (const auto &p : m_profiles) {
         if (session(p.id))
@@ -77,46 +91,42 @@ void BrowserModel::setProfiles(const std::vector<config::ConnectionProfile> &pro
 
 void BrowserModel::addProfile(const config::ConnectionProfile &profile)
 {
-    // Keep the list sorted by name.
-    const auto pos = std::ranges::find_if(m_profiles, [&](const config::ConnectionProfile &p) {
-        return p.displayName().compare(profile.displayName(), Qt::CaseInsensitive) > 0;
-    });
-    const int row = int(pos - m_profiles.begin());
+    m_profiles.push_back(profile);
+    m_profiles.back().folder = config::normalizedFolder(profile.folder);
 
-    beginInsertRows({}, row, row);
-    m_profiles.insert(pos, profile);
     auto node = std::make_unique<Node>();
     node->type = NodeType::Connection;
     node->id = m_nextId++;
     node->name = profile.displayName();
     node->profileId = profile.id;
     m_nodes.insert(node->id, node.get());
-    m_connections.insert(m_connections.begin() + row, std::move(node));
-    endInsertRows();
+    m_connectionNodes.insert(profile.id, node.get());
+    insertNode(ensureCategory(m_profiles.back().folder), std::move(node));
 }
 
 void BrowserModel::updateProfile(const config::ConnectionProfile &profile)
 {
-    const QModelIndex index = profileIndex(profile.id);
-    if (!index.isValid())
+    Node *node = m_connectionNodes.value(profile.id);
+    const auto it = std::ranges::find(m_profiles, profile.id, &config::ConnectionProfile::id);
+    if (!node || it == m_profiles.end())
         return;
-    m_profiles[std::size_t(index.row())] = profile;
-    nodeOf(index)->name = profile.displayName();
+    *it = profile;
+    it->folder = config::normalizedFolder(profile.folder);
+    node->name = profile.displayName();
+    moveNode(node, ensureCategory(it->folder));
+    const QModelIndex index = indexOf(node);
     Q_EMIT dataChanged(index, index);
 }
 
 void BrowserModel::removeProfile(const QUuid &id)
 {
-    const QModelIndex index = profileIndex(id);
-    if (!index.isValid())
+    Node *node = m_connectionNodes.value(id);
+    if (!node)
         return;
     setSession(id, nullptr);
-    const int row = index.row();
-    beginRemoveRows({}, row, row);
-    forget(m_connections[std::size_t(row)].get());
-    m_connections.erase(m_connections.begin() + row);
-    m_profiles.erase(m_profiles.begin() + row);
-    endRemoveRows();
+    m_connectionNodes.remove(id);
+    removeNode(node);
+    std::erase_if(m_profiles, [&](const config::ConnectionProfile &p) { return p.id == id; });
 }
 
 const config::ConnectionProfile *BrowserModel::profile(const QUuid &id) const
@@ -127,8 +137,221 @@ const config::ConnectionProfile *BrowserModel::profile(const QUuid &id) const
 
 QModelIndex BrowserModel::profileIndex(const QUuid &id) const
 {
-    const auto it = std::ranges::find(m_profiles, id, &config::ConnectionProfile::id);
-    return it == m_profiles.end() ? QModelIndex() : index(int(it - m_profiles.begin()), 0);
+    return indexOf(m_connectionNodes.value(id));
+}
+
+void BrowserModel::addFolder(const QString &path)
+{
+    ensureCategory(path);
+}
+
+void BrowserModel::moveFolder(const QString &folder, const QString &to)
+{
+    const QString from = config::normalizedFolder(folder);
+    const QString dest = config::normalizedFolder(to);
+    Node *source = category(from);
+    // A folder cannot go into itself.
+    if (!source || config::isWithinFolder(dest, from))
+        return;
+
+    for (auto &p : m_profiles)
+        p.folder = config::movedFolder(p.folder, from, dest);
+
+    if (dest.isEmpty()) {
+        mergeCategory(source, nullptr);
+    } else if (Node *existing = category(dest)) {
+        mergeCategory(source, existing);
+    } else {
+        Node *parent = ensureCategory(config::parentFolder(dest));
+        source->name = config::folderName(dest);
+        moveNode(source, parent);
+        const QModelIndex index = indexOf(source);
+        Q_EMIT dataChanged(index, index);
+    }
+}
+
+void BrowserModel::removeFolder(const QString &folder)
+{
+    moveFolder(folder, config::parentFolder(folder));
+}
+
+QStringList BrowserModel::folders() const
+{
+    QStringList out;
+    std::function<void(const Node *)> walk = [&](const Node *parent) {
+        for (const auto &n : childrenOf(parent)) {
+            if (n->type != NodeType::Category)
+                continue;
+            out << pathOf(n.get());
+            walk(n.get());
+        }
+    };
+    walk(nullptr);
+    return out;
+}
+
+QModelIndex BrowserModel::folderIndex(const QString &path) const
+{
+    return indexOf(category(path));
+}
+
+QString BrowserModel::pathOf(const Node *category) const
+{
+    QStringList names;
+    for (const Node *n = category; n; n = n->parent)
+        names.prepend(n->name);
+    return names.join(QLatin1Char('/'));
+}
+
+BrowserModel::Node *BrowserModel::childCategory(const Node *parent, const QString &name) const
+{
+    for (const auto &n : childrenOf(parent)) {
+        if (n->type == NodeType::Category && n->name == name)
+            return n.get();
+    }
+    return nullptr;
+}
+
+BrowserModel::Node *BrowserModel::category(const QString &path) const
+{
+    Node *node = nullptr;
+    for (const QString &name : config::folderNames(path)) {
+        node = childCategory(node, name);
+        if (!node)
+            return nullptr;
+    }
+    return node;
+}
+
+BrowserModel::Node *BrowserModel::ensureCategory(const QString &path)
+{
+    Node *node = nullptr;
+    for (const QString &name : config::folderNames(path)) {
+        Node *next = childCategory(node, name);
+        if (!next) {
+            auto n = std::make_unique<Node>();
+            n->type = NodeType::Category;
+            n->parent = node;
+            n->id = m_nextId++;
+            n->name = name;
+            n->populated = true;
+            next = n.get();
+            m_nodes.insert(n->id, next);
+            insertNode(node, std::move(n));
+        }
+        node = next;
+    }
+    return node;
+}
+
+QString BrowserModel::orderKey(const Node *node) const
+{
+    if (node->type == NodeType::Category)
+        return QStringLiteral("folder:") + pathOf(node);
+    return QStringLiteral("connection:") + node->profileId.toString(QUuid::WithoutBraces);
+}
+
+int BrowserModel::loadedRow(const Node *parent, const Node *node) const
+{
+    auto before = [this](const Node *a, const Node *b) {
+        const int ra = m_loadingOrder.value(orderKey(a), -1);
+        const int rb = m_loadingOrder.value(orderKey(b), -1);
+        if (ra >= 0 || rb >= 0)
+            return rb < 0 || (ra >= 0 && ra < rb);
+        // Neither stored: folders first, then connections; each by name.
+        if ((a->type == NodeType::Category) != (b->type == NodeType::Category))
+            return a->type == NodeType::Category;
+        return a->name.compare(b->name, Qt::CaseInsensitive) < 0;
+    };
+    int row = 0;
+    for (const auto &n : childrenOf(parent)) {
+        if (n.get() != node && before(n.get(), node))
+            ++row;
+    }
+    return row;
+}
+
+void BrowserModel::insertNode(Node *parent, std::unique_ptr<Node> node)
+{
+    node->parent = parent;
+    auto &siblings = childrenOf(parent);
+    const int row = m_loading ? loadedRow(parent, node.get()) : int(siblings.size());
+    beginInsertRows(indexOf(parent), row, row);
+    siblings.insert(siblings.begin() + row, std::move(node));
+    endInsertRows();
+}
+
+void BrowserModel::moveNode(Node *node, Node *parent, int row)
+{
+    auto &from = childrenOf(node->parent);
+    const auto it = std::ranges::find(from, node, &std::unique_ptr<Node>::get);
+    const int source = int(it - from.begin());
+    const bool sameParent = node->parent == parent;
+    const int others = int(childrenOf(parent).size()) - (sameParent ? 1 : 0);
+    if (row < 0)
+        row = sameParent ? source : others;
+    row = std::min(row, others);
+    if (sameParent && row == source)
+        return;
+
+    // The destination row counts the node itself while it is still there.
+    const int destination = sameParent && row > source ? row + 1 : row;
+    if (!beginMoveRows(indexOf(node->parent), source, source, indexOf(parent), destination))
+        return;
+    std::unique_ptr<Node> taken = std::move(*it);
+    from.erase(it);
+    taken->parent = parent;
+    auto &to = childrenOf(parent);
+    to.insert(to.begin() + row, std::move(taken));
+    endMoveRows();
+}
+
+void BrowserModel::setRow(const QModelIndex &index, int row)
+{
+    Node *node = nodeOf(index);
+    if (node && (node->type == NodeType::Category || node->type == NodeType::Connection))
+        moveNode(node, node->parent, std::max(row, 0));
+}
+
+QStringList BrowserModel::order() const
+{
+    QStringList out;
+    std::function<void(const Node *)> walk = [&](const Node *parent) {
+        for (const auto &n : childrenOf(parent)) {
+            if (n->type != NodeType::Category && n->type != NodeType::Connection)
+                continue;
+            out << orderKey(n.get());
+            if (n->type == NodeType::Category)
+                walk(n.get());
+        }
+    };
+    walk(nullptr);
+    return out;
+}
+
+void BrowserModel::removeNode(Node *node)
+{
+    auto &siblings = childrenOf(node->parent);
+    const auto it = std::ranges::find(siblings, node, &std::unique_ptr<Node>::get);
+    const int row = int(it - siblings.begin());
+    beginRemoveRows(indexOf(node->parent), row, row);
+    forget(node);
+    siblings.erase(it);
+    endRemoveRows();
+}
+
+void BrowserModel::mergeCategory(Node *source, Node *target)
+{
+    while (!source->children.empty()) {
+        Node *child = source->children.front().get();
+        Node *existing
+            = child->type == NodeType::Category ? childCategory(target, child->name) : nullptr;
+        if (existing)
+            mergeCategory(child, existing);
+        else
+            moveNode(child, target);
+    }
+    removeNode(source);
 }
 
 // Sessions.
@@ -403,7 +626,8 @@ void BrowserModel::refresh(const QModelIndex &index)
         onSessionStateChanged(node->profileId);
         return;
     }
-    if (node->type == NodeType::Monitoring || node->type == NodeType::Message)
+    if (node->type == NodeType::Category || node->type == NodeType::Monitoring
+        || node->type == NodeType::Message)
         return;
 
     const bool wasPopulated = node->populated || node->loading;
@@ -430,7 +654,7 @@ QModelIndex BrowserModel::indexOf(const Node *node) const
 {
     if (!node)
         return {};
-    const auto &siblings = node->parent ? node->parent->children : m_connections;
+    const auto &siblings = childrenOf(node->parent);
     const auto it = std::ranges::find(siblings, node, &std::unique_ptr<Node>::get);
     return it == siblings.end()
         ? QModelIndex()
@@ -439,9 +663,20 @@ QModelIndex BrowserModel::indexOf(const Node *node) const
 
 BrowserModel::Node *BrowserModel::connectionOf(Node *node) const
 {
-    while (node && node->parent)
+    while (node && node->type != NodeType::Connection)
         node = node->parent;
     return node;
+}
+
+std::vector<std::unique_ptr<BrowserModel::Node>> &BrowserModel::childrenOf(Node *node)
+{
+    return node ? node->children : m_roots;
+}
+
+const std::vector<std::unique_ptr<BrowserModel::Node>> &
+BrowserModel::childrenOf(const Node *node) const
+{
+    return node ? node->children : m_roots;
 }
 
 std::unique_ptr<BrowserModel::Node> BrowserModel::message(Node *parent, const QString &text,
@@ -492,7 +727,7 @@ QModelIndex BrowserModel::index(int row, int column, const QModelIndex &parent) 
 {
     if (column != 0 || row < 0)
         return {};
-    const auto &children = parent.isValid() ? nodeOf(parent)->children : m_connections;
+    const auto &children = childrenOf(nodeOf(parent));
     if (row >= int(children.size()))
         return {};
     return createIndex(row, 0, children[std::size_t(row)].get());
@@ -508,7 +743,7 @@ int BrowserModel::rowCount(const QModelIndex &parent) const
 {
     if (parent.column() > 0)
         return 0;
-    return int(parent.isValid() ? nodeOf(parent)->children.size() : m_connections.size());
+    return int(childrenOf(nodeOf(parent)).size());
 }
 
 int BrowserModel::columnCount(const QModelIndex &) const
@@ -520,7 +755,7 @@ bool BrowserModel::hasChildren(const QModelIndex &parent) const
 {
     const Node *node = nodeOf(parent);
     if (!node)
-        return !m_connections.empty();
+        return !m_roots.empty();
     if (!node->children.empty())
         return true;
     switch (node->type) {
@@ -540,10 +775,18 @@ Qt::ItemFlags BrowserModel::flags(const QModelIndex &index) const
 {
     const Node *node = nodeOf(index);
     if (!node)
-        return Qt::NoItemFlags;
-    if (node->type == NodeType::Message)
+        return Qt::ItemIsDropEnabled; // The top level.
+    switch (node->type) {
+    case NodeType::Message:
         return Qt::ItemIsEnabled;
-    return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    case NodeType::Category:
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled
+            | Qt::ItemIsDropEnabled;
+    case NodeType::Connection:
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsDragEnabled;
+    default:
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable;
+    }
 }
 
 QVariant BrowserModel::data(const QModelIndex &index, int role) const
@@ -596,6 +839,8 @@ QVariant BrowserModel::data(const QModelIndex &index, int role) const
         }
     case Qt::DecorationRole:
         switch (node->type) {
+        case NodeType::Category:
+            return Icons::folder();
         case NodeType::Connection:
             return Icons::connection(p ? p->color : QString(), state == Session::State::Connected);
         case NodeType::Database:
@@ -649,9 +894,99 @@ QVariant BrowserModel::data(const QModelIndex &index, int role) const
         return node->error;
     case LoadedRole:
         return node->populated && !node->loading;
+    case FolderRole:
+        if (node->type == NodeType::Category)
+            return pathOf(node);
+        return p ? p->folder : QVariant();
     default:
         return {};
     }
+}
+
+// Drag and drop.
+
+QStringList BrowserModel::mimeTypes() const
+{
+    return {MimeType};
+}
+
+QMimeData *BrowserModel::mimeData(const QModelIndexList &indexes) const
+{
+    QList<QUuid> profiles;
+    QStringList folders;
+    for (const QModelIndex &index : indexes) {
+        const Node *node = nodeOf(index);
+        if (node && node->type == NodeType::Connection)
+            profiles << node->profileId;
+        else if (node && node->type == NodeType::Category)
+            folders << pathOf(node);
+    }
+    if (profiles.isEmpty() && folders.isEmpty())
+        return nullptr;
+
+    QByteArray encoded;
+    QDataStream stream(&encoded, QIODevice::WriteOnly);
+    stream << profiles << folders;
+    auto *data = new QMimeData;
+    data->setData(MimeType, encoded);
+    return data;
+}
+
+std::optional<QString> BrowserModel::dropFolder(const QModelIndex &parent) const
+{
+    const Node *node = nodeOf(parent);
+    if (!node)
+        return QString();
+    if (node->type == NodeType::Category)
+        return pathOf(node);
+    return std::nullopt;
+}
+
+bool BrowserModel::canDropMimeData(const QMimeData *data, Qt::DropAction action, int, int,
+                                   const QModelIndex &parent) const
+{
+    const std::optional<QString> to = dropFolder(parent);
+    if (!data || action != Qt::MoveAction || !to || !data->hasFormat(MimeType))
+        return false;
+    QList<QUuid> profiles;
+    QStringList folders;
+    QDataStream stream(data->data(MimeType));
+    stream >> profiles >> folders;
+    return std::ranges::none_of(folders,
+                                [&](const QString &f) { return config::isWithinFolder(*to, f); });
+}
+
+bool BrowserModel::dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column,
+                                const QModelIndex &parent)
+{
+    if (!canDropMimeData(data, action, row, column, parent))
+        return false;
+    QList<QUuid> profiles;
+    QStringList folders;
+    QDataStream stream(data->data(MimeType));
+    stream >> profiles >> folders;
+    // The row as it will be once the dragged ones have left it.
+    if (row >= 0) {
+        const int before = row;
+        for (int r = 0; r < before && r < rowCount(parent); ++r) {
+            const Node *n = nodeOf(index(r, 0, parent));
+            if ((n->type == NodeType::Connection && profiles.contains(n->profileId))
+                || (n->type == NodeType::Category && folders.contains(pathOf(n))))
+                --row;
+        }
+    }
+    Q_EMIT moveRequested(profiles, folders, *dropFolder(parent), row);
+    return true;
+}
+
+Qt::DropActions BrowserModel::supportedDragActions() const
+{
+    return Qt::MoveAction;
+}
+
+Qt::DropActions BrowserModel::supportedDropActions() const
+{
+    return Qt::MoveAction;
 }
 
 } // namespace slonisko

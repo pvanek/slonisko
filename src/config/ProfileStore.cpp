@@ -3,6 +3,8 @@
 
 #include "config/ProfileStore.h"
 
+#include "config/Folders.h"
+
 #include <QSettings>
 
 #include <algorithm>
@@ -12,6 +14,9 @@ namespace slonisko::config {
 namespace {
 
 const QString Group = QStringLiteral("connections");
+// Folders are kept apart from the profiles in them, so that empty ones stay.
+const QString FoldersKey = QStringLiteral("connectionFolders");
+const QString OrderKey = QStringLiteral("connectionOrder");
 
 QString modeName(PasswordMode mode)
 {
@@ -66,6 +71,7 @@ ConnectionProfile read(const QSettings &s, const QUuid &id)
     p.id = id;
     p.name = s.value(QStringLiteral("name")).toString();
     p.color = s.value(QStringLiteral("color")).toString();
+    p.folder = normalizedFolder(s.value(QStringLiteral("folder")).toString());
     p.host = s.value(QStringLiteral("host"), d.host).toString();
     p.port = s.value(QStringLiteral("port"), d.port).toInt();
     p.database = s.value(QStringLiteral("database"), d.database).toString();
@@ -97,6 +103,7 @@ void write(QSettings &s, const ConnectionProfile &p)
 {
     s.setValue(QStringLiteral("name"), p.name);
     s.setValue(QStringLiteral("color"), p.color);
+    s.setValue(QStringLiteral("folder"), normalizedFolder(p.folder));
     s.setValue(QStringLiteral("host"), p.host);
     s.setValue(QStringLiteral("port"), p.port);
     s.setValue(QStringLiteral("database"), p.database);
@@ -154,11 +161,82 @@ void ProfileStore::save(ConnectionProfile &profile)
     m_settings.remove(QStringLiteral("ssh"));
     write(m_settings, profile);
     m_settings.endGroup();
+    addFolder(profile.folder);
 }
 
 void ProfileStore::remove(const QUuid &id)
 {
     m_settings.remove(Group + QLatin1Char('/') + id.toString(QUuid::WithoutBraces));
+}
+
+QStringList ProfileStore::folders() const
+{
+    QStringList paths = m_settings.value(FoldersKey).toStringList();
+    for (const ConnectionProfile &p : load())
+        paths << p.folder;
+
+    QStringList out;
+    for (const QString &path : paths) {
+        for (QString f = normalizedFolder(path); !f.isEmpty(); f = parentFolder(f)) {
+            if (!out.contains(f))
+                out << f;
+        }
+    }
+    return out;
+}
+
+void ProfileStore::addFolder(const QString &path)
+{
+    const QString folder = normalizedFolder(path);
+    if (folder.isEmpty())
+        return;
+    QStringList stored = m_settings.value(FoldersKey).toStringList();
+    if (!stored.contains(folder))
+        setFolders(stored << folder);
+}
+
+void ProfileStore::moveFolder(const QString &folder, const QString &to)
+{
+    const QString from = normalizedFolder(folder);
+    if (from.isEmpty())
+        return;
+    for (ConnectionProfile &p : load()) {
+        const QString moved = movedFolder(p.folder, from, to);
+        if (moved != p.folder) {
+            p.folder = moved;
+            save(p);
+        }
+    }
+    QStringList stored;
+    for (const QString &f : folders())
+        stored << movedFolder(f, from, to);
+    setFolders(stored);
+}
+
+void ProfileStore::removeFolder(const QString &folder)
+{
+    moveFolder(folder, parentFolder(folder));
+}
+
+QStringList ProfileStore::order() const
+{
+    return m_settings.value(OrderKey).toStringList();
+}
+
+void ProfileStore::setOrder(const QStringList &order)
+{
+    m_settings.setValue(OrderKey, order);
+}
+
+void ProfileStore::setFolders(const QStringList &folders)
+{
+    QStringList out;
+    for (const QString &f : folders) {
+        const QString path = normalizedFolder(f);
+        if (!path.isEmpty() && !out.contains(path))
+            out << path;
+    }
+    m_settings.setValue(FoldersKey, out);
 }
 
 } // namespace slonisko::config
