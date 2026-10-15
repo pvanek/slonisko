@@ -17,6 +17,8 @@ class ResultTextView : public QsciScintilla
 public:
     explicit ResultTextView(QWidget *parent = nullptr);
 
+    void setText(const QString &text) override;
+
     // Selects the rectangle between two positions, as Alt+drag does.
     void selectBlock(qsizetype anchor, qsizetype caret);
     // What Copy would put on the clipboard: for a block, its lines joined.
@@ -28,6 +30,9 @@ protected:
 
 private:
     void applyTheme();
+    void updateScrollWidth();
+
+    qsizetype m_longestLine = 0; // In characters.
 };
 
 } // namespace slonisko

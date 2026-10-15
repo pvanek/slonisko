@@ -7,6 +7,9 @@
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QPalette>
+#include <QStringTokenizer>
+
+#include <algorithm>
 
 namespace slonisko {
 
@@ -35,6 +38,26 @@ ResultTextView::ResultTextView(QWidget *parent) : QsciScintilla(parent)
     SendScintilla(SCI_SETVIRTUALSPACEOPTIONS, SCVS_RECTANGULARSELECTION);
 
     applyTheme();
+    connect(this, &QsciScintillaBase::SCN_ZOOM, this, &ResultTextView::updateScrollWidth);
+}
+
+void ResultTextView::setText(const QString &text)
+{
+    QsciScintilla::setText(text);
+    m_longestLine = 0;
+    for (const QStringView line : QStringTokenizer(text, u'\n'))
+        m_longestLine = std::max(m_longestLine, line.size());
+    updateScrollWidth();
+}
+
+void ResultTextView::updateScrollWidth()
+{
+    // Scintilla widens the scroll range only for the lines it has drawn, so
+    // a long line further down could not be scrolled to before the caret
+    // went there. The font is fixed: the longest line in characters is close
+    // enough, and the tracking still adds what wide characters need.
+    const long charWidth = SendScintilla(SCI_TEXTWIDTH, STYLE_DEFAULT, "x");
+    SendScintilla(SCI_SETSCROLLWIDTH, std::max(1L, long(m_longestLine + 1) * charWidth));
 }
 
 void ResultTextView::selectBlock(qsizetype anchor, qsizetype caret)

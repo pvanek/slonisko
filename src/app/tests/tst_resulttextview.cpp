@@ -56,6 +56,19 @@ private Q_SLOTS:
         QCOMPARE(m_view->text(), before);
     }
 
+    // A long line out of sight can be scrolled to before the caret goes there.
+    void scrollsAsFarAsTheLongestLine()
+    {
+        ResultTextView view;
+        view.setText(QStringLiteral("short\n").repeated(200) + QString(3000, QLatin1Char('x')));
+        view.resize(400, 200);
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        const long charWidth = view.SendScintilla(QsciScintillaBase::SCI_TEXTWIDTH,
+                                                  QsciScintillaBase::STYLE_DEFAULT, "x");
+        QVERIFY(view.SendScintilla(QsciScintillaBase::SCI_GETSCROLLWIDTH) >= 3000 * charWidth);
+    }
+
     void cleanupTestCase() { m_view.reset(); }
 
 private:
