@@ -24,6 +24,12 @@ class ResultModel : public QAbstractTableModel
 public:
     using Value = catalog::RowEdit::Value;
 
+    enum {
+        // The whole value, where the cell shows it shortened; invalid for
+        // NULL and for the cells of added rows left to their default.
+        ValueRole = Qt::UserRole + 1,
+    };
+
     using QAbstractTableModel::QAbstractTableModel;
 
     void clear();
@@ -66,6 +72,10 @@ public:
     // The rows of rows() in the order shown; empty while it is their own.
     const std::vector<int> &order() const { return m_order; }
     bool isAdded(int row) const { return row >= m_rows.rowCount(); }
+
+    // The cells' whole values for the clipboard: one cell as it is, more as
+    // rows of tab-separated values. Any model with ValueRole will do.
+    static QString copyText(QModelIndexList cells);
 
     int rowCount(const QModelIndex &parent = {}) const override;
     int columnCount(const QModelIndex &parent = {}) const override;

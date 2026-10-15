@@ -9,6 +9,7 @@
 #include "Shortcuts.h"
 
 #include <QAction>
+#include <QApplication>
 #include <QClipboard>
 #include <QFileDialog>
 #include <QGuiApplication>
@@ -22,17 +23,106 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QMessageBox>
+#include <QPainter>
 #include <QStackedWidget>
 #include <QStyle>
 #include <QStyleOptionHeader>
+#include <QStyledItemDelegate>
 #include <QTabBar>
+#include <QTextLayout>
 #include <QTableView>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
 
 namespace slonisko {
+
+namespace {
+
+// Wraps at word boundaries where it can and anywhere where it cannot: the
+// style's own wrapping only breaks between words and elides the rest, and
+// a JSON string or a hash can run for thousands of characters without one.
+class WrappingDelegate : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem opt(option);
+        initStyleOption(&opt, index);
+        QTextLayout layout;
+        const qreal height = lay(opt, layout);
+        opt.text.clear(); // The background, the selection and the focus only.
+        style(opt)->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
+
+        const QRect text = textRect(opt);
+        const bool selected = opt.state & QStyle::State_Selected;
+        painter->save();
+        painter->setPen(opt.palette.color(opt.state & QStyle::State_Enabled ? QPalette::Normal
+                                                                            : QPalette::Disabled,
+                                          selected ? QPalette::HighlightedText : QPalette::Text));
+        painter->setClipRect(text);
+        // In the middle, as the name beside it.
+        const qreal top = text.top() + std::max(0.0, (text.height() - height) / 2);
+        layout.draw(painter, QPointF(text.left(), top));
+        painter->restore();
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        // The table sets the column's width into the option when it wraps.
+        QStyleOptionViewItem opt(option);
+        initStyleOption(&opt, index);
+        QTextLayout layout;
+        const int height = int(std::ceil(lay(opt, layout)));
+        return {opt.rect.width(),
+                std::max(height + 2 * margin(opt, QStyle::PM_FocusFrameVMargin),
+                         opt.fontMetrics.height() + 6)};
+    }
+
+private:
+    static QStyle *style(const QStyleOptionViewItem &opt)
+    {
+        return opt.widget ? opt.widget->style() : QApplication::style();
+    }
+    // The space the style leaves around an item's text, here below it.
+    static int margin(const QStyleOptionViewItem &opt, QStyle::PixelMetric metric)
+    {
+        return style(opt)->pixelMetric(metric, nullptr, opt.widget) + 1;
+    }
+    // Inset at the sides only, as the style does it.
+    static QRect textRect(const QStyleOptionViewItem &opt)
+    {
+        const int h = margin(opt, QStyle::PM_FocusFrameHMargin);
+        return opt.rect.adjusted(h, 0, -h, 0);
+    }
+    // Lays the text out in the item's width; returns its height.
+    static qreal lay(const QStyleOptionViewItem &opt, QTextLayout &layout)
+    {
+        QString text = opt.text;
+        layout.setText(text.replace(QLatin1Char('\n'), QChar::LineSeparator));
+        layout.setFont(opt.font);
+        QTextOption wrap;
+        wrap.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+        layout.setTextOption(wrap);
+        const qreal width = std::max(1, textRect(opt).width());
+        qreal height = 0;
+        layout.beginLayout();
+        for (QTextLine line = layout.createLine(); line.isValid(); line = layout.createLine()) {
+            line.setLineWidth(width);
+            line.setPosition(QPointF(0, height));
+            height += line.height();
+        }
+        layout.endLayout();
+        return height;
+    }
+};
+
+} // namespace
 
 // One row of a result, its columns under each other: name, then value.
 class RecordModel : public QAbstractTableModel
@@ -64,14 +154,23 @@ public:
         if (!index.isValid() || m_row < 0 || m_row >= m_rows->rowCount())
             return {};
         if (index.column() == 0) {
-            if (role == Qt::DisplayRole)
+            if (role == Qt::DisplayRole || role == ResultModel::ValueRole)
                 return m_rows->headerData(index.row(), Qt::Horizontal);
             if (role == Qt::ForegroundRole)
                 return QVariant(); // The style's own color.
             return {};
         }
-        // The value, exactly as the grid shows it, NULLs and all.
-        return m_rows->data(m_rows->index(m_row, index.row()), role);
+        // The value as the grid shows it, NULLs and all, except that here
+        // there is room for all of it, line breaks too.
+        const QModelIndex cell = m_rows->index(m_row, index.row());
+        if (role == Qt::DisplayRole) {
+            const QVariant whole = m_rows->data(cell, ResultModel::ValueRole);
+            if (whole.isValid())
+                return whole;
+        }
+        if (role == Qt::ToolTipRole)
+            return {}; // Nothing the cell does not show already.
+        return m_rows->data(cell, role);
     }
 
     QVariant headerData(int section, Qt::Orientation orientation, int role) const override
@@ -251,7 +350,27 @@ ResultView::ResultView(QWidget *parent)
     m_record->verticalHeader()->hide();
     m_record->horizontalHeader()->setStretchLastSection(true);
     m_record->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    m_record->verticalHeader()->setDefaultSectionSize(m_record->fontMetrics().height() + 6);
+    // Each row as tall as its whole value, wrapped, and scrolled through
+    // smoothly when that is taller than the view.
+    m_record->setWordWrap(true);
+    m_record->setItemDelegateForColumn(1, new WrappingDelegate(m_record));
+    m_record->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    m_record->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+
+    // The views' own copy would take the shortened text the cells show.
+    // Only while the view itself has focus, so a cell editor keeps its own.
+    for (QTableView *view : {m_table, m_record}) {
+        auto *copy = new QAction(tr("Copy"), view);
+        copy->setShortcuts(QKeySequence::Copy);
+        copy->setShortcutContext(Qt::WidgetShortcut);
+        view->addAction(copy);
+        connect(copy, &QAction::triggered, this, [view] {
+            const QModelIndexList cells = view->selectionModel()->selectedIndexes();
+            if (!cells.isEmpty())
+                QGuiApplication::clipboard()->setText(ResultModel::copyText(cells));
+        });
+    }
+
     // The record view follows the grid, and the grid the record view.
     connect(m_table->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this](const QModelIndex &current) {

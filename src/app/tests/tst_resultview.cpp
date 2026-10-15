@@ -197,6 +197,70 @@ private Q_SLOTS:
         QCOMPARE(shown(*view.model(), 0), QStringLiteral("b10|B2|a|c"));
     }
 
+    // Cells and tooltips show the start of a long value, cut between
+    // characters; the value itself is all there.
+    void longValuesAreCutBetweenCharacters()
+    {
+        const QByteArray euros = QString(3000, QChar(0x20AC)).toUtf8(); // Three bytes each.
+        const QByteArray emoji = QString::fromUtf8("\xF0\x9F\x98\x80").repeated(600).toUtf8();
+        ResultModel model;
+        model.setResult(
+            makeResult({{"a", Text}, {"b", Text}}, {{euros.constData(), emoji.constData()}}));
+
+        const QString tip = model.index(0, 0).data(Qt::ToolTipRole).toString();
+        QCOMPARE(tip.size(), 2001);
+        QVERIFY(!tip.contains(QChar::ReplacementCharacter));
+        QCOMPARE(tip.back(), QChar(0x2026));
+        QCOMPARE(model.index(0, 0).data(ResultModel::ValueRole).toString().toUtf8(), euros);
+
+        // 500 UTF-16 units are 250 of these, each a surrogate pair.
+        const QString cell = model.index(0, 1).data().toString();
+        QCOMPARE(cell.size(), 501);
+        QVERIFY(cell.at(499).isLowSurrogate());
+        QCOMPARE(model.index(0, 1).data(ResultModel::ValueRole).toString().toUtf8(), emoji);
+    }
+
+    void copiesWholeValues()
+    {
+        const QByteArray big = QByteArray("{\"k\": \"") + QByteArray(2000, 'x') + "\"}";
+        ResultView view;
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        view.begin(QStringLiteral("Values"));
+        view.append(makeResult({{"j", Text}, {"n", Int4}, {"t", Text}},
+                               {{big.constData(), "1", "a\tb"}, {"short", nullptr, "c"}}));
+        view.finish(QString());
+        QTableView *table = view.table();
+        table->setFocus();
+        QClipboard *clipboard = QGuiApplication::clipboard();
+
+        // One cell: the value as it is.
+        table->setCurrentIndex(view.model()->index(0, 0));
+        QTest::keySequence(table, QKeySequence::Copy);
+        QCOMPARE(clipboard->text().toUtf8(), big);
+
+        // A ragged selection: tab-separated, lined up, NULL empty, quoted
+        // where a tab is in the value.
+        QItemSelectionModel *selection = table->selectionModel();
+        selection->select(view.model()->index(0, 1), QItemSelectionModel::ClearAndSelect);
+        selection->select(view.model()->index(0, 2), QItemSelectionModel::Select);
+        selection->select(view.model()->index(1, 1), QItemSelectionModel::Select);
+        QTest::keySequence(table, QKeySequence::Copy);
+        QCOMPARE(clipboard->text(), QStringLiteral("1\t\"a\tb\"\n\t"));
+
+        // The record view shows the whole value and copies it too.
+        table->setCurrentIndex(view.model()->index(0, 0));
+        view.setViewMode(ResultView::ViewMode::Record);
+        QTableView *record = view.recordView();
+        QCOMPARE(record->model()->index(0, 1).data().toString().toUtf8(), big);
+        // Wrapped, though the value has a single space in it.
+        QVERIFY(record->rowHeight(0) > 10 * record->rowHeight(1));
+        record->setFocus();
+        record->setCurrentIndex(record->model()->index(0, 1));
+        QTest::keySequence(record, QKeySequence::Copy);
+        QCOMPARE(clipboard->text().toUtf8(), big);
+    }
+
     // The editor's grid is not sortable: its rows can be edited.
     void notSortableUnlessAsked()
     {

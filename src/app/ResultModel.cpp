@@ -22,6 +22,22 @@ namespace {
 // Longer values are cut short in cells; the tooltip has more.
 constexpr int MaxCellLength = 500;
 
+// The start of a value, at most length UTF-16 units and an ellipsis when
+// there is more. Only that start is decoded, and no character is split.
+QString shortened(const QByteArray &utf8, qsizetype length)
+{
+    // A character takes four bytes at most, so these decode to enough.
+    qsizetype bytes = std::min(utf8.size(), 4 * length);
+    while (bytes > 0 && bytes < utf8.size() && (uchar(utf8[bytes]) & 0xC0) == 0x80)
+        --bytes; // A continuation byte: back to where the character starts.
+    QString text = QString::fromUtf8(utf8.constData(), bytes);
+    if (text.size() > length)
+        text.truncate(text.at(length).isLowSurrogate() ? length - 1 : length);
+    else if (bytes == utf8.size())
+        return text;
+    return text + QChar(0x2026);
+}
+
 bool isNumeric(Oid type)
 {
     switch (type) {
@@ -170,15 +186,15 @@ QVariant ResultModel::data(const QModelIndex &index, int role) const
             return QStringLiteral("DEFAULT");
         if (!v)
             return QStringLiteral("NULL");
-        QString text = QString::fromUtf8(*v);
-        if (text.size() > MaxCellLength)
-            text = text.left(MaxCellLength) + QChar(0x2026);
+        QString text = shortened(*v, MaxCellLength);
         return text.replace(QLatin1Char('\n'), QChar(0x21B5));
     }
     case Qt::EditRole:
         return v ? QVariant(QString::fromUtf8(*v)) : QVariant(QString());
+    case ValueRole:
+        return v && !unset ? QVariant(QString::fromUtf8(*v)) : QVariant();
     case Qt::ToolTipRole:
-        return v ? QVariant(QString::fromUtf8(v->left(4 * MaxCellLength))) : QVariant();
+        return v ? QVariant(shortened(*v, 4 * MaxCellLength)) : QVariant();
     case Qt::TextAlignmentRole:
         return m_numeric[std::size_t(column)] ? QVariant(Qt::AlignRight | Qt::AlignVCenter)
                                               : QVariant(Qt::AlignLeft | Qt::AlignVCenter);
@@ -204,6 +220,42 @@ QVariant ResultModel::data(const QModelIndex &index, int role) const
     default:
         return {};
     }
+}
+
+QString ResultModel::copyText(QModelIndexList cells)
+{
+    if (cells.size() == 1)
+        return cells.first().data(ValueRole).toString();
+    std::sort(cells.begin(), cells.end()); // By row, then by column.
+    // A ragged selection still lines up: every row has a field for every
+    // column selected anywhere, empty where the cell was not selected.
+    std::vector<int> columns;
+    for (const QModelIndex &cell : std::as_const(cells))
+        columns.push_back(cell.column());
+    std::sort(columns.begin(), columns.end());
+    columns.erase(std::unique(columns.begin(), columns.end()), columns.end());
+
+    QString out;
+    for (qsizetype i = 0; i < cells.size();) {
+        const int row = cells[i].row();
+        if (!out.isEmpty())
+            out += QLatin1Char('\n');
+        for (std::size_t c = 0; c < columns.size(); ++c) {
+            if (c > 0)
+                out += QLatin1Char('\t');
+            if (i == cells.size() || cells[i].row() != row || cells[i].column() != columns[c])
+                continue;
+            QString value = cells[i++].data(ValueRole).toString();
+            // Quoted the way spreadsheets read pasted text.
+            if (value.contains(QLatin1Char('\t')) || value.contains(QLatin1Char('\n'))
+                || value.contains(QLatin1Char('\r')) || value.contains(QLatin1Char('"'))) {
+                value.replace(QLatin1Char('"'), QLatin1String("\"\""));
+                value = QLatin1Char('"') + value + QLatin1Char('"');
+            }
+            out += value;
+        }
+    }
+    return out;
 }
 
 QVariant ResultModel::headerData(int section, Qt::Orientation orientation, int role) const
