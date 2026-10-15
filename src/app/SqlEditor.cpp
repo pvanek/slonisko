@@ -250,6 +250,50 @@ void SqlEditor::selectRange(qsizetype from, qsizetype to)
     send(SCI_SETSEL, from, to);
 }
 
+std::pair<qsizetype, qsizetype> SqlEditor::selectionRange() const
+{
+    return {qsizetype(send(SCI_GETSELECTIONSTART)), qsizetype(send(SCI_GETSELECTIONEND))};
+}
+
+void SqlEditor::replaceRange(qsizetype from, qsizetype to, const QByteArray &text)
+{
+    beginUndoAction();
+    send(SCI_SETTARGETSTART, from);
+    send(SCI_SETTARGETEND, to);
+    SendScintilla(SCI_REPLACETARGET, static_cast<uintptr_t>(text.size()), text.constData());
+    endUndoAction();
+}
+
+void SqlEditor::setSearchMatches(const std::vector<std::pair<qsizetype, qsizetype>> &ranges)
+{
+    send(SCI_SETINDICATORCURRENT, SearchIndicator);
+    send(SCI_INDICATORCLEARRANGE, 0, send(SCI_GETLENGTH));
+    for (const auto &[from, to] : ranges) {
+        // An empty match, like ^, still shows: as its next character.
+        const qsizetype end = from == to ? send(SCI_POSITIONAFTER, from) : to;
+        send(SCI_INDICATORFILLRANGE, from, end - from);
+    }
+}
+
+void SqlEditor::setSearchScope(std::optional<std::pair<qsizetype, qsizetype>> range)
+{
+    send(SCI_SETINDICATORCURRENT, SearchScopeIndicator);
+    send(SCI_INDICATORCLEARRANGE, 0, send(SCI_GETLENGTH));
+    if (range && range->second > range->first)
+        send(SCI_INDICATORFILLRANGE, range->first, range->second - range->first);
+}
+
+std::optional<std::pair<qsizetype, qsizetype>> SqlEditor::searchScope() const
+{
+    const auto length = qsizetype(send(SCI_GETLENGTH));
+    qsizetype from = 0;
+    if (send(SCI_INDICATORVALUEAT, SearchScopeIndicator, 0) == 0)
+        from = send(SCI_INDICATOREND, SearchScopeIndicator, 0);
+    if (from >= length || send(SCI_INDICATORVALUEAT, SearchScopeIndicator, from) == 0)
+        return std::nullopt; // None, or all of it deleted.
+    return std::pair(from, qsizetype(send(SCI_INDICATOREND, SearchScopeIndicator, from)));
+}
+
 void SqlEditor::toggleComment()
 {
     const qsizetype anchor = send(SCI_GETANCHOR);
@@ -433,6 +477,27 @@ void SqlEditor::setupSemanticIndicators()
     textColor(K::ForeignNumber, SqlLexer::color(SqlLexer::Number, dark));
 }
 
+void SqlEditor::setupSearchIndicators()
+{
+    static_assert(FirstSemanticIndicator + int(catalog::SemanticSpan::Kind::ForeignNumber)
+                  < SearchIndicator);
+    const bool dark = QGuiApplication::palette().color(QPalette::Base).lightness() < 128;
+    // Under the text, as a marker pen would be: amber, like most editors' matches.
+    send(SCI_INDICSETSTYLE, SearchIndicator, INDIC_FULLBOX);
+    send(SCI_INDICSETUNDER, SearchIndicator, 1);
+    SendScintilla(SCI_INDICSETFORE, static_cast<unsigned long>(SearchIndicator),
+                  QColor::fromString(QLatin1String(dark ? "#b8860b" : "#ffc107")));
+    send(SCI_INDICSETALPHA, SearchIndicator, dark ? 110 : 120);
+    send(SCI_INDICSETOUTLINEALPHA, SearchIndicator, dark ? 200 : 220);
+    // Faint, so the matches in it stand out.
+    send(SCI_INDICSETSTYLE, SearchScopeIndicator, INDIC_FULLBOX);
+    send(SCI_INDICSETUNDER, SearchScopeIndicator, 1);
+    SendScintilla(SCI_INDICSETFORE, static_cast<unsigned long>(SearchScopeIndicator),
+                  QColor::fromString(QLatin1String(dark ? "#5b8fd6" : "#3d7cc9")));
+    send(SCI_INDICSETALPHA, SearchScopeIndicator, dark ? 45 : 30);
+    send(SCI_INDICSETOUTLINEALPHA, SearchScopeIndicator, 0);
+}
+
 void SqlEditor::refreshSemantics()
 {
     m_semanticTimer.start(0);
@@ -579,6 +644,7 @@ void SqlEditor::applyTheme()
     m_lexer->refreshPalette();
     setLexer(m_lexer);
     setupSemanticIndicators();
+    setupSearchIndicators();
 
     const QPalette colors = palette();
     const QColor base = colors.color(QPalette::Base);

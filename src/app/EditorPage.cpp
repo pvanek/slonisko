@@ -9,6 +9,7 @@
 #include "ResultPanel.h"
 #include "ResultModel.h"
 #include "ResultView.h"
+#include "SearchBar.h"
 #include "Session.h"
 #include "SqlEditor.h"
 #include "SaveChangesDialog.h"
@@ -134,10 +135,21 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(toolbar);
+    // The editor with its search bar below it, as in Kate. Their keys work
+    // only there: in the results, Ctrl+R runs the query again.
+    auto *editorArea = new QWidget(this);
+    m_searchBar = new SearchBar(m_editor, editorArea);
+    auto *editorLayout = new QVBoxLayout(editorArea);
+    editorLayout->setContentsMargins(0, 0, 0, 0);
+    editorLayout->setSpacing(0);
+    editorLayout->addWidget(m_editor);
+    editorLayout->addWidget(m_searchBar);
+    editorArea->addActions(m_searchBar->editorActions());
+
     // The editor above its results, in one page.
     auto *splitter = new QSplitter(Qt::Vertical, this);
     splitter->setChildrenCollapsible(false);
-    splitter->addWidget(m_editor);
+    splitter->addWidget(editorArea);
     splitter->addWidget(m_panel);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
@@ -157,7 +169,10 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
                 if (m_session)
                     Q_EMIT objectRequested(m_session, m_database, kind, oid);
             });
-    m_editor->setContextActions({m_run, m_explain, m_explainAnalyze, m_cancel});
+    auto *separator = new QAction(this);
+    separator->setSeparator(true);
+    m_editor->setContextActions({m_run, m_explain, m_explainAnalyze, m_cancel, separator,
+                                 m_searchBar->findAction(), m_searchBar->replaceAction()});
     m_editor->setSnapshotProvider(
         [this] { return m_session ? m_session->snapshot(m_database) : catalog::SnapshotPtr(); });
 

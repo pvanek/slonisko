@@ -13,7 +13,9 @@ add_library(slonisko_sql STATIC
     PsqlVariables.cpp
     PsqlVariables.h
     Splitter.cpp
-    Splitter.h)
+    Splitter.h
+    TextSearch.cpp
+    TextSearch.h)
 add_library(Slonisko::Sql ALIAS slonisko_sql)
 
 target_include_directories(slonisko_sql PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")

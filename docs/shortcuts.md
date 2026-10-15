@@ -26,6 +26,12 @@ have none.
 | {kbd}`Esc` | Close the list of completions |
 | {kbd}`Ctrl`+click | Open what a name is |
 | {kbd}`Ctrl+/` | Comment the line, or the selected lines, out with `--`, or back in |
+| {kbd}`Ctrl+F` | Find as you type |
+| {kbd}`Ctrl+R` | Find and replace; in the results, run the query again |
+| {kbd}`F3`, {kbd}`Shift+F3` | Find the next or the previous match; on macOS {kbd}`Command+G`, {kbd}`Shift+Command+G` |
+| {kbd}`Ctrl+H`, {kbd}`Ctrl+Shift+H` | Find the selected text, or the word at the cursor, forwards or backwards |
+| {kbd}`Enter`, {kbd}`Shift+Enter` | In the find field, the next or the previous match; in the replace field, replace |
+| {kbd}`Esc` | Close the search bar; in the bar, so does the {kbd}`Ctrl+F` or {kbd}`Ctrl+R` that opened it |
 | {kbd}`Ctrl+N` | Open a new SQL editor |
 | {kbd}`Ctrl+O` | Open a file |
 | {kbd}`Ctrl+S` | Save; in the result grid, save the edited rows |
@@ -44,7 +50,7 @@ have none.
 
 | Keys | What it does |
 |---|---|
-| {kbd}`F5`, {kbd}`Ctrl+R` | Run the query again, or reload the object's page or the tree; on macOS only {kbd}`Command+R` |
+| {kbd}`F5`, {kbd}`Ctrl+R` | Run the query again, or reload the object's page or the tree; on macOS only {kbd}`Command+R`. In the editor {kbd}`Ctrl+R` is find and replace |
 | {kbd}`Ctrl+Insert` | Add a row |
 | {kbd}`Delete` | Delete the selected rows, or take back their deletion; in the tree, delete the connection |
 | {kbd}`Ctrl+Shift+N` | Set the selected cells to NULL |

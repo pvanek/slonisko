@@ -46,6 +46,10 @@ public:
     using QsciScintilla::setCursorPosition;
     void setCursorPosition(qsizetype pos);
     void selectRange(qsizetype from, qsizetype to);
+    // The main selection in bytes, its start first.
+    std::pair<qsizetype, qsizetype> selectionRange() const;
+    // Replaces bytes [from, to) with text, as one step to undo.
+    void replaceRange(qsizetype from, qsizetype to, const QByteArray &text);
     // Comments the current line, or the selected ones, out with "--", or
     // back in (Ctrl+/).
     void toggleComment();
@@ -77,12 +81,21 @@ public:
     // between the previous and the next statement, even if unterminated.
     static std::pair<qsizetype, qsizetype> statementBounds(const QByteArray &text, qsizetype pos);
 
+    // Find and replace: every match highlighted, and the part of the text a
+    // search keeps to, which follows edits as the text moves around it.
+    void setSearchMatches(const std::vector<std::pair<qsizetype, qsizetype>> &ranges);
+    void setSearchScope(std::optional<std::pair<qsizetype, qsizetype>> range);
+    std::optional<std::pair<qsizetype, qsizetype>> searchScope() const;
+
     static constexpr int StatementIndicator = 8;
     static constexpr int ErrorIndicator = 9;
     // Semantic highlighting: one indicator per SemanticSpan::Kind, from here
     // on, in that order. Later ones are drawn over earlier ones.
     static constexpr int FirstSemanticIndicator = 10;
     static int indicatorFor(catalog::SemanticSpan::Kind kind);
+    // After the semantic ones.
+    static constexpr int SearchIndicator = 21;
+    static constexpr int SearchScopeIndicator = 22;
 
     // Analyzes the visible statements again, e.g. after the catalog changed.
     void refreshSemantics();
@@ -117,6 +130,7 @@ private:
     void analyzeVisible();
     void applySemantics();
     void setupSemanticIndicators();
+    void setupSearchIndicators();
     void showCompletion();
     void applyCompletion(const catalog::CompletionItem &item);
 

@@ -44,6 +44,74 @@ only the first ones.
 An error: the misspelt column is underlined in the script, the server's message and hint are in *Messages*.
 ```
 
+## Find and replace
+
+```{index} find, replace, search, regular expressions
+```
+
+Searching works as in Kate: a bar opens below the editor rather than a
+dialog over it, and the text stays in view while you search.
+
+{kbd}`Ctrl+F`
+: Opens the bar to find as you type. Each letter moves the selection to the
+  next match after where the cursor was, and every match in the script is
+  highlighted. The field turns green when there is a match and red when
+  there is none. {kbd}`Enter` and {kbd}`Shift+Enter` go to the next and the
+  previous match, and searching starts over at the other end of the script
+  when it runs out, saying so. Typing searches for plain text.
+
+{kbd}`Ctrl+R`
+: Opens the bar with replace and the search options. Here searching waits
+  for {kbd}`Enter`. *Replace* (or {kbd}`Enter` in the replace field)
+  replaces the selected match and selects the next one; if the selection is
+  not a match yet, it finds one first, so you see each one before it
+  changes. *Replace All* replaces every match at once, and a single
+  {kbd}`Ctrl+Z` takes all of it back. *Find All* highlights and counts the
+  matches.
+
+{kbd}`F3` / {kbd}`Shift+F3`
+: Find the next or previous match again, with the bar open or closed.
+
+{kbd}`Ctrl+H` / {kbd}`Ctrl+Shift+H`
+: Find the selected text, or the word at the cursor, forwards or backwards.
+
+{kbd}`Esc`
+: Closes the bar, in the bar or in the editor, and takes the highlighting
+  away. The last match stays selected. The key that opened the bar,
+  {kbd}`Ctrl+F` or {kbd}`Ctrl+R`, closes it too while you are in the bar;
+  pressed in the editor, it takes you back to the bar.
+
+Text selected on one line is what the bar searches for when it opens.
+Selecting several lines and pressing {kbd}`Ctrl+R` checks *Selection only*:
+the search and *Replace All* then keep to those lines, which stay faintly
+marked and move with the text as you edit around them.
+
+The text to find is read one of four ways:
+
+Plain text
+: Exactly what is typed.
+
+Whole words
+: Plain text that is not part of a longer word, so `id` finds `id` but not
+  `user_id`.
+
+Escape sequences
+: Plain text where `\n` is a line break, `\t` a tab and `\\` a backslash.
+
+Regular expression
+: Perl-compatible (PCRE2), which is close to but not quite PostgreSQL's `~`. `^`
+  and `$` match at the start and end of every line, and `\R` matches any
+  line break. In the replacement, `\0` is the whole match and `\1` to `\9`
+  are its groups. `\U` and `\L` switch what follows to upper or lower case
+  until `\E`, and `\u` and `\l` change only the next letter. Replacing `^`
+  with `-- ` comments every line out.
+
+In escape-sequence and regular expression modes, `\n` in the replacement is
+a line break written the way the file writes them.
+
+The last fifteen searches and replacements are kept in the fields' lists
+from one session to the next, along with the search mode and *Match case*.
+
 ## Completion
 
 ```{index} completion, fuzzy matching

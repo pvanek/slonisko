@@ -28,6 +28,7 @@ namespace slonisko {
 
 class ConnectionBrowser;
 class ResultPanel;
+class SearchBar;
 class Session;
 class SqlEditor;
 
@@ -43,6 +44,7 @@ public:
     ~EditorPage() override;
 
     SqlEditor *editor() const { return m_editor; }
+    SearchBar *searchBar() const { return m_searchBar; }
     ResultPanel *resultPanel() const { return m_panel; }
     pg::Connection *connection() const { return m_connection; }
     Session *session() const { return m_session; }
@@ -171,6 +173,7 @@ private:
     QString m_name;
     QString m_filePath;
     SqlEditor *m_editor = nullptr;
+    SearchBar *m_searchBar = nullptr;
     ResultPanel *m_panel = nullptr;
     QComboBox *m_target = nullptr;
     QLabel *m_status = nullptr;

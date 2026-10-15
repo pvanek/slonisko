@@ -51,6 +51,9 @@ add_library(slonisko_ui STATIC
     SaveChangesDialog.cpp
     SaveChangesDialog.h
     SaveChangesDialog.ui
+    SearchBar.cpp
+    SearchBar.h
+    SearchBar.ui
     Session.cpp
     Session.h
     Shortcuts.h
