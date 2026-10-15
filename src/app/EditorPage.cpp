@@ -157,6 +157,7 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
                 if (m_session)
                     Q_EMIT objectRequested(m_session, m_database, kind, oid);
             });
+    m_editor->setContextActions({m_run, m_explain, m_explainAnalyze, m_cancel});
     m_editor->setSnapshotProvider(
         [this] { return m_session ? m_session->snapshot(m_database) : catalog::SnapshotPtr(); });
 

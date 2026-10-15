@@ -25,6 +25,7 @@ have none.
 | {kbd}`Tab`, {kbd}`Enter` | Take the completion picked in the list |
 | {kbd}`Esc` | Close the list of completions |
 | {kbd}`Ctrl`+click | Open what a name is |
+| {kbd}`Ctrl+/` | Comment the line, or the selected lines, out with `--`, or back in |
 | {kbd}`Ctrl+N` | Open a new SQL editor |
 | {kbd}`Ctrl+O` | Open a file |
 | {kbd}`Ctrl+S` | Save; in the result grid, save the edited rows |

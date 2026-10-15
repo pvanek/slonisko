@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 add_library(slonisko_sql STATIC
+    Comments.cpp
+    Comments.h
     EmbeddedLexer.cpp
     EmbeddedLexer.h
     Keywords.cpp

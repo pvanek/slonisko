@@ -5,16 +5,21 @@
 
 #include "CompletionPopup.h"
 #include "SqlLexer.h"
+#include "sql/Comments.h"
 #include "sql/Splitter.h"
 
+#include <QContextMenuEvent>
 #include <QEvent>
 #include <QCursor>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QPalette>
 #include <QToolTip>
 #include <QtConcurrent/QtConcurrentRun>
+
+#include <algorithm>
 
 namespace slonisko {
 
@@ -195,6 +200,11 @@ void SqlEditor::keyPressEvent(QKeyEvent *event)
         complete(true);
         return;
     }
+    // Before Scintilla, whose Ctrl+/ moves to the previous part of a word.
+    if (event->key() == Qt::Key_Slash && event->modifiers() & Qt::ControlModifier) {
+        toggleComment();
+        return;
+    }
     QsciScintilla::keyPressEvent(event);
 
     const QString typed = event->text();
@@ -238,6 +248,63 @@ void SqlEditor::setCursorPosition(qsizetype pos)
 void SqlEditor::selectRange(qsizetype from, qsizetype to)
 {
     send(SCI_SETSEL, from, to);
+}
+
+void SqlEditor::toggleComment()
+{
+    const qsizetype anchor = send(SCI_GETANCHOR);
+    const qsizetype caret = cursorPosition();
+    const qsizetype from = std::min(anchor, caret);
+    const qsizetype to = std::max(anchor, caret);
+    const auto first = qsizetype(send(SCI_LINEFROMPOSITION, from));
+    auto last = qsizetype(send(SCI_LINEFROMPOSITION, to));
+    // Whole lines selected end at the start of the next one, which is not
+    // meant to be commented with them.
+    if (last > first && send(SCI_POSITIONFROMLINE, last) == to)
+        --last;
+    const qsizetype start = send(SCI_POSITIONFROMLINE, first);
+    const qsizetype end = send(SCI_GETLINEENDPOSITION, last);
+    const QByteArray lines = utf8Text().sliced(start, end - start);
+    const QByteArray toggled = sql::toggleLineComments(lines);
+    if (toggled == lines)
+        return;
+
+    beginUndoAction();
+    send(SCI_SETTARGETSTART, start);
+    send(SCI_SETTARGETEND, end);
+    SendScintilla(SCI_REPLACETARGET, static_cast<uintptr_t>(toggled.size()), toggled.constData());
+    endUndoAction();
+    // The caret stays where it was in the text, a selection takes in the
+    // lines as they are now.
+    if (anchor == caret) {
+        setCursorPosition(std::max(start, caret + toggled.size() - lines.size()));
+    } else if (anchor < caret) {
+        selectRange(start, start + toggled.size());
+    } else {
+        selectRange(start + toggled.size(), start);
+    }
+}
+
+QMenu *SqlEditor::createContextMenu()
+{
+    QMenu *menu = createStandardContextMenu();
+    menu->addSeparator();
+    QAction *comment = menu->addAction(tr("Toggle &Comment"), this, &SqlEditor::toggleComment);
+    // Only shown: the key itself is handled in keyPressEvent().
+    comment->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Slash));
+    comment->setEnabled(!isReadOnly());
+    if (!m_contextActions.isEmpty()) {
+        menu->addSeparator();
+        menu->addActions(m_contextActions);
+    }
+    return menu;
+}
+
+void SqlEditor::contextMenuEvent(QContextMenuEvent *event)
+{
+    QMenu *menu = createContextMenu();
+    menu->setAttribute(Qt::WA_DeleteOnClose);
+    menu->popup(event->globalPos());
 }
 
 std::vector<ScriptPiece> SqlEditor::pieces(qsizetype from, qsizetype to) const

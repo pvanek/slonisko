@@ -5,7 +5,10 @@
 #include "SqlEditor.h"
 #include "SqlLexer.h"
 
+#include <QMenu>
 #include <QTest>
+
+#include <memory>
 
 using namespace slonisko;
 
@@ -276,6 +279,43 @@ private Q_SLOTS:
         QCOMPARE(popup->current()->label, QStringLiteral("customer_id"));
         QTest::keyClick(&e, Qt::Key_Tab);
         QCOMPARE(e.text(), QStringLiteral("SELECT customer_id FROM orders"));
+    }
+
+    void toggleComment()
+    {
+        SqlEditor e;
+        e.setText(QStringLiteral("SELECT 1;\nSELECT 2;\nSELECT 3;"));
+        e.setCursorPosition(find(e, "2"));
+        QTest::keyClick(&e, Qt::Key_Slash, Qt::ControlModifier);
+        QCOMPARE(e.text(), QStringLiteral("SELECT 1;\n-- SELECT 2;\nSELECT 3;"));
+        QCOMPARE(e.cursorPosition(), find(e, "2")); // Still on the same character.
+        QTest::keyClick(&e, Qt::Key_Slash, Qt::ControlModifier);
+        QCOMPARE(e.text(), QStringLiteral("SELECT 1;\nSELECT 2;\nSELECT 3;"));
+        QCOMPARE(e.cursorPosition(), find(e, "2"));
+
+        // The selected lines, without the one the selection ends at the start of.
+        e.selectRange(find(e, "1"), find(e, "SELECT", 2));
+        e.toggleComment();
+        QCOMPARE(e.text(), QStringLiteral("-- SELECT 1;\n-- SELECT 2;\nSELECT 3;"));
+        QVERIFY(e.isUndoAvailable());
+        e.undo();
+        QCOMPARE(e.text(), QStringLiteral("SELECT 1;\nSELECT 2;\nSELECT 3;"));
+
+        // Also in the context menu.
+        e.setCursorPosition(0);
+        std::unique_ptr<QMenu> menu(e.createContextMenu());
+        QAction *comment = nullptr;
+        for (QAction *a : menu->actions()) {
+            if (a->shortcut() == QKeySequence(Qt::CTRL | Qt::Key_Slash))
+                comment = a;
+        }
+        QVERIFY(comment);
+        QVERIFY(comment->isEnabled());
+        comment->trigger();
+        QCOMPARE(e.text(), QStringLiteral("-- SELECT 1;\nSELECT 2;\nSELECT 3;"));
+        e.setReadOnly(true);
+        menu.reset(e.createContextMenu());
+        QVERIFY(!menu->actions().constLast()->isEnabled());
     }
 
     // Short words that stand for whole statements.

@@ -95,6 +95,28 @@ private Q_SLOTS:
         QVERIFY(messages().contains(QLatin1String("INSERT 0 2")));
     }
 
+    // The editor's context menu runs and explains too.
+    void contextMenu()
+    {
+        setText("SELECT 1;\nSELECT g FROM generate_series(1, 3) g;\n");
+        cursorAt("generate_series");
+        std::unique_ptr<QMenu> menu(m_tab->editor()->createContextMenu());
+        QStringList texts;
+        for (QAction *a : menu->actions())
+            texts << a->text().remove(QLatin1Char('&'));
+        const auto run = texts.indexOf(QStringLiteral("Run Statement"));
+        QVERIFY2(run > 0, qPrintable(texts.join(QLatin1Char('|'))));
+        QVERIFY(menu->actions().at(run - 1)->isSeparator());
+        QCOMPARE(texts.mid(run),
+                 (QStringList {QStringLiteral("Run Statement"), QStringLiteral("Explain"),
+                               QStringLiteral("Explain Analyze"), QStringLiteral("Cancel")}));
+        QVERIFY(!menu->actions().constLast()->isEnabled()); // Nothing to cancel.
+
+        menu->actions().at(run)->trigger();
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        QCOMPARE(model()->rowCount(), 3);
+    }
+
     void errorIsMarked()
     {
         // Non-ASCII before the error: PostgreSQL counts characters, the editor bytes.

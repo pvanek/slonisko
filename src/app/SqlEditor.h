@@ -46,6 +46,13 @@ public:
     using QsciScintilla::setCursorPosition;
     void setCursorPosition(qsizetype pos);
     void selectRange(qsizetype from, qsizetype to);
+    // Comments the current line, or the selected ones, out with "--", or
+    // back in (Ctrl+/).
+    void toggleComment();
+    // QScintilla's menu, with the editor's own actions added and then the
+    // ones set here, such as the page's Run and Explain.
+    QMenu *createContextMenu();
+    void setContextActions(const QList<QAction *> &actions) { m_contextActions = actions; }
 
     // What Run executes: the selected statements, or the current one.
     std::vector<ScriptPiece> piecesToRun() const;
@@ -99,6 +106,7 @@ protected:
     void leaveEvent(QEvent *event) override;
     void focusOutEvent(QFocusEvent *event) override;
     void changeEvent(QEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     void updateLinkCursor(Qt::KeyboardModifiers modifiers, const QPoint &at);
@@ -125,6 +133,7 @@ private:
     std::vector<ScriptPiece> pieces(qsizetype from, qsizetype to) const;
 
     SqlLexer *m_lexer = nullptr;
+    QList<QAction *> m_contextActions;
     QTimer m_statementTimer;
 
     SnapshotProvider m_snapshot;
