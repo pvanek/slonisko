@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DocGenWizard</class>
+ <widget class="QWizard" name="DocGenWizard">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>540</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Schema Documentation</string>
+  </property>
+  <property name="options">
+   <set>QWizard::NoBackButtonOnStartPage|QWizard::NoCancelButtonOnLastPage</set>
+  </property>
+  <widget class="slonisko::DocGenPage" name="schemasPage">
+   <property name="title">
+    <string>Schemas</string>
+   </property>
+   <property name="subTitle">
+    <string>Which of the database's schemas to document.</string>
+   </property>
+   <layout class="QVBoxLayout" name="schemasLayout">
+    <item>
+     <widget class="QListWidget" name="schemas"/>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="schemaButtonsLayout">
+      <item>
+       <widget class="QPushButton" name="allSchemas">
+        <property name="text">
+         <string>&amp;All</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="noSchemas">
+        <property name="text">
+         <string>&amp;None</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="schemasStatus">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+          <horstretch>0</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignRight|Qt::AlignVCenter</set>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="slonisko::DocGenPage" name="outputPage">
+   <property name="title">
+    <string>Format and Folder</string>
+   </property>
+   <property name="subTitle">
+    <string>What to write, and where to.</string>
+   </property>
+   <layout class="QFormLayout" name="outputLayout">
+    <item row="0" column="0">
+     <widget class="QLabel" name="formatLabel">
+      <property name="text">
+       <string>&amp;Format:</string>
+      </property>
+      <property name="buddy">
+       <cstring>format</cstring>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QComboBox" name="format"/>
+    </item>
+    <item row="1" column="0">
+     <widget class="QLabel" name="outputLabel">
+      <property name="text">
+       <string>F&amp;older:</string>
+      </property>
+      <property name="buddy">
+       <cstring>output</cstring>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <layout class="QHBoxLayout" name="folderLayout">
+      <item>
+       <widget class="QLineEdit" name="output"/>
+      </item>
+      <item>
+       <widget class="QPushButton" name="browse">
+        <property name="text">
+         <string>&amp;Browse…</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item row="2" column="0">
+     <widget class="QLabel" name="antoraLabel">
+      <property name="text">
+       <string>Antora &amp;component:</string>
+      </property>
+      <property name="buddy">
+       <cstring>antoraName</cstring>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="1">
+     <widget class="QLineEdit" name="antoraName">
+      <property name="text">
+       <string>schema</string>
+      </property>
+     </widget>
+    </item>
+    <item row="3" column="0" colspan="2">
+     <widget class="QCheckBox" name="openWhenDone">
+      <property name="text">
+       <string>&amp;Open when finished</string>
+      </property>
+      <property name="checked">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="slonisko::DocGenPage" name="contentsPage">
+   <property name="title">
+    <string>Contents</string>
+   </property>
+   <property name="subTitle">
+    <string>What the pages say besides the catalog.</string>
+   </property>
+   <layout class="QFormLayout" name="contentsLayout">
+    <item row="0" column="0">
+     <widget class="QLabel" name="titleLabel">
+      <property name="text">
+       <string>&amp;Title:</string>
+      </property>
+      <property name="buddy">
+       <cstring>title</cstring>
+      </property>
+     </widget>
+    </item>
+    <item row="0" column="1">
+     <widget class="QLineEdit" name="title">
+      <property name="placeholderText">
+       <string>The database's name</string>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="0">
+     <widget class="QLabel" name="descriptionLabel">
+      <property name="text">
+       <string>&amp;Introduction:</string>
+      </property>
+      <property name="buddy">
+       <cstring>description</cstring>
+      </property>
+     </widget>
+    </item>
+    <item row="1" column="1">
+     <widget class="QPlainTextEdit" name="description">
+      <property name="tabChangesFocus">
+       <bool>true</bool>
+      </property>
+      <property name="placeholderText">
+       <string>Text for the home page</string>
+      </property>
+     </widget>
+    </item>
+    <item row="2" column="1">
+     <widget class="QWidget" name="documentationOptions">
+      <layout class="QGridLayout" name="documentationOptionsLayout">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item row="0" column="0">
+        <widget class="QCheckBox" name="diagrams">
+         <property name="text">
+          <string>Dia&amp;grams</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QCheckBox" name="definitions">
+         <property name="text">
+          <string>SQL &amp;definitions</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QCheckBox" name="symbolIndex">
+         <property name="text">
+          <string>Inde&amp;x of names</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QCheckBox" name="partitions">
+         <property name="text">
+          <string>A page for each &amp;partition</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item row="3" column="1">
+     <widget class="QWidget" name="reportOptions">
+      <layout class="QGridLayout" name="reportOptionsLayout">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item row="0" column="0">
+        <widget class="QCheckBox" name="health">
+         <property name="toolTip">
+          <string>Read the statistics and the server's state too, not only the catalog</string>
+         </property>
+         <property name="text">
+          <string>Server and database &amp;health</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QCheckBox" name="notices">
+         <property name="toolTip">
+          <string>Findings only worth knowing, beside warnings and critical ones</string>
+         </property>
+         <property name="text">
+          <string>&amp;Notices</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="slonisko::DocGenPage" name="generatePage">
+   <property name="title">
+    <string>Writing</string>
+   </property>
+   <property name="subTitle">
+    <string>The catalog is read and the pages written.</string>
+   </property>
+   <layout class="QVBoxLayout" name="generateLayout">
+    <item>
+     <widget class="QProgressBar" name="progress"/>
+    </item>
+    <item>
+     <widget class="QLabel" name="status">
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+      <property name="textInteractionFlags">
+       <set>Qt::TextSelectableByMouse</set>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <spacer name="generateSpacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+     </spacer>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>slonisko::DocGenPage</class>
+   <extends>QWizardPage</extends>
+   <header>DocGenWizard.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <tabstops>
+  <tabstop>schemas</tabstop>
+  <tabstop>allSchemas</tabstop>
+  <tabstop>noSchemas</tabstop>
+  <tabstop>format</tabstop>
+  <tabstop>output</tabstop>
+  <tabstop>browse</tabstop>
+  <tabstop>antoraName</tabstop>
+  <tabstop>openWhenDone</tabstop>
+  <tabstop>title</tabstop>
+  <tabstop>description</tabstop>
+  <tabstop>diagrams</tabstop>
+  <tabstop>definitions</tabstop>
+  <tabstop>symbolIndex</tabstop>
+  <tabstop>partitions</tabstop>
+  <tabstop>health</tabstop>
+  <tabstop>notices</tabstop>
+ </tabstops>
+ <resources/>
+ <connections/>
+</ui>

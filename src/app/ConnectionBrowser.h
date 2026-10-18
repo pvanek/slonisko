@@ -85,6 +85,9 @@ public:
     // The session of the selected node, and its database (empty: the
     // profile's), or null.
     Session *currentSession(QString *database = nullptr) const;
+    // What the context menu of a node offers; tests look at it without
+    // opening the menu.
+    void fillContextMenu(QMenu &menu, const QModelIndex &index);
 
 Q_SIGNALS:
     // A session connected or went away.
@@ -93,6 +96,10 @@ Q_SIGNALS:
     void editorRequested(slonisko::Session *session, const QString &database);
     // A DBA or System Info item was opened: catalog::monitoringQuery(id).
     void monitoringRequested(slonisko::Session *session, const QString &id);
+    // "Generate Schema Documentation" on a database.
+    void documentationRequested(slonisko::Session *session, const QString &database);
+    // "Database Quality Report" on a database.
+    void qualityReportRequested(slonisko::Session *session, const QString &database);
     // An object whose details can be shown was opened.
     void objectRequested(slonisko::Session *session, const QString &database,
                          slonisko::catalog::ObjectKind kind, unsigned int oid, const QString &name);
@@ -158,6 +165,8 @@ private:
     QAction *m_refresh = nullptr;
     QAction *m_openEditor = nullptr;
     QAction *m_showDetails = nullptr;
+    QAction *m_generateDocs = nullptr;
+    QAction *m_qualityReport = nullptr;
     std::function<bool(const QString &)> m_confirm;
 };
 

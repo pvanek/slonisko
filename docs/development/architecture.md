@@ -12,6 +12,8 @@ without a display.
 | `src/config` | Connection profiles and passwords |
 | `src/sql` | Lexing, statement splitting, psql syntax, other languages' bodies |
 | `src/catalog` | Catalog queries and everything derived from their results |
+| `src/docgen` | Schema documentation: its model, pages and writers, and `slonisko-docgen` |
+| `src/quality` | The quality report: catalog checks, server health, their analysis and pages, and `slonisko-quality-report` |
 | `src/app` | The GUI |
 
 Only `src/app` may depend on Qt Widgets. A query, a parser, a layout or a
@@ -39,3 +41,27 @@ non-blocking libpq calls driven by a socket watcher; `pg::QueryRunner`
 queues what is asked of one connection and answers with callbacks. The
 catalog snapshot, completion and semantic analysis run off the UI thread;
 the snapshot reloads itself when DDL is committed.
+
+## Schema documentation
+
+`src/docgen` reads a `docgen::Model` of the chosen schemas in a few catalog
+queries and builds `docgen::Page`s of headings,
+tables and code that belong to no format. Each writer — HTML, Markdown,
+AsciiDoc, Antora — only spells those pages out, so a new format is one
+renderer and the links between pages come out right in all of them.
+
+The program and `slonisko-docgen` share all of it: the program reads the
+model through a session's `pg::QueryRunner` and writes on a worker thread,
+the command line tool through a connection of its own.
+
+## Quality report
+
+`src/quality` builds on `src/docgen`. It reads the same `docgen::Model`, and
+then a `quality::Health` of the server's state and statistics, each part in a
+query of its own so that what the account may not read only leaves that
+part out. `quality::runChecks()` looks over the model for what is worth
+fixing; `quality::analyse()` grades those findings and adds what the
+statistics show, as `quality::Topic`s in sections; `quality::buildReport()`
+turns those into `docgen::Page`s, which docgen's writers spell out in any
+of its formats. The program writes it from the same wizard as the
+documentation.

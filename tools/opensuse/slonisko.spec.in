@@ -57,6 +57,8 @@ BuildRequires:  cmake(Qt6Help) >= 6.5
 %endif
 # SSH tunnels run the OpenSSH client.
 Recommends:     openssh-clients
+# Draws the diagrams of HTML schema documentation.
+Suggests:       graphviz
 %if %{with docs}
 # The help viewer keeps its index in SQLite, through a Qt plugin that
 # nothing finds a dependency on by itself.
@@ -72,6 +74,30 @@ and reaches servers through SSH tunnels.
 
 SQL is parsed with PostgreSQL's own parser (libpg_query), and passwords are
 kept in the system wallet.
+
+%package        docgen
+Summary:        PostgreSQL schema documentation and quality report generators
+# Unlike the program it reads no SQL, so libpg_query is not linked in.
+License:        GPL-3.0-or-later
+Group:          Productivity/Databases/Tools
+# Draws the diagrams of HTML output; without it they are left as source.
+Recommends:     graphviz
+
+%description    docgen
+slonisko-docgen writes documentation of a PostgreSQL database's schemas:
+tables, views, routines, types and sequences, with their columns, keys,
+indexes, triggers, comments and definitions, ER diagrams and an index of
+names.
+
+slonisko-quality-report writes a quality report of a database: schema
+advice, missing, duplicate and unused indexes, broken dependencies,
+duplicates, and the health of the server: settings, long transactions,
+vacuum, transaction ID wraparound, sequences running out.
+
+Both write a static website, Markdown, AsciiDoc, an Antora component or a
+Sphinx project. The same is in slonisko itself, on a database's context
+menu; this package is the command line tools on their own, for scripts and
+CI.
 
 %prep
 %autosetup -p1
@@ -114,5 +140,10 @@ export QT_QPA_PLATFORM=offscreen
 %if %{with docs}
 %{_datadir}/%{name}
 %endif
+
+%files docgen
+%license LICENSE
+%{_bindir}/%{name}-docgen
+%{_bindir}/%{name}-quality-report
 
 %changelog

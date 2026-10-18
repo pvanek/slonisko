@@ -137,6 +137,18 @@ void ConnectionBrowser::createActions()
         if (Session *s = currentSession(&database))
             Q_EMIT editorRequested(s, database);
     });
+    m_generateDocs
+        = action(QStringLiteral("text-html"), tr("Generate Schema D&ocumentation…"), [this] {
+              QString database;
+              if (Session *s = currentSession(&database))
+                  Q_EMIT documentationRequested(s, database);
+          });
+    m_qualityReport
+        = action(QStringLiteral("dialog-warning"), tr("Database &Quality Report…"), [this] {
+              QString database;
+              if (Session *s = currentSession(&database))
+                  Q_EMIT qualityReportRequested(s, database);
+          });
     m_showDetails = action(QStringLiteral("dialog-information"), tr("&Details"),
                            [this] { showDetails(m_view->currentIndex()); });
     m_refresh->setShortcuts(Shortcuts::refresh());
@@ -183,6 +195,8 @@ void ConnectionBrowser::updateActions()
     m_reconnect->setEnabled(s && s->state() != Session::State::Disconnected);
     m_refresh->setEnabled(s && s->state() == Session::State::Connected);
     m_openEditor->setEnabled(s && s->state() == Session::State::Connected);
+    m_generateDocs->setEnabled(s && s->state() == Session::State::Connected);
+    m_qualityReport->setEnabled(s && s->state() == Session::State::Connected);
     const QModelIndex index = m_view->currentIndex();
     m_showDetails->setEnabled(
         s && s->state() == Session::State::Connected
@@ -227,8 +241,14 @@ Session *ConnectionBrowser::currentSession(QString *database) const
 
 void ConnectionBrowser::showContextMenu(const QPoint &pos)
 {
-    const QModelIndex index = m_view->indexAt(pos);
     QMenu menu(this);
+    fillContextMenu(menu, m_view->indexAt(pos));
+    if (!menu.isEmpty())
+        menu.exec(m_view->viewport()->mapToGlobal(pos));
+}
+
+void ConnectionBrowser::fillContextMenu(QMenu &menu, const QModelIndex &index)
+{
     const auto type = index.data(BrowserModel::NodeTypeRole).value<NodeType>();
     if (!index.isValid()) {
         menu.addAction(m_new);
@@ -251,6 +271,10 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
             menu.addAction(m_openEditor);
         if (m_showDetails->isEnabled())
             menu.addAction(m_showDetails);
+        if (m_generateDocs->isEnabled() && type == NodeType::Database) {
+            menu.addAction(m_generateDocs);
+            menu.addAction(m_qualityReport);
+        }
         if (m_refresh->isEnabled())
             menu.addAction(m_refresh);
         if (m_openEditor->isEnabled()) {
@@ -307,8 +331,6 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
             menu.addAction(m_newFolder);
         }
     }
-    if (!menu.isEmpty())
-        menu.exec(m_view->viewport()->mapToGlobal(pos));
 }
 
 void ConnectionBrowser::onActivated(const QModelIndex &index)

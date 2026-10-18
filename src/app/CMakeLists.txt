@@ -16,6 +16,9 @@ add_library(slonisko_ui STATIC
     ConnectionDialog.cpp
     ConnectionDialog.h
     ConnectionDialog.ui
+    DocGenWizard.cpp
+    DocGenWizard.h
+    DocGenWizard.ui
     DumpDialog.cpp
     DumpDialog.h
     DumpDialog.ui
@@ -92,7 +95,9 @@ target_link_libraries(slonisko_ui PUBLIC
     Slonisko::Pg
     Slonisko::Config
     Slonisko::Sql
-    Slonisko::Catalog)
+    Slonisko::Catalog
+    Slonisko::Docgen
+    Slonisko::Quality)
 if(Qt6Help_FOUND)
     target_link_libraries(slonisko_ui PUBLIC Qt6::Help)
     target_compile_definitions(slonisko_ui PUBLIC SLONISKO_WITH_HELP)

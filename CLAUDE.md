@@ -36,6 +36,8 @@ clang-format -i $(git ls-files '*.cpp' '*.h')
 | `src/config`  | Connection profiles and passwords                              |
 | `src/sql`     | Lexing, statement splitting, psql syntax                       |
 | `src/catalog` | Catalog queries and everything derived from their results      |
+| `src/docgen`  | Schema documentation, and the `slonisko-docgen` tool on it     |
+| `src/quality` | Quality checks and report, and `slonisko-quality-report`       |
 | `src/app`     | The GUI                                                        |
 
 Only `src/app` may depend on Qt Widgets. Keep logic out of the widgets: a

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "DocGenWizard.h"
 #include "catalog/Objects.h"
 
 #include <QMainWindow>
@@ -84,6 +85,10 @@ private:
     void updateActions();
     void openFile();
     void saveCurrent();
+    // The dialog for a database, chosen in the browser: its documentation
+    // or its quality report.
+    void generateDocumentation(Session *session, const QString &database,
+                               DocGenWizard::Kind kind = DocGenWizard::Kind::Documentation);
     void showHelp();
     QString helpKeyword() const;
     void showAbout();

@@ -4,6 +4,7 @@
 #include "MainWindow.h"
 
 #include "ConnectionBrowser.h"
+#include "DocGenWizard.h"
 #include "EditorPage.h"
 #include "FileBrowser.h"
 #include "Icons.h"
@@ -70,6 +71,12 @@ MainWindow::MainWindow(QWidget *parent)
             [this](Session *s, const QString &database) { newEditor(s, database); });
     connect(m_browser, &ConnectionBrowser::monitoringRequested, this, &MainWindow::showMonitoring);
     connect(m_browser, &ConnectionBrowser::objectRequested, this, &MainWindow::showObject);
+    connect(m_browser, &ConnectionBrowser::documentationRequested, this,
+            [this](Session *s, const QString &database) { generateDocumentation(s, database); });
+    connect(m_browser, &ConnectionBrowser::qualityReportRequested, this,
+            [this](Session *s, const QString &database) {
+                generateDocumentation(s, database, DocGenWizard::Kind::QualityReport);
+            });
 
     setupMenus();
     statusBar();
@@ -210,6 +217,16 @@ void MainWindow::updateActions()
     const bool editor = currentEditor() != nullptr;
     m_save->setEnabled(editor);
     m_saveAs->setEnabled(editor);
+}
+
+void MainWindow::generateDocumentation(Session *session, const QString &database,
+                                       DocGenWizard::Kind kind)
+{
+    auto *wizard = new DocGenWizard(session, database, this, kind);
+    // Not modal: writing a big schema's pages takes a while, and the rest of
+    // the window is of use meanwhile.
+    wizard->setAttribute(Qt::WA_DeleteOnClose);
+    wizard->show();
 }
 
 EditorPage *MainWindow::newEditor(Session *session, const QString &database)

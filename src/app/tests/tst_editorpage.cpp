@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Petr Vanek
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "BrowserModel.h"
 #include "ConnectionBrowser.h"
 #include "MainWindow.h"
 #include "ResultPage.h"
@@ -27,6 +28,7 @@
 #include <QSplitter>
 #include <QTabBar>
 #include <QToolButton>
+#include <QTreeView>
 #include <QTableView>
 #include <QTabWidget>
 #include <QFile>
@@ -1191,6 +1193,63 @@ private Q_SLOTS:
         QCOMPARE(editor.session(), session);
         QTRY_COMPARE(editor.connection()->state(), pg::Connection::State::Ready);
         QCOMPARE(editor.connection()->transactionStatus(), PQTRANS_IDLE); // Rolled back.
+    }
+
+    // Schema documentation is offered on a database, not on its connection.
+    void documentationFromDatabaseMenu()
+    {
+        QSettings settings(m_dir.filePath(QStringLiteral("docgen.ini")), QSettings::IniFormat);
+        config::ConnectionProfile profile = m_server->profile;
+        profile.id = QUuid::createUuid();
+        profile.passwordMode = config::PasswordMode::Save;
+        config::ProfileStore(settings).save(profile);
+        config::PasswordStore(settings, false)
+            .write(profile.id, config::PasswordStore::Secret::Postgres, m_server->password, this);
+        ConnectionBrowser browser(settings, false);
+        browser.connectProfile(profile.id);
+        QTRY_COMPARE(browser.connectedSessions().size(), std::size_t(1));
+
+        BrowserModel *model = browser.model();
+        const QModelIndex connection = model->profileIndex(profile.id);
+        if (model->canFetchMore(connection))
+            model->fetchMore(connection);
+        QTRY_VERIFY(model->rowCount(connection) > 0);
+        const QModelIndex database = model->index(0, 0, connection);
+        QCOMPARE(database.data(BrowserModel::NodeTypeRole).value<BrowserModel::NodeType>(),
+                 BrowserModel::NodeType::Database);
+
+        const auto menuOf = [&browser](const QModelIndex &index) {
+            browser.view()->setCurrentIndex(index);
+            auto menu = std::make_unique<QMenu>();
+            browser.fillContextMenu(*menu, index);
+            return menu;
+        };
+        const auto find = [](const QMenu &menu, const char *text) -> QAction * {
+            for (QAction *action : menu.actions()) {
+                if (action->text().startsWith(QLatin1String(text)))
+                    return action;
+            }
+            return nullptr;
+        };
+        QVERIFY(!find(*menuOf(connection), "Generate Schema"));
+        QVERIFY(!find(*menuOf(connection), "Database &Quality"));
+        const auto menu = menuOf(database);
+        QAction *action = find(*menu, "Generate Schema");
+        QVERIFY(action);
+
+        QSignalSpy requested(&browser, &ConnectionBrowser::documentationRequested);
+        action->trigger();
+        QCOMPARE(requested.size(), 1);
+        QCOMPARE(requested.front().at(0).value<Session *>(), browser.connectedSessions().front());
+        QCOMPARE(requested.front().at(1).toString(), profile.database);
+
+        // The quality report beside it.
+        QAction *report = find(*menu, "Database &Quality");
+        QVERIFY(report);
+        QSignalSpy reportRequested(&browser, &ConnectionBrowser::qualityReportRequested);
+        report->trigger();
+        QCOMPARE(reportRequested.size(), 1);
+        QCOMPARE(reportRequested.front().at(1).toString(), profile.database);
     }
 
     // A details page waiting behind a query that never comes back loads

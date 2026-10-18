@@ -113,6 +113,8 @@ editor
 results
 import-and-backup
 diagrams
+docgen
+quality-report
 ```
 
 ```{toctree}

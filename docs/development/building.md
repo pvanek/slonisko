@@ -15,6 +15,11 @@
   the OpenSSH client for tunnels, Docker for the database tests
 - Sphinx with the MyST parser for the manual, which is on by default;
   without it, configure with `-DSLONISKO_WITH_DOCS=OFF`
+- Optional: Graphviz, for the diagrams of HTML schema documentation and its
+  tests
+
+The build makes three programs, `slonisko` and the command line
+`slonisko-docgen` and `slonisko-quality-report`, always all of them.
 
 On openSUSE Tumbleweed:
 

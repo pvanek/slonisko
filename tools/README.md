@@ -9,6 +9,13 @@ One directory per target, each self-contained:
 | `windows/`  | Portable zip and Inno Setup installer            |
 | `flatpak/`  | Flatpak manifest and a bundle of it              |
 
+Every package carries three programs: `slonisko` and the command line
+`slonisko-docgen` and `slonisko-quality-report` (see the manual's *Schema
+documentation* and *Quality report*). The RPM spec puts the command line
+tools into a package of their own, `slonisko-docgen`, which needs neither
+Qt Widgets nor QScintilla; macOS keeps them in the bundle's
+`Contents/MacOS`, Windows beside `slonisko.exe`, the Flatpak in `/app/bin`.
+
 Whatever more than one of them needs belongs in the source tree where the
 build installs it, not copied here: the desktop file and the AppStream
 metainfo, both named after the application ID `cz.yarpen.slonisko`, are in

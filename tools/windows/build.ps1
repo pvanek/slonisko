@@ -101,6 +101,10 @@ $Stage = Join-Path $WorkDir 'Slonisko'
 if (Test-Path $Stage) { Remove-Item -Recurse -Force $Stage }
 cmake --install $Build --prefix $Stage
 $Exe = "$Stage\bin\slonisko.exe"
+# The command line tools, beside the program; they need a part of what the
+# program does (Qt Core and Network, libpq), all of it copied for the program.
+$DocgenExe = "$Stage\bin\slonisko-docgen.exe"
+$ReportExe = "$Stage\bin\slonisko-quality-report.exe"
 
 Write-Host '== Bundling libraries'
 # Qt's DLLs and plugins. The Help module brings Qt SQL, and with it the
@@ -117,14 +121,16 @@ Copy-Item "$env:VCToolsRedistDir\x64\Microsoft.VC*.CRT\*.dll" "$Stage\bin"
 
 # Everything else the program loads: libpq and what it loads in turn
 # (OpenSSL, zlib, ...).
-cmake "-DEXECUTABLE=$Exe" "-DSEARCH_DIRS=$PgDir\bin" `
-    -P "$PSScriptRoot\deploy-dlls.cmake"
+foreach ($program in $Exe, $DocgenExe, $ReportExe) {
+    cmake "-DEXECUTABLE=$program" "-DSEARCH_DIRS=$PgDir\bin" `
+        -P "$PSScriptRoot\deploy-dlls.cmake"
+}
 
 Copy-Item "$SourceDir\LICENSE" "$Stage\LICENSE.txt"
 
 if ($SignCertificate) {
     Write-Host '== Signing'
-    signtool sign /n $SignCertificate /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Exe
+    signtool sign /n $SignCertificate /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Exe $DocgenExe $ReportExe
 }
 
 Write-Host '== Packages'
