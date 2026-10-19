@@ -37,6 +37,7 @@
 #include <QMouseEvent>
 #include <QPlainTextEdit>
 #include <QLabel>
+#include <QLineEdit>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QStandardPaths>
@@ -223,6 +224,55 @@ private Q_SLOTS:
         QCOMPARE(plan->index(0, PlanModel::Operation).data().toString(),
                  QStringLiteral("Function Scan"));
         QVERIFY(!plan->plan().analyzed);
+    }
+
+    // A pinned plan keeps a tab of its own, after the pinned rows; the next
+    // plan goes under Plan.
+    void pinnedPlans()
+    {
+        ResultPanel *panel = m_tab->resultPanel();
+        QVERIFY(!panel->pinPlanAction()->isEnabled()); // Nothing explained yet.
+        setText("SELECT * FROM generate_series(1, 10) g;");
+        m_tab->explain(false);
+        QTRY_VERIFY(!m_tab->isRunning());
+        QVERIFY(panel->pinPlanAction()->isEnabled());
+
+        PlanView *first = panel->plan();
+        panel->pinPlanAction()->trigger();
+        QCOMPARE(panel->pinnedPlans(), QList<PlanView *> {first});
+        QVERIFY(panel->plan() != first);
+        QCOMPARE(panel->currentWidget(), static_cast<QWidget *>(first));
+        QCOMPARE(panel->tabText(panel->indexOf(first)).left(14), QStringLiteral("Plan: SELECT *"));
+        QVERIFY(panel->indexOf(panel->plan()) < panel->indexOf(first));
+        QVERIFY(panel->indexOf(first) < panel->indexOf(panel->messages()));
+        QVERIFY(!panel->pinPlanAction()->isEnabled()); // The new Plan is empty.
+        QVERIFY(!panel->pinPlan());
+
+        // An error under Plan leaves nothing to pin, and the pinned one as it was.
+        setText("SELECT * FROM nope;");
+        m_tab->explain(false);
+        QTRY_VERIFY(!m_tab->isRunning());
+        QVERIFY(!panel->pinPlanAction()->isEnabled());
+        QCOMPARE(first->model()->index(0, PlanModel::Operation).data().toString(),
+                 QStringLiteral("Function Scan"));
+
+        // Pinned rows go before Plan, pinned plans after it.
+        runSql("SELECT 1;");
+        ResultView *rows = panel->pin();
+        QVERIFY(rows);
+        QVERIFY(panel->indexOf(rows) < panel->indexOf(panel->plan()));
+        QVERIFY(panel->indexOf(panel->plan()) < panel->indexOf(first));
+
+        setText("SELECT 2;");
+        m_tab->explain(false);
+        QTRY_VERIFY(!m_tab->isRunning());
+        PlanView *second = panel->pinPlan();
+        QCOMPARE(panel->pinnedPlans(), (QList<PlanView *> {first, second}));
+
+        panel->closePinned(first);
+        QCOMPARE(panel->pinnedPlans(), QList<PlanView *> {second});
+        panel->closePinned(panel->plan());
+        QVERIFY(panel->indexOf(panel->plan()) >= 0);
     }
 
     void explainAnalyzeRollsBack()
@@ -474,6 +524,88 @@ private Q_SLOTS:
         QTest::qWait(200);
         QVERIFY(!m_tab->isRunning());
         QCOMPARE(model()->rowCount(), before);
+    }
+
+    // Pinned rows keep a tab of their own: the next statement's rows go
+    // under Results, and the pinned ones run again and save in their tab.
+    void pinnedResults()
+    {
+        ResultPanel *panel = m_tab->resultPanel();
+        QVERIFY(!panel->pinAction()->isEnabled()); // Nothing run yet.
+        setText("CREATE TEMP TABLE pin (id int PRIMARY KEY, v text);"
+                "INSERT INTO pin VALUES (1, 'one'), (2, 'two');");
+        m_tab->editor()->selectAll();
+        runAndWait();
+        QVERIFY(!panel->pinAction()->isEnabled()); // A message, not rows.
+
+        runSql("SELECT id, v FROM pin ORDER BY id;");
+        QTRY_VERIFY(model()->isEditable());
+        QVERIFY(panel->pinAction()->isEnabled());
+        ResultView *first = panel->results();
+        panel->pinAction()->trigger();
+        QCOMPARE(panel->pinnedResults(), QList<ResultView *> {first});
+        QVERIFY(panel->results() != first);
+        QCOMPARE(panel->currentWidget(), static_cast<QWidget *>(first));
+        QVERIFY(panel->tabText(panel->indexOf(first)).startsWith(QLatin1String("SELECT id")));
+        QVERIFY(panel->indexOf(first) < panel->indexOf(panel->plan()));
+        QVERIFY(!panel->pinAction()->isEnabled()); // The new Results is empty.
+        QVERIFY(!panel->pin());
+
+        runSql("SELECT count(*) FROM pin;");
+        QCOMPARE(panel->currentWidget(), static_cast<QWidget *>(panel->results()));
+        QCOMPARE(model()->index(0, 0).data().toString(), QStringLiteral("2"));
+        QCOMPARE(first->model()->rowCount(), 2);
+        QVERIFY(first->model()->isEditable()); // Still.
+
+        // Saving in the pinned view runs its query again, into it.
+        QVERIFY(first->model()->setData(first->model()->index(0, 1), QStringLiteral("uno")));
+        m_tab->saveChanges(first, false);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        QVERIFY(!first->model()->hasChanges());
+        QCOMPARE(first->model()->index(0, 1).data().toString(), QStringLiteral("uno"));
+        QTRY_VERIFY(first->model()->isEditable());
+        QCOMPARE(model()->index(0, 0).data().toString(), QStringLiteral("2"));
+
+        // So does Run Again.
+        runSql("INSERT INTO pin VALUES (3, 'three');");
+        panel->setCurrentWidget(first);
+        m_tab->window()->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_tab->window()));
+        first->table()->setFocus();
+        QTest::keyClick(first->table(), Qt::Key_F5);
+        QTRY_COMPARE(first->model()->rowCount(), 3);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 10'000));
+        QVERIFY(model()->rowCount() <= 1); // Results shows the INSERT, as before.
+
+        // A second pin goes after the first.
+        runSql("SELECT v FROM pin;");
+        ResultView *second = panel->pin();
+        QCOMPARE(panel->pinnedResults(), (QList<ResultView *> {first, second}));
+
+        // Renamed in place: Enter keeps the name, Esc does not, and an empty
+        // name is the statement again. The tooltip keeps the statement.
+        const int tab = panel->indexOf(second);
+        QLineEdit *edit = panel->renamePinned(second);
+        QVERIFY(edit);
+        QCOMPARE(edit->text(), QStringLiteral("SELECT v FROM pin"));
+        QTest::keyClicks(edit, QStringLiteral("names"));
+        QTest::keyClick(edit, Qt::Key_Return);
+        QCOMPARE(panel->tabText(tab), QStringLiteral("names"));
+        QCOMPARE(panel->tabToolTip(tab), QStringLiteral("SELECT v FROM pin"));
+        edit = panel->renamePinned(second);
+        QCOMPARE(edit->text(), QStringLiteral("names"));
+        QTest::keyClicks(edit, QStringLiteral("other"));
+        QTest::keyClick(edit, Qt::Key_Escape);
+        QCOMPARE(panel->tabText(tab), QStringLiteral("names"));
+        panel->setPinnedName(second, QString());
+        QCOMPARE(panel->tabText(tab), QStringLiteral("SELECT v FROM pin"));
+        QVERIFY(!panel->renamePinned(panel->results()));
+
+        panel->closePinned(first);
+        QCOMPARE(panel->pinnedResults(), QList<ResultView *> {second});
+        // Results and the others stay, whatever is asked.
+        panel->closePinned(panel->results());
+        QCOMPARE(panel->indexOf(panel->results()), 0);
     }
 
     void editorAndResultsAreOnePage()

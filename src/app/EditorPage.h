@@ -10,9 +10,11 @@
 
 #include <QColor>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QPointer>
 #include <QSaveFile>
 #include <QTextStream>
+#include "ResultView.h"
 #include "WorkspacePage.h"
 
 #include <deque>
@@ -94,6 +96,8 @@ public:
     void commit();
     void rollback();
     // Writes the result's edits back to its table; confirm shows the SQL first.
+    void saveChanges(ResultView *view, bool confirm = true);
+    // The edits under Results.
     void saveChanges(bool confirm = true);
     bool isRunning() const { return m_current.has_value(); }
     // The toolbar's transaction indicator: grey (disabled) outside one.
@@ -134,6 +138,9 @@ private:
         };
         Kind kind = Kind::Statement;
         QByteArray sql;
+        // Where a statement's rows go, and what EditInfo looks up for: the
+        // view under Results unless set, a pinned one when run again there.
+        QPointer<ResultView> view;
         std::optional<QByteArray> copyData;
         qsizetype offset = -1; // In the document, to mark errors; -1 for none.
         int prefixChars = 0; // Characters added before the user's text, like EXPLAIN.
@@ -147,13 +154,15 @@ private:
         std::shared_ptr<Sink> sink; // Export jobs only.
     };
 
+    // Connects a view that comes under Results.
+    void setUpResults(ResultView *view);
     void updateSessions();
     void updateTargetColor();
     void updateActions();
     void updateStatus();
     static Job transactionJob(const QByteArray &sql, const QString &message);
     // Runs the query whose rows are shown again, writing all of them out.
-    void exportAll(const catalog::ExportOptions &options, const QString &path);
+    void exportAll(ResultView *view, const catalog::ExportOptions &options, const QString &path);
     void start(std::deque<Job> jobs);
     void startNext();
     void onResult(const pg::Result &result);
@@ -163,7 +172,7 @@ private:
     // Closes the connection without waiting for the server, which may never
     // answer: what was running ends here, saying why.
     void dropConnection(const QString &why);
-    void lookUpEditTarget();
+    void lookUpEditTarget(ResultView *view);
     // Replaces psql variables in a statement, noting the ones not set.
     QByteArray substitute(const QByteArray &sql, Job &job);
     void markError(const Job &job, int position, const QString &message);
@@ -206,8 +215,8 @@ private:
     int m_rowLimit = 100'000;
     sql::PsqlVariables m_variables;
     TransactionPrompt m_prompt;
-    std::optional<Job>
-        m_lastQuery; // The statement whose rows are shown, to run again after saving.
+    // The statement whose rows each view shows, to run again after saving.
+    QHash<const ResultView *, Job> m_shownQueries;
     std::vector<pg::Result> m_editInfo;
 };
 

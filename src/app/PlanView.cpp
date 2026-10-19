@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QStackedWidget>
 #include <QTabBar>
+#include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -204,13 +205,17 @@ PlanView::PlanView(QWidget *parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(m_summary);
+    m_header = new QHBoxLayout;
+    m_header->setContentsMargins(0, 0, 4, 0);
+    m_header->addWidget(m_summary, 1);
+    layout->addLayout(m_header);
     layout->addLayout(middle, 1);
     showMessage(tr("Explain a statement with Ctrl+E, or Ctrl+Shift+E to also run it."));
 }
 
-void PlanView::setPlan(const catalog::Plan &plan)
+void PlanView::setPlan(const catalog::Plan &plan, const QString &title)
 {
+    m_title = title;
     m_model->setPlan(plan);
     m_tree->expandAll();
     for (const int column : {PlanModel::ActualRows, PlanModel::Loops, PlanModel::TimeMs})
@@ -228,6 +233,7 @@ void PlanView::setPlan(const catalog::Plan &plan)
     m_summary->setStyleSheet(QString());
     m_summary->setText(summary.join(QStringLiteral(" · ")));
     m_text->setText(catalog::planText(plan));
+    Q_EMIT changed();
 }
 
 void PlanView::setViewMode(ViewMode mode)
@@ -239,12 +245,29 @@ void PlanView::setViewMode(ViewMode mode)
                                                      : static_cast<QWidget *>(m_text));
 }
 
+bool PlanView::hasPlan() const
+{
+    return m_model->rowCount() > 0;
+}
+
+QToolButton *PlanView::addHeaderAction(QAction *action)
+{
+    auto *button = new QToolButton(this);
+    button->setDefaultAction(action);
+    button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    button->setAutoRaise(true);
+    m_header->addWidget(button, 0, Qt::AlignTop);
+    return button;
+}
+
 void PlanView::showMessage(const QString &text, bool error)
 {
+    m_title.clear();
     m_model->clear();
     m_text->setText(QString());
     m_summary->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());
     m_summary->setText(text);
+    Q_EMIT changed();
 }
 
 } // namespace slonisko

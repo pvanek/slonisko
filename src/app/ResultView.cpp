@@ -311,6 +311,7 @@ ResultView::ResultView(QWidget *parent)
     m_export->setMenu(menu);
 
     auto *header = new QHBoxLayout;
+    m_header = header;
     header->setContentsMargins(4, 2, 4, 2);
     header->addWidget(m_title);
     header->addStretch();
@@ -539,6 +540,26 @@ void ResultView::begin(const QString &title)
     m_status->setText(tr("Running…"));
     m_textStale = true;
     updateView(true); // Whatever was shown before is gone.
+}
+
+QString ResultView::title() const
+{
+    return m_title->text();
+}
+
+QToolButton *ResultView::addHeaderAction(QAction *action)
+{
+    auto *button = new QToolButton(this);
+    button->setDefaultAction(action);
+    button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    button->setAutoRaise(true);
+    m_header->insertWidget(m_header->indexOf(m_stop), button);
+    return button;
+}
+
+bool ResultView::showsRows() const
+{
+    return m_model->hasColumns() && m_stack->currentWidget() != m_message;
 }
 
 void ResultView::append(const pg::Result &result)

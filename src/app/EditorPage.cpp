@@ -162,8 +162,18 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
             [this](const QString &message) { m_panel->log(message); });
     connect(m_browser, &ConnectionBrowser::sessionsChanged, this, &EditorPage::updateSessions);
     connect(m_editor, &QsciScintilla::modificationChanged, this, &EditorPage::titleChanged);
-    connect(m_panel->results(), &ResultView::saveRequested, this, [this] { saveChanges(); });
-    connect(m_panel->results(), &ResultView::exportAllRequested, this, &EditorPage::exportAll);
+    setUpResults(m_panel->results());
+    connect(m_panel, &ResultPanel::resultsReplaced, this, &EditorPage::setUpResults);
+    connect(m_panel, &ResultPanel::pinnedClosing, this, [this](ResultView *view) {
+        // Nothing else is to wait for rows nobody can see any more.
+        m_shownQueries.remove(view);
+        if (m_current && m_current->view == view) {
+            m_current->view = nullptr;
+            if (m_current->kind == Job::Kind::Statement)
+                cancel();
+        }
+        std::erase_if(m_jobs, [view](const Job &job) { return job.view == view; });
+    });
     connect(m_editor, &SqlEditor::objectActivated, this,
             [this](unsigned int oid, catalog::ObjectKind kind, const QString &) {
                 if (m_session)
@@ -476,6 +486,15 @@ void EditorPage::updateTargetColor()
     m_target->setProperty("connectionColor", c);
 }
 
+void EditorPage::setUpResults(ResultView *view)
+{
+    connect(view, &ResultView::saveRequested, this, [this, view] { saveChanges(view); });
+    connect(view, &ResultView::exportAllRequested, this,
+            [this, view](const catalog::ExportOptions &options, const QString &path) {
+                exportAll(view, options, path);
+            });
+}
+
 void EditorPage::updateActions()
 {
     const bool ready = m_connection->state() == pg::Connection::State::Ready && !isRunning();
@@ -489,6 +508,7 @@ void EditorPage::updateActions()
     m_rollback->setEnabled(ready && (status == PQTRANS_INTRANS || status == PQTRANS_INERROR));
     m_reconnect->setEnabled(m_session);
     m_disconnect->setEnabled(m_session);
+    m_panel->setPinEnabled(!isRunning());
 }
 
 void EditorPage::updateStatus()
@@ -543,7 +563,8 @@ void EditorPage::onConnectionState(pg::Connection::State state)
     if (state == pg::Connection::State::Failed) {
         m_panel->log(m_connection->errorMessage(), true);
         if (isRunning()) {
-            m_panel->results()->showError(m_connection->errorMessage());
+            if (m_current->view)
+                m_current->view->showError(m_connection->errorMessage());
             finishAll();
         }
     }
@@ -693,6 +714,10 @@ void EditorPage::startNext()
 
     m_current = std::move(m_jobs.front());
     m_jobs.pop_front();
+    // Decided now rather than when queued: a view pinned meanwhile keeps
+    // its rows.
+    if (m_current->kind == Job::Kind::Statement && !m_current->view)
+        m_current->view = m_panel->results();
     m_rowsShown = false;
     m_rows = 0;
     m_commandTag.clear();
@@ -732,9 +757,9 @@ void EditorPage::onResult(const pg::Result &result)
             markError(job, position - job.prefixChars, message);
         if (job.kind == Job::Kind::Explain) {
             m_panel->plan()->showMessage(message, true);
-        } else if (job.kind == Job::Kind::Statement && !m_rowsShown) {
-            m_panel->results()->showError(message);
-            m_panel->showResults();
+        } else if (job.kind == Job::Kind::Statement && !m_rowsShown && job.view) {
+            job.view->showError(message);
+            m_panel->setCurrentWidget(job.view);
         }
         return;
     }
@@ -744,7 +769,7 @@ void EditorPage::onResult(const pg::Result &result)
         if (result.status() == PGRES_TUPLES_OK && result.rowCount() > 0) {
             QString error;
             if (const auto plan = catalog::parsePlan(result.value(0, 0), &error))
-                m_panel->plan()->setPlan(*plan);
+                m_panel->plan()->setPlan(*plan, preview(job.sql.mid(job.prefixChars)));
             else
                 m_panel->plan()->showMessage(error, true);
         }
@@ -752,20 +777,21 @@ void EditorPage::onResult(const pg::Result &result)
     case Job::Kind::Statement:
         // COPY results report columns too, but carry no rows.
         if ((result.status() == PGRES_TUPLES_OK || result.status() == PGRES_TUPLES_CHUNK)
-            && result.columnCount() > 0) {
+            && result.columnCount() > 0 && job.view) {
             if (!m_rowsShown) {
                 m_rowsShown = true;
-                // Run Again runs this statement again, as it was sent. The
-                // editor text may have changed since: no error marks then.
+                // Run Again runs this statement again, as it was sent, into
+                // the same view. The editor text may have changed since: no
+                // error marks then.
                 Job again = job;
                 again.offset = -1;
-                m_panel->results()->setRerun([this, again] {
+                job.view->setRerun([this, again] {
                     if (m_connection->state() == pg::Connection::State::Ready && !isRunning())
                         start(std::deque<Job> {again});
                 });
-                m_panel->results()->begin(preview(job.sql));
+                job.view->begin(preview(job.sql));
             }
-            m_panel->results()->append(result);
+            job.view->append(result);
             m_rows += result.rowCount();
             if (m_rows >= m_rowLimit && !m_limited && m_connection->cancel())
                 m_limited = true;
@@ -819,25 +845,27 @@ void EditorPage::onFinished()
         line += tr(" (%1 ms)").arg(ms);
         if (!m_failed || m_limited)
             m_panel->log(line);
-        if (m_rowsShown)
-            m_panel->results()->finish(
-                m_limited ? tr("First %n row(s), %1 ms", nullptr, int(m_rows)).arg(ms)
-                          : tr("%n row(s), %1 ms", nullptr, int(m_rows)).arg(ms));
-        else if (!m_failed) {
-            // What is shown now is not a query's rows: nothing to run again.
-            m_panel->results()->setRerun({});
-            m_panel->results()->showMessage(
-                m_commandTag.isEmpty()
-                    ? tr("Done in %1 ms.").arg(ms)
-                    : tr("%1 in %2 ms.").arg(QString::fromUtf8(m_commandTag)).arg(ms));
-        }
-        // The grid holds every row unless the row limit stopped the query,
-        // which decides what an export of "all rows" has to do.
-        m_panel->results()->setAllRowsFetched(!m_limited);
-        // Rows from one table can be edited; find out which, and its key.
-        if (m_rowsShown && !m_failed) {
-            m_lastQuery = job;
-            lookUpEditTarget();
+        // No view if its tab was closed meanwhile.
+        if (ResultView *view = job.view) {
+            if (m_rowsShown) {
+                view->finish(m_limited ? tr("First %n row(s), %1 ms", nullptr, int(m_rows)).arg(ms)
+                                       : tr("%n row(s), %1 ms", nullptr, int(m_rows)).arg(ms));
+            } else if (!m_failed) {
+                // What is shown now is not a query's rows: nothing to run again.
+                view->setRerun({});
+                view->showMessage(
+                    m_commandTag.isEmpty()
+                        ? tr("Done in %1 ms.").arg(ms)
+                        : tr("%1 in %2 ms.").arg(QString::fromUtf8(m_commandTag)).arg(ms));
+            }
+            // The grid holds every row unless the row limit stopped the
+            // query, which decides what an export of "all rows" has to do.
+            view->setAllRowsFetched(!m_limited);
+            // Rows from one table can be edited; find out which, and its key.
+            if (m_rowsShown && !m_failed) {
+                m_shownQueries.insert(view, job);
+                lookUpEditTarget(view);
+            }
         }
     } else if (job.kind == Job::Kind::Explain && !m_failed) {
         m_panel->log(
@@ -855,9 +883,9 @@ void EditorPage::onFinished()
             m_panel->log(
                 tr("Exported %1 rows to %2 (%3 ms).").arg(sink.rows).arg(sink.path).arg(ms));
         }
-    } else if (job.kind == Job::Kind::EditInfo) {
-        m_panel->results()->model()->setEditTarget(
-            catalog::editTarget(m_panel->results()->model()->rows(), m_editInfo));
+    } else if (job.kind == Job::Kind::EditInfo && job.view) {
+        ResultModel *model = job.view->model();
+        model->setEditTarget(catalog::editTarget(model->rows(), m_editInfo));
     } else if (job.kind == Job::Kind::Dml && !m_failed && !catalog::changedOneRow(m_commandTag)) {
         m_failed = true;
         m_panel->log(tr("%1 changed %2 instead of one row; nothing was saved.")
@@ -871,9 +899,11 @@ void EditorPage::onFinished()
     startNext();
 }
 
-void EditorPage::exportAll(const catalog::ExportOptions &options, const QString &path)
+void EditorPage::exportAll(ResultView *view, const catalog::ExportOptions &options,
+                           const QString &path)
 {
-    if (!m_lastQuery) {
+    const auto shown = m_shownQueries.constFind(view);
+    if (shown == m_shownQueries.cend()) {
         m_panel->log(tr("There is no query to run again for the export."), true);
         return;
     }
@@ -893,7 +923,7 @@ void EditorPage::exportAll(const catalog::ExportOptions &options, const QString 
     }
     sink->stream = std::make_unique<QTextStream>(sink->file.get());
 
-    Job job = *m_lastQuery;
+    Job job = *shown;
     job.kind = Job::Kind::Export;
     job.message.clear();
     job.sink = std::move(sink);
@@ -902,10 +932,10 @@ void EditorPage::exportAll(const catalog::ExportOptions &options, const QString 
     start(std::deque<Job> {job});
 }
 
-void EditorPage::lookUpEditTarget()
+void EditorPage::lookUpEditTarget(ResultView *view)
 {
     QString reason;
-    ResultModel *model = m_panel->results()->model();
+    ResultModel *model = view->model();
     const catalog::Oid table = catalog::sourceTable(model->rows(), &reason);
     if (table == 0) {
         catalog::EditTarget none;
@@ -917,12 +947,18 @@ void EditorPage::lookUpEditTarget()
     Job info;
     info.kind = Job::Kind::EditInfo;
     info.sql = catalog::editTargetQuery(table);
+    info.view = view;
     m_jobs.push_front(std::move(info));
 }
 
 void EditorPage::saveChanges(bool confirm)
 {
-    ResultModel *model = m_panel->results()->model();
+    saveChanges(m_panel->results(), confirm);
+}
+
+void EditorPage::saveChanges(ResultView *view, bool confirm)
+{
+    ResultModel *model = view->model();
     if (!model->hasChanges() || !model->isEditable() || isRunning()
         || m_connection->state() != pg::Connection::State::Ready)
         return;
@@ -970,15 +1006,16 @@ void EditorPage::saveChanges(bool confirm)
         jobs.push_back(back);
     }
     // Then show the rows as they are now.
-    if (m_lastQuery)
-        jobs.push_back(*m_lastQuery);
+    if (const auto shown = m_shownQueries.constFind(view); shown != m_shownQueries.cend())
+        jobs.push_back(*shown);
     start(std::move(jobs));
 }
 
 void EditorPage::dropConnection(const QString &why)
 {
     if (isRunning()) {
-        m_panel->results()->showError(why);
+        if (m_current->view)
+            m_current->view->showError(why);
         finishAll();
     }
     m_jobs.clear();

@@ -8,9 +8,12 @@
 #include <QAbstractItemModel>
 #include <QWidget>
 
+class QAction;
+class QHBoxLayout;
 class QLabel;
 class QStackedWidget;
 class QTabBar;
+class QToolButton;
 class QTreeView;
 
 namespace slonisko {
@@ -71,9 +74,15 @@ class PlanView : public QWidget
 public:
     explicit PlanView(QWidget *parent = nullptr);
 
-    void setPlan(const catalog::Plan &plan);
+    // The title says what was explained, the statement as a rule.
+    void setPlan(const catalog::Plan &plan, const QString &title = {});
     void showMessage(const QString &text, bool error = false);
     PlanModel *model() const { return m_model; }
+    QString title() const { return m_title; }
+    // A plan is on show, rather than a message.
+    bool hasPlan() const;
+    // A button beside the summary, for what whoever holds the view adds.
+    QToolButton *addHeaderAction(QAction *action);
 
     // The same plan as a tree or as the text psql would print.
     enum class ViewMode { Tree, Text };
@@ -84,8 +93,14 @@ public:
     ResultTextView *textView() const { return m_text; }
     QTabBar *modeTabs() const { return m_modeTabs; }
 
+Q_SIGNALS:
+    // A plan or a message replaced what was shown.
+    void changed();
+
 private:
+    QHBoxLayout *m_header = nullptr;
     QLabel *m_summary = nullptr;
+    QString m_title;
     QTabBar *m_modeTabs = nullptr;
     QStackedWidget *m_stack = nullptr;
     QTreeView *m_tree = nullptr;

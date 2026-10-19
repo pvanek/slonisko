@@ -12,6 +12,7 @@
 #include <functional>
 
 class QAction;
+class QHBoxLayout;
 class QLabel;
 class QStackedWidget;
 class QTabBar;
@@ -37,6 +38,8 @@ public:
     void run(pg::QueryRunner *runner, const QString &title, const QByteArray &sql);
 
     void begin(const QString &title);
+    // What begin() or run() named the rows, the query as a rule.
+    QString title() const;
     void append(const pg::Result &result);
     void finish(const QString &status);
     void showError(const QString &message);
@@ -82,6 +85,11 @@ public:
     QTabBar *modeTabs() const { return m_modeTabs; }
     QTableView *recordView() const { return m_record; }
     bool isRunning() const { return m_running; }
+    // A button in the header, before Run Again, for what whoever holds the
+    // view adds to it.
+    QToolButton *addHeaderAction(QAction *action);
+    // Rows are on show, rather than a message or nothing yet.
+    bool showsRows() const;
     // Cancels the running query, if it is one this view runs itself.
     void stop();
     // Columns as wide as their contents, within limits, and never narrower
@@ -110,6 +118,7 @@ private:
     void stepRecord(int by); // Moves to another row in the record view.
     void refresh();
 
+    QHBoxLayout *m_header = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_status = nullptr;
     QToolButton *m_refresh = nullptr;

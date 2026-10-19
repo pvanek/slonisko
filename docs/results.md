@@ -109,6 +109,31 @@ The export dialog, set up for CSV with a header row.
 The rest of the menu has the everyday shortcuts: *Copy as CSV*, *as Text
 table*, *as SQL INSERT*, which take the selected rows when there are any.
 
+## Pinned results
+
+```{index} pinned results, pinned plans, result tabs
+```
+
+In a SQL editor, each statement's rows replace the last ones under
+*Results*. To keep some, click *Pin* above them, or right-click the
+*Results* tab and choose *Pin*. They move to a tab of their own, named after
+their query, and the next statement's rows go under *Results* as usual.
+
+To give a pinned tab a name of your own, right-click it and choose
+*Rename…*, type over the name and press {kbd}`Enter`; {kbd}`Esc` keeps the old
+one, and an empty name brings back the statement. The tab's tooltip shows
+the statement whatever its name.
+
+A pinned tab stays until you close it with its close button, or with *Close
+All Pinned* from the tab's context menu. Its rows can still be edited and
+saved, exported, and run again with *Run again*, which refreshes them in
+the same tab. Closing a tab while its query is still running stops the query.
+
+Plans pin the same way: *Pin* beside the plan's summary, or on the *Plan*
+tab's context menu, keeps it in a tab named *Plan:* and its statement, so
+that the next EXPLAIN can be compared with it. Pinned rows come before the
+*Plan* tab and pinned plans after it.
+
 ## Plan
 
 ```{index} EXPLAIN, query plan

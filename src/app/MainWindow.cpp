@@ -345,11 +345,14 @@ void MainWindow::saveCurrent()
     if (!editor)
         return;
     // In the result grid, with edits pending, Save means those.
-    ResultView *results = editor->resultPanel()->results();
     const QWidget *focus = QApplication::focusWidget();
-    if (focus && results->isAncestorOf(focus) && results->model()->hasChanges()) {
-        editor->saveChanges();
-        return;
+    QList<ResultView *> views = editor->resultPanel()->pinnedResults();
+    views.prepend(editor->resultPanel()->results());
+    for (ResultView *results : std::as_const(views)) {
+        if (focus && results->isAncestorOf(focus) && results->model()->hasChanges()) {
+            editor->saveChanges(results);
+            return;
+        }
     }
     editor->save();
 }
