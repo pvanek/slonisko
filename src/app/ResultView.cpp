@@ -24,6 +24,7 @@
 #include <QLabel>
 #include <QMessageBox>
 #include <QPainter>
+#include <QScrollBar>
 #include <QStackedWidget>
 #include <QStyle>
 #include <QStyleOptionHeader>
@@ -423,6 +424,10 @@ ResultView::ResultView(QWidget *parent)
     auto *footer = new QHBoxLayout;
     footer->setContentsMargins(4, 2, 4, 2);
     footer->addWidget(m_editLabel);
+    m_note = new QLabel(this);
+    m_note->setTextFormat(Qt::PlainText);
+    m_note->hide();
+    footer->addWidget(m_note);
     footer->addStretch();
     footer->addWidget(m_status);
 
@@ -522,8 +527,10 @@ void ResultView::showOutcome(const pg::QueryOutcome &outcome, qint64 elapsedMs)
         m_model->clear();
         showError(outcome.error);
     } else {
+        const Layout before = layout();
         begin(m_title->text());
         append(outcome.results.back());
+        restore(before);
     }
     finish(outcome.ok() ? tr("%n row(s), %1 ms", nullptr, m_model->rowCount()).arg(elapsedMs)
                         : tr("%1 ms").arg(elapsedMs));
@@ -553,8 +560,81 @@ QToolButton *ResultView::addHeaderAction(QAction *action)
     button->setDefaultAction(action);
     button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     button->setAutoRaise(true);
-    m_header->insertWidget(m_header->indexOf(m_stop), button);
+    addHeaderWidget(button);
     return button;
+}
+
+void ResultView::addHeaderWidget(QWidget *widget)
+{
+    widget->setParent(this);
+    m_header->insertWidget(m_header->indexOf(m_stop), widget);
+}
+
+int ResultView::columnIndex(const QString &name) const
+{
+    const pg::RowStore &rows = m_model->rows();
+    for (int c = 0; c < rows.columnCount(); ++c) {
+        if (rows.column(c).name == name)
+            return c;
+    }
+    return -1;
+}
+
+void ResultView::setNote(const QString &text, bool error)
+{
+    m_note->setText(text);
+    m_note->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());
+    m_note->setVisible(!text.isEmpty());
+}
+
+QString ResultView::note() const
+{
+    return m_note->text();
+}
+
+ResultView::Layout ResultView::layout() const
+{
+    Layout layout;
+    const pg::RowStore &rows = m_model->rows();
+    for (int c = 0; c < rows.columnCount(); ++c) {
+        layout.columns << rows.column(c).name;
+        layout.widths << m_table->columnWidth(c);
+    }
+    layout.horizontal = m_table->horizontalScrollBar()->value();
+    layout.vertical = m_table->verticalScrollBar()->value();
+    if (const int key = columnIndex(m_keyColumn); key >= 0) {
+        for (const int row : selectedRows())
+            layout.selectedKeys.insert(rows.value(row, key).toByteArray());
+    }
+    return layout;
+}
+
+void ResultView::restore(const Layout &layout)
+{
+    const pg::RowStore &rows = m_model->rows();
+    if (layout.columns.isEmpty() || layout.columns.size() != rows.columnCount())
+        return;
+    for (int c = 0; c < rows.columnCount(); ++c) {
+        if (rows.column(c).name != layout.columns[c])
+            return; // Other columns: sized for what they hold.
+    }
+    m_sized = true;
+    for (int c = 0; c < rows.columnCount(); ++c)
+        m_table->setColumnWidth(c, layout.widths[c]);
+
+    if (const int key = columnIndex(m_keyColumn); key >= 0 && !layout.selectedKeys.isEmpty()) {
+        QItemSelection selection;
+        for (int row = 0; row < m_model->rowCount(); ++row) {
+            const int source = m_model->sourceRow(row);
+            if (!rows.isNull(source, key)
+                && layout.selectedKeys.contains(rows.value(source, key).toByteArray()))
+                selection.select(m_model->index(row, 0), m_model->index(row, 0));
+        }
+        m_table->selectionModel()->select(
+            selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+    }
+    m_table->horizontalScrollBar()->setValue(layout.horizontal);
+    m_table->verticalScrollBar()->setValue(layout.vertical);
 }
 
 bool ResultView::showsRows() const

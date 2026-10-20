@@ -78,9 +78,8 @@ Q_SIGNALS:
     void sessionsChanged();
     // "Open SQL Editor" on a connection or database.
     void editorRequested(slonisko::Session *session, const QString &database);
-    // A DBA or System Info item was opened.
-    void monitoringRequested(slonisko::Session *session, const QString &title,
-                             const QByteArray &sql);
+    // A DBA or System Info item was opened: catalog::monitoringQuery(id).
+    void monitoringRequested(slonisko::Session *session, const QString &id);
     // An object whose details can be shown was opened.
     void objectRequested(slonisko::Session *session, const QString &database,
                          slonisko::catalog::ObjectKind kind, unsigned int oid, const QString &name);

@@ -65,6 +65,8 @@ public:
     // Shows a query's rows on a page of their own. The same query on the same
     // session reuses its page and runs again.
     ResultPage *showResult(Session *session, const QString &title, const QByteArray &sql);
+    // A DBA or System Info page, by its catalog::monitoringQuery() id.
+    ResultPage *showMonitoring(Session *session, const QString &id);
     // A page with everything about one object; the same object reuses its page.
     ObjectPage *showObject(Session *session, const QString &database, catalog::ObjectKind kind,
                            unsigned int oid, const QString &name);

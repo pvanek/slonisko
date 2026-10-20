@@ -230,6 +230,45 @@ private Q_SLOTS:
         }
     }
 
+    // Cancelling stops a query and keeps the session; terminating ends it.
+    void processActions()
+    {
+        QCOMPARE(monitoringQuery(QStringLiteral("sessions"))->title, QStringLiteral("Sessions"));
+        QVERIFY(monitoringQuery(QStringLiteral("sessions"))->processes);
+        QVERIFY(!monitoringQuery(QStringLiteral("overview"))->processes);
+        QVERIFY(!monitoringQuery(QStringLiteral("nope")));
+
+        Connection victim;
+        victim.open(serverConninfo());
+        QTRY_COMPARE(victim.state(), Connection::State::Ready);
+        const int pid = victim.backendPid();
+        QueryRunner victimRunner(&victim);
+        std::optional<QueryOutcome> sleeping;
+        victimRunner.run("SELECT pg_sleep(30)", this, [&](const QueryOutcome &o) { sleeping = o; });
+        const QByteArray active = "SELECT 1 FROM pg_stat_activity WHERE state = 'active' AND pid = "
+            + QByteArray::number(pid);
+        QTRY_COMPARE(run(active).results.back().rowCount(), 1);
+
+        QueryOutcome o = run(processActionSql(ProcessAction::Cancel, {pid, 1}));
+        QVERIFY2(o.ok(), qPrintable(o.error));
+        const slonisko::pg::Result &rows = o.results.back();
+        QCOMPARE(rows.rowCount(), 2);
+        QCOMPARE(rows.value(0, 0), QByteArray("1"));
+        QCOMPARE(rows.value(0, 1), QByteArray("f")); // No server process.
+        QCOMPARE(rows.value(1, 1), QByteArray("t"));
+        QTRY_VERIFY_WITH_TIMEOUT(sleeping.has_value(), 5'000);
+        QCOMPARE(sleeping->sqlState, QByteArray("57014"));
+        QCOMPARE(victim.state(), Connection::State::Ready);
+
+        o = run(processActionSql(ProcessAction::Terminate, {pid}));
+        QCOMPARE(o.results.back().value(0, 1), QByteArray("t"));
+        // The server closes the connection; the next query finds out.
+        std::optional<QueryOutcome> after;
+        victimRunner.run("SELECT 1", this, [&](const QueryOutcome &q) { after = q; });
+        QTRY_VERIFY_WITH_TIMEOUT(after.has_value(), 5'000);
+        QVERIFY(!after->ok());
+    }
+
     void monitoringQueriesForOlderServers()
     {
         // The branch for older servers, run on this one: it works only where

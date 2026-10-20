@@ -957,12 +957,105 @@ private Q_SLOTS:
     {
         QStandardPaths::setTestModeEnabled(true);
         MainWindow w;
-        Q_EMIT w.browser()->monitoringRequested(m_session.get(), QStringLiteral("Sessions"),
-                                                "SELECT pid FROM pg_stat_activity");
+        Q_EMIT w.browser()->monitoringRequested(m_session.get(), QStringLiteral("sessions"));
         auto *page = qobject_cast<ResultPage *>(w.currentPage());
         QVERIFY(page);
         QCOMPARE(page->title(), QStringLiteral("Sessions"));
         QTRY_VERIFY(page->results()->model()->rowCount() > 0);
+        QVERIFY(page->cancelAction()->isVisible());
+
+        // System Info lists no processes to signal.
+        Q_EMIT w.browser()->monitoringRequested(m_session.get(), QStringLiteral("overview"));
+        page = qobject_cast<ResultPage *>(w.currentPage());
+        QCOMPARE(page->title(), QStringLiteral("Server Overview"));
+        QVERIFY(!page->cancelAction()->isVisible());
+    }
+
+    // Sessions: the selected one's query cancelled, then the session
+    // terminated, each after asking; refreshing keeps it selected.
+    void processActions()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        const int pid = m_tab->connection()->backendPid();
+        setText("SELECT pg_sleep(30);");
+        m_tab->run();
+        QTRY_VERIFY(m_tab->isRunning());
+
+        ResultPage *page = w.showMonitoring(m_session.get(), QStringLiteral("sessions"));
+        QVERIFY(page);
+        ResultView *view = page->results();
+        QTRY_VERIFY(!view->isRunning() && view->model()->rowCount() > 0);
+        QVERIFY(!page->cancelAction()->isEnabled()); // Nothing selected.
+        const int column = view->columnIndex(QStringLiteral("pid"));
+        int row = -1;
+        for (int r = 0; r < view->model()->rowCount(); ++r) {
+            if (view->model()->index(r, column).data().toInt() == pid)
+                row = r;
+        }
+        QVERIFY(row >= 0);
+        view->table()->selectionModel()->select(view->model()->index(row, 3),
+                                                QItemSelectionModel::ClearAndSelect);
+        QCOMPARE(page->selectedPids(), std::vector<int> {pid});
+        QVERIFY(page->cancelAction()->isEnabled());
+
+        QString asked;
+        bool answer = false;
+        page->setConfirm([&](const QString &question) {
+            asked = question;
+            return answer;
+        });
+        page->cancelAction()->trigger();
+        QVERIFY(asked.contains(QString::number(pid)));
+        QTest::qWait(300);
+        QVERIFY(m_tab->isRunning()); // Not confirmed.
+
+        answer = true;
+        page->cancelAction()->trigger();
+        QTRY_VERIFY_WITH_TIMEOUT(!m_tab->isRunning(), 5'000);
+        QVERIFY(messages().contains(QLatin1String("canceling statement due to user request")));
+        QTRY_COMPARE(view->note(), QStringLiteral("Cancelled 1 query(s)."));
+        // Refreshed, with the same session still selected.
+        QTRY_VERIFY(!view->isRunning());
+        QCOMPARE(page->selectedPids(), std::vector<int> {pid});
+
+        page->terminateAction()->trigger();
+        QVERIFY(asked.startsWith(QLatin1String("Terminate 1 session(s)")));
+        QTRY_COMPARE(view->note(), QStringLiteral("Terminated 1 session(s)."));
+        // Gone from the list once the server has let it go.
+        QVERIFY(QTest::qWaitFor(
+            [&] {
+                if (!view->isRunning() && !page->selectedPids().empty())
+                    page->refresh();
+                return !view->isRunning() && page->selectedPids().empty();
+            },
+            5'000));
+    }
+
+    // Auto-refresh runs the query again while the page is shown.
+    void autoRefresh()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        ResultPage *page
+            = w.showResult(m_session.get(), QStringLiteral("Now"), "SELECT clock_timestamp()");
+        ResultView *view = page->results();
+        QTRY_VERIFY(!view->isRunning() && view->model()->rowCount() == 1);
+        QCOMPARE(page->autoRefresh(), 0);
+        QSignalSpy finished(view, &ResultView::finished);
+        QVERIFY(!finished.wait(2'500)); // Off.
+
+        page->setAutoRefresh(2);
+        QCOMPARE(page->autoRefreshBox()->currentText(), QStringLiteral("Every 2 s"));
+        const QString before = view->model()->index(0, 0).data().toString();
+        view->table()->setColumnWidth(0, 333);
+        QVERIFY(finished.wait(4'000));
+        QVERIFY(view->model()->index(0, 0).data().toString() != before);
+        QCOMPARE(view->table()->columnWidth(0), 333); // As the user left it.
     }
 
     // Regression: closing the window with several editors crashed.

@@ -3,6 +3,8 @@
 
 #include "catalog/Monitoring.h"
 
+#include <QByteArrayList>
+
 namespace slonisko::catalog {
 
 namespace {
@@ -174,13 +176,13 @@ const std::vector<MonitoringQuery> &monitoringQueries()
 {
     static const std::vector<MonitoringQuery> queries {
         {Group::DbaTools, QStringLiteral("sessions"), QStringLiteral("Sessions"),
-         QStringLiteral("All server processes and what they are doing"), sessions},
+         QStringLiteral("All server processes and what they are doing"), sessions, true},
         {Group::DbaTools, QStringLiteral("locks"), QStringLiteral("Locks"),
-         QStringLiteral("Held and awaited locks, waiting ones first"), locks},
+         QStringLiteral("Held and awaited locks, waiting ones first"), locks, true},
         {Group::DbaTools, QStringLiteral("blocking"), QStringLiteral("Blocked Sessions"),
-         QStringLiteral("Sessions waiting for a lock and who holds it"), blocking},
+         QStringLiteral("Sessions waiting for a lock and who holds it"), blocking, true},
         {Group::DbaTools, QStringLiteral("long-running"), QStringLiteral("Long-Running Queries"),
-         QStringLiteral("Queries and transactions active for over a minute"), longRunning},
+         QStringLiteral("Queries and transactions active for over a minute"), longRunning, true},
 
         {Group::SystemInfo, QStringLiteral("overview"), QStringLiteral("Server Overview"),
          QStringLiteral("Version, uptime and connections"), overview},
@@ -199,7 +201,7 @@ const std::vector<MonitoringQuery> &monitoringQueries()
          QStringLiteral("Dead rows and last (auto)vacuum and analyze, in this database"),
          vacuumStatus},
         {Group::SystemInfo, QStringLiteral("vacuum-progress"), QStringLiteral("Vacuum Progress"),
-         QStringLiteral("Vacuums running now"), vacuumProgress},
+         QStringLiteral("Vacuums running now"), vacuumProgress, true},
         {Group::SystemInfo, QStringLiteral("replication"), QStringLiteral("Replication"),
          QStringLiteral("Connected standbys and their lag"), replication},
         {Group::SystemInfo, QStringLiteral("replication-slots"),
@@ -216,6 +218,26 @@ const std::vector<MonitoringQuery> &monitoringQueries()
          topStatements},
     };
     return queries;
+}
+
+const MonitoringQuery *monitoringQuery(const QString &id)
+{
+    for (const MonitoringQuery &q : monitoringQueries()) {
+        if (q.id == id)
+            return &q;
+    }
+    return nullptr;
+}
+
+QByteArray processActionSql(ProcessAction action, const std::vector<int> &pids)
+{
+    QByteArrayList list;
+    for (const int pid : pids)
+        list << QByteArray::number(pid);
+    const QByteArray function
+        = action == ProcessAction::Cancel ? "pg_cancel_backend" : "pg_terminate_backend";
+    return "SELECT pid, " + function + "(pid) AS done FROM unnest('{" + list.join(',')
+        + "}'::int[]) AS pid ORDER BY pid";
 }
 
 } // namespace slonisko::catalog

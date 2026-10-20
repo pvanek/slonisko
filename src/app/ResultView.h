@@ -7,6 +7,7 @@
 #include "pg/QueryRunner.h"
 
 #include <QPointer>
+#include <QSet>
 #include <QWidget>
 
 #include <functional>
@@ -88,6 +89,15 @@ public:
     // A button in the header, before Run Again, for what whoever holds the
     // view adds to it.
     QToolButton *addHeaderAction(QAction *action);
+    void addHeaderWidget(QWidget *widget);
+    // When run() runs the query again, the rows selected stay selected by
+    // the value in this column; column widths and scrolling stay anyway.
+    void setKeyColumn(const QString &name) { m_keyColumn = name; }
+    // The column's index in the rows on show, or -1.
+    int columnIndex(const QString &name) const;
+    // A line beside the row count, until the next one.
+    void setNote(const QString &text, bool error = false);
+    QString note() const;
     // Rows are on show, rather than a message or nothing yet.
     bool showsRows() const;
     // Cancels the running query, if it is one this view runs itself.
@@ -107,6 +117,17 @@ Q_SIGNALS:
 private:
     void rerunQuery();
     void showOutcome(const pg::QueryOutcome &outcome, qint64 elapsedMs);
+    // What run() keeps of the view when it shows the rows again.
+    struct Layout
+    {
+        QStringList columns;
+        QList<int> widths;
+        int horizontal = 0;
+        int vertical = 0;
+        QSet<QByteArray> selectedKeys;
+    };
+    Layout layout() const;
+    void restore(const Layout &layout);
     void setMessage(const QString &text, bool error);
     void updateEditing();
     // What the header section needs for its own text, ignoring the data.
@@ -121,6 +142,8 @@ private:
     QHBoxLayout *m_header = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_status = nullptr;
+    QLabel *m_note = nullptr;
+    QString m_keyColumn;
     QToolButton *m_refresh = nullptr;
     QToolButton *m_stop = nullptr;
     QStackedWidget *m_stack = nullptr;

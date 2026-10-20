@@ -68,7 +68,7 @@ MainWindow::MainWindow(QWidget *parent)
 
     connect(m_browser, &ConnectionBrowser::editorRequested, this,
             [this](Session *s, const QString &database) { newEditor(s, database); });
-    connect(m_browser, &ConnectionBrowser::monitoringRequested, this, &MainWindow::showResult);
+    connect(m_browser, &ConnectionBrowser::monitoringRequested, this, &MainWindow::showMonitoring);
     connect(m_browser, &ConnectionBrowser::objectRequested, this, &MainWindow::showObject);
 
     setupMenus();
@@ -297,6 +297,16 @@ ResultPage *MainWindow::showResult(Session *session, const QString &title, const
     }
     auto *page = new ResultPage(session, title, sql);
     addPage(page);
+    return page;
+}
+
+ResultPage *MainWindow::showMonitoring(Session *session, const QString &id)
+{
+    const catalog::MonitoringQuery *query = catalog::monitoringQuery(id);
+    if (!query || !session)
+        return nullptr;
+    ResultPage *page = showResult(session, query->title, query->sql(session->serverVersion()));
+    page->setProcessActions(query->processes);
     return page;
 }
 

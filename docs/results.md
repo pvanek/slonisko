@@ -109,6 +109,41 @@ The export dialog, set up for CSV with a header row.
 The rest of the menu has the everyday shortcuts: *Copy as CSV*, *as Text
 table*, *as SQL INSERT*, which take the selected rows when there are any.
 
+## DBA Tools and System Info
+
+```{index} DBA tools, sessions, cancelling a query, terminating a session, auto-refresh
+```
+
+Opening an item under *DBA Tools* or *System Info* in the connection tree
+shows its rows on a page of their own, which runs its query on a connection
+of its own.
+
+**Auto-refresh**, the list in the page's header, runs the query again every
+2, 5, 10, 30 or 60 seconds, but only while the page is shown: a page behind
+another tab waits, and catches up when you come back to it. Refreshing keeps
+the column widths, the sort order and where the rows were scrolled to.
+The interval is not remembered after the page closes.
+
+The pages that list server processes — *Sessions*, *Locks*, *Blocked
+Sessions*, *Long-Running Queries* and *Vacuum Progress* — can also stop
+them. Select their rows, any cell will do, and use the header's buttons or
+the right-click menu:
+
+*Cancel Query*
+: Stops what the session is running, as {kbd}`Ctrl+C` would in psql. The
+  session stays connected; a transaction it was in is left failed, to be
+  rolled back.
+
+*Terminate Session*
+: Ends the session. Its transaction is rolled back and its client
+  disconnected.
+
+Both ask first, naming the process IDs. The line under the rows says how it
+went: a process may have ended already, or belong to a role that yours is
+not allowed to signal (that takes superuser, or membership in the role or
+in `pg_signal_backend`). The selected sessions stay selected as the page
+refreshes, until they are gone.
+
 ## Pinned results
 
 ```{index} pinned results, pinned plans, result tabs
