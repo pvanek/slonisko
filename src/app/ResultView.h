@@ -123,7 +123,12 @@ Q_SIGNALS:
     // Save was asked for; whoever ran the query saves the model's changes.
     void saveRequested();
 
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
+    // The selected cells' whole values on the clipboard.
+    void copyCells(QTableView *view);
     void rerunQuery();
     void showOutcome(const pg::QueryOutcome &outcome, qint64 elapsedMs);
     // What run() keeps of the view when it shows the rows again.

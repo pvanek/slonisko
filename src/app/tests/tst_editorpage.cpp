@@ -22,6 +22,7 @@
 #include "config/PasswordStore.h"
 #include "config/ProfileStore.h"
 
+#include <QApplication>
 #include <QComboBox>
 #include <QSplitter>
 #include <QTabBar>
@@ -618,6 +619,43 @@ private Q_SLOTS:
         QVERIFY(splitter->widget(0)->isAncestorOf(m_tab->editor()));
         QVERIFY(splitter->widget(0)->isAncestorOf(m_tab->searchBar()));
         QCOMPARE(splitter->widget(1), static_cast<QWidget *>(m_tab->resultPanel()));
+    }
+
+    // Ctrl+C in the grid of an editor in the main window, as typed: every
+    // selected cell, not just the current one.
+    void copiesSelectedCellsInTheWindow()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        w.show();
+        w.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&w));
+        EditorPage *editor = w.newEditor(m_session.get());
+        QTRY_COMPARE(editor->connection()->state(), pg::Connection::State::Ready);
+        // A table with a key: an editable grid, where typing starts editing.
+        editor->editor()->setText(
+            QStringLiteral("CREATE TEMP TABLE copied (g int PRIMARY KEY, t int);"
+                           "INSERT INTO copied SELECT g, g * 10 FROM generate_series(1, 3) g;"
+                           "SELECT * FROM copied ORDER BY g;"));
+        editor->editor()->selectAll();
+        editor->run();
+        QVERIFY(QTest::qWaitFor([&] { return !editor->isRunning(); }, 10'000));
+        QTRY_VERIFY(editor->resultPanel()->results()->model()->isEditable());
+
+        ResultView *results = editor->resultPanel()->results();
+        QTableView *table = results->table();
+        QTRY_COMPARE(table->model()->rowCount(), 3);
+        table->setFocus();
+        QTRY_VERIFY(table->hasFocus());
+        // Clicked, then shift-clicked: rows 1 and 2, both columns.
+        QTest::mouseClick(table->viewport(), Qt::LeftButton, {},
+                          table->visualRect(table->model()->index(0, 0)).center());
+        QTest::mouseClick(table->viewport(), Qt::LeftButton, Qt::ShiftModifier,
+                          table->visualRect(table->model()->index(1, 1)).center());
+        QCOMPARE(table->selectionModel()->selectedIndexes().size(), 4);
+        QGuiApplication::clipboard()->clear();
+        QTest::keyClick(QApplication::focusWidget(), Qt::Key_C, Qt::ControlModifier);
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("1\t10\n2\t20"));
     }
 
     void resultPages()

@@ -6,13 +6,16 @@
 #include "ResultView.h"
 #include "ValueViewer.h"
 
+#include <QAction>
 #include <QClipboard>
 #include <QGuiApplication>
 #include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QLocale>
+#include <QSignalSpy>
 #include <QTableView>
 #include <QTest>
+#include <QVBoxLayout>
 
 #include <cstring>
 
@@ -260,6 +263,37 @@ private Q_SLOTS:
         record->setCurrentIndex(record->model()->index(0, 1));
         QTest::keySequence(record, QKeySequence::Copy);
         QCOMPARE(clipboard->text().toUtf8(), big);
+    }
+
+    // The keys are the grid's own: neither a Copy elsewhere in the window,
+    // as an Edit menu would have, nor the view's built-in copy of the
+    // current cell takes them.
+    void keysStayWithTheGrid()
+    {
+        QWidget window;
+        auto *layout = new QVBoxLayout(&window);
+        auto *view = new ResultView;
+        layout->addWidget(view);
+        QAction other(QStringLiteral("Copy Something Else"));
+        other.setShortcuts(QKeySequence::Copy);
+        window.addAction(&other);
+        QSignalSpy otherCopies(&other, &QAction::triggered);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        view->begin(QStringLiteral("Values"));
+        view->append(makeResult({{"a", Int4}, {"b", Int4}}, {{"1", "2"}}));
+        view->finish(QString());
+
+        QTableView *table = view->table();
+        table->setFocus();
+        table->selectAll();
+        QGuiApplication::clipboard()->clear();
+        QTest::keySequence(table, QKeySequence::Copy);
+        QCOMPARE(QGuiApplication::clipboard()->text(), QStringLiteral("1\t2"));
+        QCOMPARE(otherCopies.count(), 0);
+
+        QTest::keyClick(table, Qt::Key_Return, Qt::ShiftModifier);
+        QVERIFY(view->findChild<ValueViewer *>());
     }
 
     void viewsValuesInAWindow()

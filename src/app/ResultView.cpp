@@ -19,6 +19,7 @@
 #include <QTextStream>
 #include <QElapsedTimer>
 #include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QToolBar>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -360,19 +361,19 @@ ResultView::ResultView(QWidget *parent)
     m_record->verticalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_record->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
 
-    // The views' own copy would take the shortened text the cells show.
-    // Only while the view itself has focus, so a cell editor keeps its own.
+    // The views' own copy would take only the current cell, and its
+    // shortened text at that. The key is caught in the view itself rather
+    // than left to the action's shortcut: on Wayland a shortcut of a widget
+    // can miss the key, which then reaches the view's own copy. Only while
+    // the view itself has focus, so a cell editor keeps its own.
     for (QTableView *view : {m_table, m_record}) {
         auto *copy = new QAction(QIcon::fromTheme(QStringLiteral("edit-copy")), tr("Copy"), view);
         copy->setObjectName(QStringLiteral("copy"));
-        copy->setShortcuts(QKeySequence::Copy);
+        copy->setShortcuts(QKeySequence::Copy); // Shown in the menu; eventFilter() takes the key.
         copy->setShortcutContext(Qt::WidgetShortcut);
         view->addAction(copy);
-        connect(copy, &QAction::triggered, this, [view] {
-            const QModelIndexList cells = view->selectionModel()->selectedIndexes();
-            if (!cells.isEmpty())
-                QGuiApplication::clipboard()->setText(ResultModel::copyText(cells));
-        });
+        connect(copy, &QAction::triggered, this, [this, view] { copyCells(view); });
+        view->installEventFilter(this);
         view->setContextMenuPolicy(Qt::CustomContextMenu);
         connect(view, &QWidget::customContextMenuRequested, this,
                 [this, view](const QPoint &pos) { showContextMenu(view, pos); });
@@ -382,6 +383,7 @@ ResultView::ResultView(QWidget *parent)
     // other database tools; double-click too, where it does not edit.
     m_viewValue = new QAction(QIcon::fromTheme(QStringLiteral("document-preview")),
                               tr("View Value…"), this);
+    // Shown in the menus; eventFilter() takes the key, as it does Copy.
     m_viewValue->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_Return));
     m_viewValue->setShortcutContext(Qt::WidgetShortcut);
     m_table->addAction(m_viewValue);
@@ -592,6 +594,37 @@ void ResultView::addHeaderWidget(QWidget *widget)
 {
     widget->setParent(this);
     m_header->insertWidget(m_header->indexOf(m_stop), widget);
+}
+
+void ResultView::copyCells(QTableView *view)
+{
+    const QModelIndexList cells = view->selectionModel()->selectedIndexes();
+    if (!cells.isEmpty())
+        QGuiApplication::clipboard()->setText(ResultModel::copyText(cells));
+}
+
+bool ResultView::eventFilter(QObject *watched, QEvent *event)
+{
+    auto *view = qobject_cast<QTableView *>(watched);
+    if ((view != m_table && view != m_record)
+        || (event->type() != QEvent::ShortcutOverride && event->type() != QEvent::KeyPress))
+        return QWidget::eventFilter(watched, event);
+    const auto *key = static_cast<QKeyEvent *>(event);
+    const bool copy = key->matches(QKeySequence::Copy);
+    const bool open = key->keyCombination() == QKeyCombination(Qt::SHIFT | Qt::Key_Return)
+        || key->keyCombination() == QKeyCombination(Qt::SHIFT | Qt::Key_Enter);
+    if (!copy && !open)
+        return QWidget::eventFilter(watched, event);
+    // Accepting the override keeps any other shortcut in the window from
+    // taking the key; it then comes back here as a key press.
+    event->accept();
+    if (event->type() == QEvent::KeyPress) {
+        if (copy)
+            copyCells(view);
+        else
+            viewValue(gridIndex(view->currentIndex()));
+    }
+    return true;
 }
 
 void ResultView::addContextAction(QAction *action)
