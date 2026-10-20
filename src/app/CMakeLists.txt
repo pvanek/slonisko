@@ -63,6 +63,11 @@ add_library(slonisko_ui STATIC
     SqlLexer.h
     SvgDevice.cpp
     SvgDevice.h
+    ValueLexer.cpp
+    ValueLexer.h
+    ValueViewer.cpp
+    ValueViewer.h
+    ValueViewer.ui
     WorkspacePage.h)
 target_include_directories(slonisko_ui PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(slonisko_ui PUBLIC

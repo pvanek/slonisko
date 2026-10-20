@@ -3,6 +3,8 @@
 
 #include "ResultTextView.h"
 
+#include "SqlEditor.h"
+
 #include <QEvent>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -95,6 +97,8 @@ void ResultTextView::applyTheme()
     setPaper(colors.color(QPalette::Base));
     setSelectionBackgroundColor(colors.color(QPalette::Highlight));
     setSelectionForegroundColor(colors.color(QPalette::HighlightedText));
+    // Hidden in the grid's text view; the value viewer numbers its lines.
+    SqlEditor::applyMarginColors(this);
 }
 
 } // namespace slonisko

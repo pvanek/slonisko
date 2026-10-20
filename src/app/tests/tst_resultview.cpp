@@ -4,6 +4,7 @@
 #include "ResultModel.h"
 #include "ResultTextView.h"
 #include "ResultView.h"
+#include "ValueViewer.h"
 
 #include <QClipboard>
 #include <QGuiApplication>
@@ -259,6 +260,63 @@ private Q_SLOTS:
         record->setCurrentIndex(record->model()->index(0, 1));
         QTest::keySequence(record, QKeySequence::Copy);
         QCOMPARE(clipboard->text().toUtf8(), big);
+    }
+
+    void viewsValuesInAWindow()
+    {
+        constexpr Oid Jsonb = 3802;
+        ResultView view;
+        view.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&view));
+        view.begin(QStringLiteral("Values"));
+        view.append(
+            makeResult({{"doc", Jsonb}, {"n", Int4}}, {{R"({"a":[1,2]})", "1"}, {nullptr, "2"}}));
+        view.finish(QString());
+        QTableView *table = view.table();
+        ResultModel *model = view.model();
+        auto viewer = [&] { return view.findChild<ValueViewer *>(); };
+        auto closeViewer = [&] {
+            viewer()->close();
+            QTRY_VERIFY(!viewer());
+        };
+
+        // Shift+Enter in the grid, for the current cell: JSON as JSON.
+        table->setFocus();
+        table->setCurrentIndex(model->index(0, 0));
+        QTest::keyClick(table, Qt::Key_Return, Qt::ShiftModifier);
+        QVERIFY(viewer());
+        QCOMPARE(viewer()->windowTitle(), QStringLiteral("doc, row 1"));
+        QCOMPARE(viewer()->syntax(), catalog::ValueSyntax::Json);
+        QCOMPARE(viewer()->text(),
+                 QStringLiteral("{\n    \"a\": [\n        1,\n        2\n    ]\n}"));
+        closeViewer();
+
+        // A NULL has nothing to show.
+        QVERIFY(!view.viewValue(model->index(1, 0)));
+        QVERIFY(!viewer());
+
+        // Double-click, where it does not start editing.
+        // The view only takes a double-click on the cell the press was on.
+        const QPoint cell = table->visualRect(model->index(1, 1)).center();
+        QTest::mouseClick(table->viewport(), Qt::LeftButton, {}, cell);
+        QTest::mouseDClick(table->viewport(), Qt::LeftButton, {}, cell);
+        QVERIFY(viewer());
+        QCOMPARE(viewer()->windowTitle(), QStringLiteral("n, row 2"));
+        QCOMPARE(viewer()->text(), QStringLiteral("2"));
+        closeViewer();
+
+        // The record view: its rows are the grid's columns.
+        table->setCurrentIndex(model->index(0, 1));
+        view.setViewMode(ResultView::ViewMode::Record);
+        QTableView *record = view.recordView();
+        view.activateWindow(); // Back from the viewer, which had it.
+        QVERIFY(QTest::qWaitForWindowActive(&view));
+        record->setFocus();
+        record->setCurrentIndex(record->model()->index(0, 1));
+        QTest::keyClick(record, Qt::Key_Return, Qt::ShiftModifier);
+        QVERIFY(viewer());
+        QCOMPARE(viewer()->windowTitle(), QStringLiteral("doc, row 1"));
+        closeViewer();
     }
 
     // The editor's grid is not sortable: its rows can be edited.

@@ -76,6 +76,46 @@ row selected in the grid.
 The record view, on the fifth row.
 ```
 
+## Viewing a value
+
+```{index} value viewer, JSON, jsonb, arrays, long text
+```
+
+A cell shows the first few hundred characters of its value on one line. To
+read all of it, select the cell and press {kbd}`Shift+Enter`, or choose
+*View Value…* from the right-click menu. Double-clicking a cell does the
+same in the record view, and in a grid whose rows cannot be edited; in an
+editable grid, double-clicking changes the value instead. The value opens
+in a window of its own, read-only, and several can be open at once. Each
+window keeps the value it opened with, even when the query runs again.
+
+*Show as* says how to read the value: `json` and `jsonb` columns are shown
+as JSON and array columns as arrays. In a text column, a value that is a
+whole JSON object or array is shown as JSON too. Otherwise, and for any
+value you choose to read differently, pick it from the list.
+
+*Format*
+: Puts each JSON member or array element on a line of its own, indented by
+  four spaces. Members stay in their order and numbers stay as they were
+  written, which a round trip through a JavaScript-style parser would not
+  keep. In an array of arrays, each innermost array — a row of a matrix —
+  stays on one line. A value that does not read as what was chosen is shown
+  as it is, and the line at the bottom says so.
+
+Highlighting
+: Keys, strings, numbers, `true`, `false` and `null` (`NULL` in arrays) get
+  the editor's colours; anything out of place is red, so a stray comma
+  stands out.
+
+*Wrap lines*
+: Wraps long lines at the window's edge, for a long text rather than a
+  document.
+
+*Copy* puts the value on the clipboard as it is shown, formatted or not;
+{kbd}`Ctrl+C` copies the selected part. *Format* and *Wrap lines* are kept
+for the next value. A NULL has nothing to show, so *View Value…* is greyed
+out for it.
+
 ## Export
 
 ```{index} export, CSV, SQL INSERT, clipboard

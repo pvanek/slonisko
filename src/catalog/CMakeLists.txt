@@ -27,7 +27,9 @@ add_library(slonisko_catalog STATIC
     Snapshot.cpp
     Snapshot.h
     Snippets.cpp
-    Snippets.h)
+    Snippets.h
+    ValueFormat.cpp
+    ValueFormat.h)
 add_library(Slonisko::Catalog ALIAS slonisko_catalog)
 
 target_include_directories(slonisko_catalog PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")

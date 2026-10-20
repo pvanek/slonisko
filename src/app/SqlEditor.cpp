@@ -658,6 +658,13 @@ void SqlEditor::applyTheme()
     setCaretForegroundColor(text);
     setMatchedBraceBackgroundColor(dark ? QColor(80, 80, 40) : QColor(255, 240, 160));
 
+    applyMarginColors(this);
+}
+
+void SqlEditor::applyMarginColors(QsciScintilla *editor)
+{
+    const QPalette colors = editor->palette();
+    const QColor base = colors.color(QPalette::Base);
     auto mix = [](const QColor &a, const QColor &b, float part) {
         return QColor::fromRgbF(a.redF() * (1 - part) + b.redF() * part,
                                 a.greenF() * (1 - part) + b.greenF() * part,
@@ -665,16 +672,16 @@ void SqlEditor::applyTheme()
     };
     // The margins: the window color over the editor's own, numbers muted.
     const QColor marginBack = mix(base, colors.color(QPalette::Window), 0.65f);
-    const QColor marginText = mix(base, text, 0.55f);
-    setMarginsBackgroundColor(marginBack);
-    setMarginsForegroundColor(marginText);
+    const QColor marginText = mix(base, colors.color(QPalette::Text), 0.55f);
+    editor->setMarginsBackgroundColor(marginBack);
+    editor->setMarginsForegroundColor(marginText);
     // Without this the fold margin keeps Scintilla's white-and-grey pattern.
-    setFoldMarginColors(marginBack, marginBack);
+    editor->setFoldMarginColors(marginBack, marginBack);
     for (int marker = int(SC_MARKNUM_FOLDEREND); marker <= int(SC_MARKNUM_FOLDEROPEN); ++marker) {
         // The boxes and lines are the marker's background, their plus and
         // minus signs its foreground.
-        SendScintilla(SCI_MARKERSETBACK, marker, marginText);
-        SendScintilla(SCI_MARKERSETFORE, marker, marginBack);
+        editor->SendScintilla(SCI_MARKERSETBACK, marker, marginText);
+        editor->SendScintilla(SCI_MARKERSETFORE, marker, marginBack);
     }
 }
 

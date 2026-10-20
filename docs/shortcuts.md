@@ -51,6 +51,7 @@ have none.
 | Keys | What it does |
 |---|---|
 | {kbd}`F5`, {kbd}`Ctrl+R` | Run the query again, or reload the object's page or the tree; on macOS only {kbd}`Command+R`. In the editor {kbd}`Ctrl+R` is find and replace |
+| {kbd}`Shift+Enter` | Open the cell's whole value in the value viewer |
 | {kbd}`Ctrl+Insert` | Add a row |
 | {kbd}`Delete` | Delete the selected rows, or take back their deletion; in the tree, delete the connection |
 | {kbd}`Ctrl+Shift+N` | Set the selected cells to NULL |

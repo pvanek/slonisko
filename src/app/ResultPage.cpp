@@ -11,7 +11,6 @@
 #include <QAction>
 #include <QComboBox>
 #include <QItemSelectionModel>
-#include <QMenu>
 #include <QMessageBox>
 #include <QTableView>
 #include <QToolButton>
@@ -70,15 +69,8 @@ ResultPage::ResultPage(Session *session, const QString &title, const QByteArray 
             &ResultPage::updateProcessActions);
     connect(m_view->model(), &QAbstractItemModel::modelReset, this,
             &ResultPage::updateProcessActions);
-    m_view->table()->setContextMenuPolicy(Qt::CustomContextMenu);
-    connect(m_view->table(), &QWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
-        if (!m_processes)
-            return;
-        QMenu menu(this);
-        menu.addAction(m_cancel);
-        menu.addAction(m_terminate);
-        menu.exec(m_view->table()->viewport()->mapToGlobal(pos));
-    });
+    m_view->addContextAction(m_cancel);
+    m_view->addContextAction(m_terminate);
     setProcessActions(false);
 
     if (m_session) {

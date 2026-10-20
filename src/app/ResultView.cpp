@@ -7,6 +7,7 @@
 #include "ResultModel.h"
 #include "ResultTextView.h"
 #include "Shortcuts.h"
+#include "ValueViewer.h"
 
 #include <QAction>
 #include <QApplication>
@@ -362,7 +363,8 @@ ResultView::ResultView(QWidget *parent)
     // The views' own copy would take the shortened text the cells show.
     // Only while the view itself has focus, so a cell editor keeps its own.
     for (QTableView *view : {m_table, m_record}) {
-        auto *copy = new QAction(tr("Copy"), view);
+        auto *copy = new QAction(QIcon::fromTheme(QStringLiteral("edit-copy")), tr("Copy"), view);
+        copy->setObjectName(QStringLiteral("copy"));
         copy->setShortcuts(QKeySequence::Copy);
         copy->setShortcutContext(Qt::WidgetShortcut);
         view->addAction(copy);
@@ -371,7 +373,29 @@ ResultView::ResultView(QWidget *parent)
             if (!cells.isEmpty())
                 QGuiApplication::clipboard()->setText(ResultModel::copyText(cells));
         });
+        view->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(view, &QWidget::customContextMenuRequested, this,
+                [this, view](const QPoint &pos) { showContextMenu(view, pos); });
     }
+
+    // A value too long, or too nested, for its cell. Shift+Enter as in
+    // other database tools; double-click too, where it does not edit.
+    m_viewValue = new QAction(QIcon::fromTheme(QStringLiteral("document-preview")),
+                              tr("View Value…"), this);
+    m_viewValue->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_Return));
+    m_viewValue->setShortcutContext(Qt::WidgetShortcut);
+    m_table->addAction(m_viewValue);
+    m_record->addAction(m_viewValue);
+    connect(m_viewValue, &QAction::triggered, this, [this] {
+        QTableView *shown = m_mode == ViewMode::Record ? m_record : m_table;
+        viewValue(gridIndex(shown->currentIndex()));
+    });
+    connect(m_table, &QTableView::doubleClicked, this, [this](const QModelIndex &index) {
+        if (m_table->editTriggers() == QAbstractItemView::NoEditTriggers)
+            viewValue(index);
+    });
+    connect(m_record, &QTableView::doubleClicked, this,
+            [this](const QModelIndex &index) { viewValue(gridIndex(index)); });
 
     // The record view follows the grid, and the grid the record view.
     connect(m_table->selectionModel(), &QItemSelectionModel::currentChanged, this,
@@ -568,6 +592,51 @@ void ResultView::addHeaderWidget(QWidget *widget)
 {
     widget->setParent(this);
     m_header->insertWidget(m_header->indexOf(m_stop), widget);
+}
+
+void ResultView::addContextAction(QAction *action)
+{
+    m_contextActions << action;
+}
+
+QModelIndex ResultView::gridIndex(const QModelIndex &index) const
+{
+    if (index.model() != m_recordModel)
+        return index;
+    return m_recordModel->row() < 0 ? QModelIndex()
+                                    : m_model->index(m_recordModel->row(), index.row());
+}
+
+ValueViewer *ResultView::viewValue(const QModelIndex &index)
+{
+    const QVariant value
+        = index.isValid() ? m_model->data(index, ResultModel::ValueRole) : QVariant();
+    if (!value.isValid())
+        return nullptr;
+    const QString column = m_model->headerData(index.column(), Qt::Horizontal).toString();
+    auto *viewer = new ValueViewer(tr("%1, row %2").arg(column).arg(index.row() + 1),
+                                   m_model->rows().column(index.column()).type,
+                                   value.toString().toUtf8(), this);
+    viewer->setAttribute(Qt::WA_DeleteOnClose);
+    viewer->show();
+    return viewer;
+}
+
+void ResultView::showContextMenu(QTableView *view, const QPoint &pos)
+{
+    const QModelIndex cell = gridIndex(view->indexAt(pos));
+    if (!cell.isValid())
+        return;
+    QMenu menu(this);
+    menu.addAction(tr("View Value…"), QKeySequence(Qt::SHIFT | Qt::Key_Return), this,
+                   [this, cell] { viewValue(cell); })
+        ->setEnabled(m_model->data(cell, ResultModel::ValueRole).isValid());
+    if (auto *copy = view->findChild<QAction *>(QStringLiteral("copy")))
+        menu.addAction(copy);
+    if (std::ranges::any_of(m_contextActions, &QAction::isVisible))
+        menu.addSeparator();
+    menu.addActions(m_contextActions);
+    menu.exec(view->viewport()->mapToGlobal(pos));
 }
 
 int ResultView::columnIndex(const QString &name) const

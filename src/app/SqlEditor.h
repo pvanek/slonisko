@@ -80,6 +80,9 @@ public:
     // The statement around a byte position, as completion sees it: the text
     // between the previous and the next statement, even if unterminated.
     static std::pair<qsizetype, qsizetype> statementBounds(const QByteArray &text, qsizetype pos);
+    // Margin colours from the editor's palette, for any Scintilla with line
+    // numbers or folding. After setLexer(), which resets them to white.
+    static void applyMarginColors(QsciScintilla *editor);
 
     // Find and replace: every match highlighted, and the part of the text a
     // search keeps to, which follows edits as the text moves around it.

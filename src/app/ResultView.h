@@ -25,6 +25,7 @@ namespace slonisko {
 class RecordModel;
 class ResultTextView;
 class ResultModel;
+class ValueViewer;
 
 // Shows the rows of a query, or its error. Either runs the query itself
 // (run()), or is fed by whoever runs it (begin(), append(), finish()).
@@ -90,6 +91,14 @@ public:
     // view adds to it.
     QToolButton *addHeaderAction(QAction *action);
     void addHeaderWidget(QWidget *widget);
+    // An entry in the menu of the grid and the record view, after the view's
+    // own; hidden while the action is.
+    void addContextAction(QAction *action);
+    // Opens a cell's whole value in a window of its own. The index is the
+    // grid's, of model(); null for a NULL or a cell left to its default.
+    ValueViewer *viewValue(const QModelIndex &index);
+    // View Value, for the cell under the cursor in the grid or record view.
+    QAction *viewValueAction() const { return m_viewValue; }
     // When run() runs the query again, the rows selected stay selected by
     // the value in this column; column widths and scrolling stay anyway.
     void setKeyColumn(const QString &name) { m_keyColumn = name; }
@@ -138,6 +147,9 @@ private:
     void updateRecord(); // The row the record view shows.
     void stepRecord(int by); // Moves to another row in the record view.
     void refresh();
+    // The grid's cell for an index of the grid or of the record view.
+    QModelIndex gridIndex(const QModelIndex &index) const;
+    void showContextMenu(QTableView *view, const QPoint &pos);
 
     QHBoxLayout *m_header = nullptr;
     QLabel *m_title = nullptr;
@@ -167,6 +179,8 @@ private:
     QAction *m_save = nullptr;
     QAction *m_discard = nullptr;
     QAction *m_rerunAction = nullptr;
+    QAction *m_viewValue = nullptr;
+    QList<QAction *> m_contextActions;
 
     std::function<void()> m_rerun;
     QPointer<pg::QueryRunner> m_runner;
