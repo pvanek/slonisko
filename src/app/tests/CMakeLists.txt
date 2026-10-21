@@ -15,7 +15,9 @@ slonisko_add_test(tst_pagewindows slonisko_ui)
 slonisko_add_test(tst_shortcuts slonisko_ui)
 slonisko_add_test(tst_erdview slonisko_ui)
 slonisko_add_db_test(tst_editorpage slonisko_ui)
-set_property(TEST tst_connectiondialog tst_browser tst_connectionfolders tst_sqleditor tst_searchbar tst_resulttextview tst_resultview tst_valueviewer tst_exportdialog tst_editorpage tst_filebrowser tst_pagewindows tst_shortcuts tst_erdview APPEND PROPERTY
+slonisko_add_db_test(tst_importdialog slonisko_ui)
+slonisko_add_db_test(tst_tooldialogs slonisko_ui)
+set_property(TEST tst_connectiondialog tst_browser tst_connectionfolders tst_sqleditor tst_searchbar tst_resulttextview tst_resultview tst_valueviewer tst_exportdialog tst_editorpage tst_filebrowser tst_pagewindows tst_shortcuts tst_erdview tst_importdialog tst_tooldialogs APPEND PROPERTY
     ENVIRONMENT QT_QPA_PLATFORM=offscreen)
 
 # Software centres and Flathub reject an invalid desktop or metainfo file,

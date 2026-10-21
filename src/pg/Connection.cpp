@@ -341,6 +341,7 @@ void Connection::pollCancel()
     case PGRES_POLLING_OK:
         m_cancelWatcher.stop();
         m_cancel.reset();
+        Q_EMIT cancelDone();
         break;
     case PGRES_POLLING_FAILED:
         failCancel();
@@ -358,6 +359,7 @@ void Connection::failCancel()
     m_cancelWatcher.stop();
     m_cancel.reset();
     Q_EMIT cancelFailed(message);
+    Q_EMIT cancelDone();
 }
 
 void Connection::setState(State state)

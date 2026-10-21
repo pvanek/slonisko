@@ -800,13 +800,11 @@ void EditorPage::onResult(const pg::Result &result)
             m_commandTag = result.commandTag();
         break;
     case Job::Kind::Export:
-        if (job.sink && result.rowCount() > 0) {
-            // One chunk at a time: the header goes with the first of them.
+        if (job.sink) {
+            // One chunk at a time, into the one document the writer keeps.
             pg::RowStore chunk;
             chunk.append(result);
-            catalog::ExportOptions options = job.sink->options;
-            options.header = options.header && job.sink->rows == 0;
-            catalog::exportRows(chunk, options, *job.sink->stream);
+            job.sink->writer->write(chunk);
             job.sink->rows += result.rowCount();
         }
         break;
@@ -872,6 +870,7 @@ void EditorPage::onFinished()
             tr("Explained: %1 (%2 ms)").arg(preview(job.sql.mid(job.prefixChars))).arg(ms));
     } else if (job.kind == Job::Kind::Export && job.sink) {
         Job::Sink &sink = *job.sink;
+        sink.writer->finish();
         sink.stream->flush();
         if (m_failed) {
             sink.file->cancelWriting();
@@ -922,6 +921,7 @@ void EditorPage::exportAll(ResultView *view, const catalog::ExportOptions &optio
         return;
     }
     sink->stream = std::make_unique<QTextStream>(sink->file.get());
+    sink->writer = std::make_unique<catalog::RowWriter>(sink->options, *sink->stream);
 
     Job job = *shown;
     job.kind = Job::Kind::Export;

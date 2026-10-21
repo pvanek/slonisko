@@ -14,6 +14,8 @@ add_library(slonisko_catalog STATIC
     ErdExport.h
     Export.cpp
     Export.h
+    Import.cpp
+    Import.h
     Monitoring.cpp
     Monitoring.h
     Objects.cpp

@@ -605,10 +605,14 @@ private Q_SLOTS:
 
         QElapsedTimer timer;
         timer.start();
+        QSignalSpy cancelDone(&c, &Connection::cancelDone);
         QVERIFY(c.cancel());
+        QVERIFY(c.isCancelling());
         QVERIFY(!c.cancel()); // Already in progress.
         QTRY_COMPARE_WITH_TIMEOUT(recorder.finished, 1, 5'000);
         QVERIFY(timer.elapsed() < 5'000);
+        QTRY_COMPARE(cancelDone.size(), 1);
+        QVERIFY(!c.isCancelling());
 
         QCOMPARE(recorder.results.size(), 1u);
         QCOMPARE(recorder.results[0].sqlState(), QByteArray("57014"));

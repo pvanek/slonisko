@@ -19,8 +19,11 @@ using catalog::ExportFormat;
 
 namespace {
 
-constexpr std::array Formats {ExportFormat::Csv, ExportFormat::Tsv, ExportFormat::Text,
-                              ExportFormat::SqlInsert, ExportFormat::SqlBulkInsert};
+constexpr std::array Formats {
+    ExportFormat::Csv,           ExportFormat::Tsv,      ExportFormat::Json,
+    ExportFormat::JsonLines,     ExportFormat::Markdown, ExportFormat::Html,
+    ExportFormat::Xml,           ExportFormat::Text,     ExportFormat::SqlInsert,
+    ExportFormat::SqlBulkInsert, ExportFormat::SqlCopy};
 
 ExportFormat lastFormat = ExportFormat::Csv;
 
@@ -99,15 +102,22 @@ void ExportDialog::setLastFormat(ExportFormat format)
 void ExportDialog::updateEnabled()
 {
     const ExportFormat chosen = format();
-    const bool separated = chosen == ExportFormat::Csv || chosen == ExportFormat::Tsv;
-    const bool text = chosen == ExportFormat::Text;
-    const bool sql = chosen == ExportFormat::SqlInsert || chosen == ExportFormat::SqlBulkInsert;
+    auto is = [chosen](std::initializer_list<ExportFormat> formats) {
+        return std::ranges::find(formats, chosen) != formats.end();
+    };
+    const bool sql
+        = is({ExportFormat::SqlInsert, ExportFormat::SqlBulkInsert, ExportFormat::SqlCopy});
 
-    m_ui->header->setEnabled(separated || text);
+    // A Markdown table needs its header; JSON and XML name every value.
+    m_ui->header->setEnabled(
+        is({ExportFormat::Csv, ExportFormat::Tsv, ExportFormat::Text, ExportFormat::Html}));
     m_ui->delimiterLabel->setEnabled(chosen == ExportFormat::Csv);
     m_ui->delimiter->setEnabled(chosen == ExportFormat::Csv);
-    m_ui->nullLabel->setEnabled(!sql);
-    m_ui->nullText->setEnabled(!sql);
+    // These have a NULL of their own.
+    const bool ownNull
+        = sql || is({ExportFormat::Json, ExportFormat::JsonLines, ExportFormat::Xml});
+    m_ui->nullLabel->setEnabled(!ownNull);
+    m_ui->nullText->setEnabled(!ownNull);
     m_ui->tableLabel->setEnabled(sql);
     m_ui->table->setEnabled(sql);
     m_ui->bulkLabel->setEnabled(chosen == ExportFormat::SqlBulkInsert);

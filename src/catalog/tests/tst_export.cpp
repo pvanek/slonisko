@@ -4,6 +4,7 @@
 #include "catalog/Export.h"
 
 #include <QTest>
+#include <QTextStream>
 
 #include <cstring>
 
@@ -41,6 +42,13 @@ RowStore store()
                             {"2", "Bo, \"the\" Builder", nullptr},
                             {"42", "line\nbreak", "it's"}}));
     return rows;
+}
+
+ExportOptions as(ExportFormat format)
+{
+    ExportOptions options;
+    options.format = format;
+    return options;
 }
 
 } // namespace
@@ -155,12 +163,133 @@ private Q_SLOTS:
         QCOMPARE(exportRows(rows, options), QStringLiteral("id\n"));
     }
 
+    void json()
+    {
+        RowStore rows;
+        rows.append(makeResult({{"id", 23}, {"doc", 3802}, {"ok", 16}, {"x", 701}},
+                               {{"1", "{\"a\": [1]}", "t", "NaN"}, {"2", nullptr, "f", "-1.5"}}));
+        ExportOptions options;
+        options.format = ExportFormat::Json;
+        // Numbers and booleans as such, json as it is; NaN is no JSON number.
+        QCOMPARE(
+            exportRows(rows, options),
+            QStringLiteral("[\n"
+                           "  {\"id\": 1, \"doc\": {\"a\": [1]}, \"ok\": true, \"x\": \"NaN\"},\n"
+                           "  {\"id\": 2, \"doc\": null, \"ok\": false, \"x\": -1.5}\n"
+                           "]\n"));
+        ExportOptions lines = as(ExportFormat::JsonLines);
+        lines.maxRows = 1;
+        QCOMPARE(exportRows(store(), lines),
+                 QStringLiteral("{\"id\": 1, \"name\": \"Alice\", \"note\": \"plain\"}\n"));
+        const QString escaped = exportRows(store(), as(ExportFormat::JsonLines));
+        QVERIFY(escaped.contains(QLatin1String("\"Bo, \\\"the\\\" Builder\"")));
+        QVERIFY(escaped.contains(QLatin1String("\"line\\nbreak\"")));
+
+        RowStore empty;
+        empty.append(makeResult({{"id", 23}}, {}));
+        QCOMPARE(exportRows(empty, as(ExportFormat::Json)), QStringLiteral("[]\n"));
+    }
+
+    void markdown()
+    {
+        RowStore rows;
+        rows.append(makeResult({{"id", 23}, {"a|b", 25}}, {{"1", "x|y\nz"}, {"2", nullptr}}));
+        ExportOptions options;
+        options.format = ExportFormat::Markdown;
+        options.nullText = QStringLiteral("NULL");
+        QCOMPARE(exportRows(rows, options),
+                 QStringLiteral("| id | a\\|b |\n"
+                                "|---:|---|\n"
+                                "| 1 | x\\|y<br>z |\n"
+                                "| 2 | NULL |\n"));
+    }
+
+    void html()
+    {
+        RowStore rows;
+        rows.append(makeResult({{"id", 23}, {"<b>", 25}}, {{"1", "a & b"}}));
+        ExportOptions options;
+        options.format = ExportFormat::Html;
+        const QString out = exportRows(rows, options);
+        QVERIFY(out.startsWith(QLatin1String("<!DOCTYPE html>")));
+        QVERIFY(out.contains(QLatin1String("<meta charset=\"utf-8\">")));
+        QVERIFY(out.contains(QLatin1String("<tr><th>id</th><th>&lt;b&gt;</th></tr>")));
+        QVERIFY(
+            out.contains(QLatin1String("<tr><td class=\"number\">1</td><td>a &amp; b</td></tr>")));
+        QVERIFY(out.endsWith(QLatin1String("</table>\n</body>\n</html>\n")));
+    }
+
+    void xml()
+    {
+        RowStore rows;
+        rows.append(makeResult({{"id", 23}, {"note", 25}}, {{"1", "a<b\x01"}, {"2", nullptr}}));
+        QCOMPARE(exportRows(rows, as(ExportFormat::Xml)),
+                 QStringLiteral("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                                "<rows>\n"
+                                "  <row>\n"
+                                "    <column name=\"id\">1</column>\n"
+                                "    <column name=\"note\">a&lt;b\uFFFD</column>\n"
+                                "  </row>\n"
+                                "  <row>\n"
+                                "    <column name=\"id\">2</column>\n"
+                                "    <column name=\"note\" null=\"true\"/>\n"
+                                "  </row>\n"
+                                "</rows>\n"));
+    }
+
+    void sqlCopy()
+    {
+        RowStore rows;
+        rows.append(makeResult({{"id", 23}, {"Note", 25}}, {{"1", "tab\there\\"}, {"2", nullptr}}));
+        ExportOptions options;
+        options.format = ExportFormat::SqlCopy;
+        options.table = QStringLiteral("public.t");
+        // What psql and the editor run as it is.
+        QCOMPARE(exportRows(rows, options),
+                 QStringLiteral("COPY public.t (id, \"Note\") FROM stdin;\n"
+                                "1\ttab\\there\\\\\n"
+                                "2\t\\N\n"
+                                "\\.\n"));
+    }
+
+    // A query's rows arrive in parts; the document around them is one.
+    void writesPartsAsOne()
+    {
+        RowStore first;
+        first.append(makeResult({{"id", 23}}, {{"1"}, {"2"}}));
+        RowStore second;
+        second.append(makeResult({{"id", 23}}, {{"3"}}));
+        auto parts = [&](const ExportOptions &options) {
+            QString out;
+            QTextStream stream(&out);
+            RowWriter writer(options, stream);
+            writer.write(first);
+            writer.write(second);
+            writer.finish();
+            stream.flush();
+            return out;
+        };
+        QCOMPARE(parts(as(ExportFormat::Csv)), QStringLiteral("id\n1\n2\n3\n"));
+        QCOMPARE(parts(as(ExportFormat::Json)),
+                 QStringLiteral("[\n  {\"id\": 1},\n  {\"id\": 2},\n  {\"id\": 3}\n]\n"));
+        ExportOptions bulk = as(ExportFormat::SqlBulkInsert);
+        bulk.table = QStringLiteral("t");
+        bulk.bulkRows = 2;
+        QCOMPARE(parts(bulk),
+                 QStringLiteral("INSERT INTO t (id) VALUES\n    (1),\n    (2);\n"
+                                "INSERT INTO t (id) VALUES\n    (3);\n"));
+        QCOMPARE(parts(as(ExportFormat::Text)), QStringLiteral("id\n--\n 1\n 2\n 3\n"));
+    }
+
     void namesAndSuffixes()
     {
         QCOMPARE(fileSuffix(ExportFormat::Csv), QStringLiteral("csv"));
         QCOMPARE(fileSuffix(ExportFormat::SqlBulkInsert), QStringLiteral("sql"));
         QVERIFY(fileFilter(ExportFormat::Text).contains(QLatin1String("*.txt")));
         QVERIFY(!formatName(ExportFormat::SqlInsert).isEmpty());
+        QCOMPARE(fileSuffix(ExportFormat::JsonLines), QStringLiteral("jsonl"));
+        QCOMPARE(fileSuffix(ExportFormat::Markdown), QStringLiteral("md"));
+        QCOMPARE(fileSuffix(ExportFormat::SqlCopy), QStringLiteral("sql"));
     }
 };
 

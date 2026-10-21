@@ -30,6 +30,9 @@
 #include <QTableView>
 #include <QTabWidget>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QClipboard>
 #include <QMenu>
 #include <QGuiApplication>
@@ -1506,6 +1509,18 @@ private Q_SLOTS:
         QCOMPARE(lines.value(1500), QStringLiteral("1500"));
         QCOMPARE(lines.value(1501), QString()); // Nothing after the last row.
         QVERIFY2(messages().contains(QLatin1String("Exported 1500 rows")), qPrintable(messages()));
+
+        // A JSON array is one, across the chunks the rows came in.
+        const QString json = m_dir.filePath(QStringLiteral("all.json"));
+        Q_EMIT view->exportAllRequested(view->exportOptions(catalog::ExportFormat::Json), json);
+        QVERIFY(QTest::qWaitFor([&] { return !m_tab->isRunning(); }, 20'000));
+        QFile jsonFile(json);
+        QVERIFY(jsonFile.open(QIODevice::ReadOnly));
+        QJsonParseError error;
+        const QJsonDocument document = QJsonDocument::fromJson(jsonFile.readAll(), &error);
+        QCOMPARE(error.error, QJsonParseError::NoError);
+        QCOMPARE(document.array().size(), 1500);
+        QCOMPARE(document.array().last().toObject().value(QLatin1String("n")).toInt(), 1500);
 
         // The grid itself is untouched by the export.
         QVERIFY(model()->rowCount() < 1500);

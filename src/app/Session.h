@@ -60,6 +60,15 @@ public:
         return m_profile.conninfo(m_credentials.password, database, m_endpoint);
     }
 
+    // The same for a client program like pg_dump: without the password,
+    // which goes into the program's environment instead, so that it is not
+    // on a command line other users can see.
+    QByteArray toolConninfo(const QString &database = {}) const
+    {
+        return m_profile.conninfo({}, database, m_endpoint);
+    }
+    QString password() const { return m_credentials.password; }
+
     // Runs queries in a database; empty means the profile's own. Returns null
     // unless connected.
     pg::QueryRunner *runner(const QString &database = {});

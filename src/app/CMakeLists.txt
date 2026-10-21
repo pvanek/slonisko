@@ -14,6 +14,9 @@ add_library(slonisko_ui STATIC
     ConnectionDialog.cpp
     ConnectionDialog.h
     ConnectionDialog.ui
+    DumpDialog.cpp
+    DumpDialog.h
+    DumpDialog.ui
     EditorPage.cpp
     EditorPage.h
     FileBrowser.cpp
@@ -31,6 +34,9 @@ add_library(slonisko_ui STATIC
     ExportDialog.cpp
     ExportDialog.h
     ExportDialog.ui
+    ImportDialog.cpp
+    ImportDialog.h
+    ImportDialog.ui
     ErdView.cpp
     ErdView.h
     HelpWindow.cpp
@@ -46,6 +52,9 @@ add_library(slonisko_ui STATIC
     ResultPanel.h
     ResultPage.cpp
     ResultPage.h
+    RestoreDialog.cpp
+    RestoreDialog.h
+    RestoreDialog.ui
     ResultView.cpp
     ResultView.h
     SaveChangesDialog.cpp
@@ -63,6 +72,8 @@ add_library(slonisko_ui STATIC
     SqlLexer.h
     SvgDevice.cpp
     SvgDevice.h
+    ToolDialog.cpp
+    ToolDialog.h
     ValueLexer.cpp
     ValueLexer.h
     ValueViewer.cpp

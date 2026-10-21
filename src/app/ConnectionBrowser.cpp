@@ -7,7 +7,10 @@
 #include "BrowserModel.h"
 #include "catalog/Details.h"
 #include "ConnectionDialog.h"
+#include "DumpDialog.h"
 #include "Icons.h"
+#include "ImportDialog.h"
+#include "RestoreDialog.h"
 #include "Shortcuts.h"
 #include "catalog/Monitoring.h"
 #include "config/Folders.h"
@@ -250,6 +253,42 @@ void ConnectionBrowser::showContextMenu(const QPoint &pos)
             menu.addAction(m_showDetails);
         if (m_refresh->isEnabled())
             menu.addAction(m_refresh);
+        if (m_openEditor->isEnabled()) {
+            const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
+            const bool object = type == NodeType::Object;
+            const bool database = type == NodeType::Connection || type == NodeType::Database
+                || (object && kind == catalog::ObjectKind::Database);
+            const bool part = object
+                && (kind == catalog::ObjectKind::Schema || kind == catalog::ObjectKind::Table
+                    || kind == catalog::ObjectKind::PartitionedTable);
+            if (database || part) {
+                menu.addSeparator();
+                const QString text = !object || kind == catalog::ObjectKind::Database
+                    ? tr("&Back Up…")
+                    : kind == catalog::ObjectKind::Schema ? tr("&Back Up Schema…")
+                                                          : tr("&Back Up Table…");
+                menu.addAction(QIcon::fromTheme(QStringLiteral("document-save")), text, this,
+                               [this, index] { backUp(index); });
+            }
+            if (database) {
+                menu.addAction(QIcon::fromTheme(QStringLiteral("document-revert")), tr("Res&tore…"),
+                               this, [this, index] { restore(index); });
+            }
+        }
+        if (type == NodeType::Object && m_openEditor->isEnabled()) {
+            const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
+            if (kind == catalog::ObjectKind::Table
+                || kind == catalog::ObjectKind::PartitionedTable) {
+                menu.addSeparator();
+                menu.addAction(QIcon::fromTheme(QStringLiteral("document-import")),
+                               tr("&Import CSV…"), this, [this, index] { importCsv(index); });
+            } else if (kind == catalog::ObjectKind::Schema) {
+                menu.addSeparator();
+                menu.addAction(QIcon::fromTheme(QStringLiteral("document-import")),
+                               tr("&Import CSV into a New Table…"), this,
+                               [this, index] { importCsv(index); });
+            }
+        }
         // Anywhere in a connection's tree, as what hangs is usually deep in
         // it: a folder that keeps loading.
         if (type != NodeType::Connection && m_reconnect->isEnabled()) {
@@ -767,6 +806,107 @@ void ConnectionBrowser::restoreExpanded()
 {
     for (const QString &folder : m_settings.value(ExpandedKey).toStringList())
         m_view->expand(m_model->folderIndex(folder));
+}
+
+namespace {
+
+// The schema the node at index is, or is in; empty if none.
+QString schemaOf(QModelIndex index)
+{
+    for (; index.isValid(); index = index.parent()) {
+        if (index.data(BrowserModel::NodeTypeRole).value<BrowserModel::NodeType>()
+                == BrowserModel::NodeType::Object
+            && index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>()
+                == catalog::ObjectKind::Schema)
+            return index.data().toString();
+    }
+    return {};
+}
+
+// The database the node at index is, or is in; empty for the profile's.
+QString databaseOf(const QModelIndex &index)
+{
+    if (index.data(BrowserModel::NodeTypeRole).value<BrowserModel::NodeType>()
+            == BrowserModel::NodeType::Object
+        && index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>()
+            == catalog::ObjectKind::Database)
+        return index.data().toString();
+    return index.data(BrowserModel::DatabaseRole).toString();
+}
+
+} // namespace
+
+DumpDialog *ConnectionBrowser::backUp(const QModelIndex &index)
+{
+    Session *s = m_model->sessionOf(index);
+    if (!s || s->state() != Session::State::Connected)
+        return nullptr;
+    const auto type = index.data(BrowserModel::NodeTypeRole).value<NodeType>();
+    const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
+    QString table;
+    if (type == NodeType::Object) {
+        if (kind == catalog::ObjectKind::Table || kind == catalog::ObjectKind::PartitionedTable)
+            table = index.data().toString();
+        else if (kind != catalog::ObjectKind::Schema && kind != catalog::ObjectKind::Database)
+            return nullptr;
+    } else if (type != NodeType::Connection && type != NodeType::Database) {
+        return nullptr;
+    }
+    auto *dialog = new DumpDialog(s, databaseOf(index), schemaOf(index), table, &m_settings, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
+    return dialog;
+}
+
+RestoreDialog *ConnectionBrowser::restore(const QModelIndex &index)
+{
+    Session *s = m_model->sessionOf(index);
+    if (!s || s->state() != Session::State::Connected)
+        return nullptr;
+    const auto type = index.data(BrowserModel::NodeTypeRole).value<NodeType>();
+    if (type != NodeType::Connection && type != NodeType::Database
+        && !(type == NodeType::Object
+             && index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>()
+                 == catalog::ObjectKind::Database))
+        return nullptr;
+    const QString database = databaseOf(index);
+    auto *dialog = new RestoreDialog(s, database, &m_settings, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    // What was restored shows in the browser and in completion.
+    const QPersistentModelIndex where(index);
+    connect(dialog, &RestoreDialog::toolFinished, this, [this, where, s, database](bool ok) {
+        if (!ok)
+            return;
+        s->reloadSnapshot(database);
+        if (where.isValid())
+            m_model->refresh(where);
+    });
+    dialog->show();
+    return dialog;
+}
+
+ImportDialog *ConnectionBrowser::importCsv(const QModelIndex &index)
+{
+    Session *s = m_model->sessionOf(index);
+    if (!s || s->state() != Session::State::Connected
+        || index.data(BrowserModel::NodeTypeRole).value<NodeType>() != NodeType::Object)
+        return nullptr;
+    const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
+    QString table;
+    if (kind == catalog::ObjectKind::Table || kind == catalog::ObjectKind::PartitionedTable)
+        table = index.data().toString();
+    else if (kind != catalog::ObjectKind::Schema)
+        return nullptr;
+    auto *dialog = new ImportDialog(s, databaseOf(index), schemaOf(index), table, this);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    // A new table shows up under the schema it went into.
+    const QPersistentModelIndex where(index);
+    connect(dialog, &ImportDialog::imported, this, [this, where, table] {
+        if (table.isEmpty() && where.isValid())
+            m_model->refresh(where);
+    });
+    dialog->show();
+    return dialog;
 }
 
 void ConnectionBrowser::refreshCurrent()

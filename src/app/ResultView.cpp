@@ -306,8 +306,8 @@ ResultView::ResultView(QWidget *parent)
     menu->addAction(tr("&Export…"), this, [this] { exportWithDialog(); });
     menu->addSeparator();
     using catalog::ExportFormat;
-    for (const ExportFormat format :
-         {ExportFormat::Csv, ExportFormat::Text, ExportFormat::SqlInsert}) {
+    for (const ExportFormat format : {ExportFormat::Csv, ExportFormat::Json, ExportFormat::Markdown,
+                                      ExportFormat::Text, ExportFormat::SqlInsert}) {
         menu->addAction(tr("Copy as %1").arg(catalog::formatName(format)), this,
                         [this, format] { copyAs(format); });
     }

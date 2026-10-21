@@ -7,6 +7,7 @@
 
 #include <QString>
 
+#include <memory>
 #include <vector>
 
 class QTextStream;
@@ -18,21 +19,50 @@ enum class ExportFormat {
     Tsv,
     Text, // The ASCII table the result's text view shows.
     SqlInsert, // One INSERT per row.
-    SqlBulkInsert // One INSERT for every few rows.
+    SqlBulkInsert, // One INSERT for every few rows.
+    Json, // An array of objects, one per row.
+    JsonLines, // One object per line, for tools that read a row at a time.
+    Markdown, // A pipe table.
+    Html, // A page with a table, which spreadsheets open too.
+    Xml,
+    SqlCopy // COPY ... FROM stdin with the rows after it, as pg_dump writes them.
 };
 
 struct ExportOptions
 {
     ExportFormat format = ExportFormat::Csv;
-    bool header = true; // CSV, TSV and text.
+    bool header = true; // CSV, TSV, text and HTML.
     QChar delimiter = QLatin1Char(','); // CSV; TSV always uses a tab.
-    QString nullText; // What a NULL is written as.
-    QString table = QStringLiteral("table_name"); // INSERT INTO this.
+    QString nullText; // What a NULL is written as; JSON, XML and SQL have their own.
+    QString table = QStringLiteral("table_name"); // INSERT INTO or COPY this.
     int bulkRows = 100; // Rows per bulk INSERT.
     int maxCellWidth = 0; // Text: cut longer cells; 0 keeps them.
     int maxRows = 0; // 0 exports every row.
     std::vector<int> rows; // Which rows, in this order; empty exports all.
     std::vector<int> columns; // Empty exports every column.
+};
+
+// Writes rows that arrive in parts, as a query streams them, into one
+// document: the header, an opening bracket or a COPY line go before the
+// first part and what closes them after the last. options.rows and maxRows
+// apply to each part on its own.
+class RowWriter
+{
+public:
+    RowWriter(const ExportOptions &options, QTextStream &out);
+    ~RowWriter();
+    RowWriter(const RowWriter &) = delete;
+    RowWriter &operator=(const RowWriter &) = delete;
+
+    // The columns are taken from the first part that has any.
+    void write(const pg::RowStore &rows);
+    // Closes what the first part opened; nothing if no part had columns.
+    void finish();
+    int rowsWritten() const;
+
+private:
+    struct State;
+    std::unique_ptr<State> m_state;
 };
 
 // Writes the rows in the chosen format. Streaming, so a big result needs no
@@ -44,6 +74,10 @@ QString exportRows(const pg::RowStore &rows, const ExportOptions &options);
 QString formatName(ExportFormat format);
 QString fileFilter(ExportFormat format);
 QString fileSuffix(ExportFormat format);
+
+// A value for COPY's text format, which takes a tab between columns, a
+// line per row and \N for NULL.
+QString copyEscaped(const QString &value);
 
 // Numbers are right-aligned in the text view and unquoted in SQL.
 bool isNumericType(Oid type);

@@ -66,12 +66,17 @@ public:
     // running, a cancel is already in progress, or the request could not be
     // started; failures are also reported by cancelFailed().
     bool cancel();
+    // A cancel request is on its way. The server cancels whatever runs when
+    // it arrives, so a statement sent meanwhile may be the one it hits.
+    bool isCancelling() const { return bool(m_cancel); }
 
 Q_SIGNALS:
     void stateChanged(slonisko::pg::Connection::State state);
     void resultReady(const slonisko::pg::Result &result);
     void queryFinished();
     void cancelFailed(const QString &message);
+    // The cancel request was delivered, or failed to be.
+    void cancelDone();
     // A server notice or warning, such as RAISE NOTICE output. Emitted
     // asynchronously, so it may arrive after the result it belongs to.
     void notice(const QString &message);

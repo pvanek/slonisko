@@ -26,6 +26,10 @@ class BrowserModel;
 // The connection and object browser: saved connections in their folders,
 // and for connected ones their databases and objects, DBA tools and system
 // information.
+class DumpDialog;
+class ImportDialog;
+class RestoreDialog;
+
 class ConnectionBrowser : public QWidget
 {
     Q_OBJECT
@@ -53,6 +57,15 @@ public:
     // The folders the connection or folder at index can be moved to, the
     // empty one meaning the top level; for the Move to Folder menu.
     QStringList moveTargets(const QModelIndex &index) const;
+
+    // Opens the CSV import for the table at index, or for a new table in
+    // the schema at index; null when it is neither, or not connected.
+    ImportDialog *importCsv(const QModelIndex &index);
+    // pg_dump the database, schema or table at index, or pg_restore into
+    // the database at index; null when it is none of those, or not
+    // connected.
+    DumpDialog *backUp(const QModelIndex &index);
+    RestoreDialog *restore(const QModelIndex &index);
 
     void connectProfile(const QUuid &id);
     // Disconnects, first asking if editors on the connection have

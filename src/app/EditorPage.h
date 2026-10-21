@@ -134,6 +134,7 @@ private:
             QString path;
             std::unique_ptr<QSaveFile> file;
             std::unique_ptr<QTextStream> stream;
+            std::unique_ptr<catalog::RowWriter> writer; // Writes to stream.
             int rows = 0;
         };
         Kind kind = Kind::Statement;

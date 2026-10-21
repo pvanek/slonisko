@@ -64,6 +64,20 @@ private Q_SLOTS:
         QVERIFY(!delimiter->isEnabled());
         QVERIFY(table->isEnabled());
         QVERIFY(dialog.findChild<QSpinBox *>(QStringLiteral("bulkRows"))->isEnabled());
+
+        // JSON has its own null and names every value.
+        auto *nullText = dialog.findChild<QLineEdit *>(QStringLiteral("nullText"));
+        auto *header = dialog.findChild<QCheckBox *>(QStringLiteral("header"));
+        format->setCurrentIndex(format->findData(int(ExportFormat::Json)));
+        QVERIFY(!nullText->isEnabled());
+        QVERIFY(!header->isEnabled());
+        QVERIFY(!table->isEnabled());
+        format->setCurrentIndex(format->findData(int(ExportFormat::Html)));
+        QVERIFY(nullText->isEnabled());
+        QVERIFY(header->isEnabled());
+        format->setCurrentIndex(format->findData(int(ExportFormat::SqlCopy)));
+        QVERIFY(table->isEnabled());
+        QVERIFY(!nullText->isEnabled());
     }
 
     // Regression: neither button was connected, so the dialog never closed.

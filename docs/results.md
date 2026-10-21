@@ -118,7 +118,7 @@ out for it.
 
 ## Export
 
-```{index} export, CSV, SQL INSERT, clipboard
+```{index} export, CSV, JSON, Markdown, HTML, XML, SQL INSERT, SQL COPY, clipboard
 ```
 
 The *Export* button copies or saves the rows. Its *Export…* entry opens a
@@ -131,10 +131,22 @@ Which rows
   bigger than memory still goes through.
 
 In which format
-: CSV, tab-separated, the text table, `INSERT` statements, or bulk
-  `INSERT`s with several rows per statement. Each format brings its own
-  options: a header row, a delimiter, what NULL is written as, the table
-  name for SQL, how many rows go in one bulk `INSERT`.
+: - CSV or tab-separated values.
+  - JSON, as an array with an object per row, or JSON Lines, an object
+    per line. Numbers and booleans are written as JSON numbers and booleans,
+    and `json` and `jsonb` values are embedded as they are, not as strings.
+  - A Markdown table.
+  - An HTML page holding a table, which a browser or a spreadsheet opens.
+  - XML.
+  - The text table.
+  - SQL `INSERT` statements, or bulk `INSERT`s with several rows per
+    statement.
+  - SQL `COPY`: a `COPY ... FROM stdin` statement followed by the rows, as
+    pg_dump writes them. Both psql and the SQL editor run it as it is.
+
+  Each format brings its own options: a header row, a delimiter, what NULL
+  is written as, the table name for SQL, how many rows go in one bulk
+  `INSERT`.
 
 Where to
 : A file, or the clipboard — except for rows that are still on the
@@ -146,8 +158,12 @@ Where to
 The export dialog, set up for CSV with a header row.
 ```
 
-The rest of the menu has the everyday shortcuts: *Copy as CSV*, *as Text
-table*, *as SQL INSERT*, which take the selected rows when there are any.
+The rest of the menu has the everyday shortcuts: *Copy as CSV*, *as JSON*,
+*as Markdown*, *as Text table* and *as SQL INSERT*. They copy the selected
+rows, or every row when nothing is selected.
+
+To load rows into a table from a CSV file, see
+[Importing CSV](import-and-backup.md#importing-csv).
 
 ## DBA Tools and System Info
 

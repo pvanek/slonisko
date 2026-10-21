@@ -8,7 +8,7 @@ without a display.
 
 | Directory | What belongs there |
 |---|---|
-| `src/pg` | libpq: connections, queries, cancelling, the row store, SSH tunnels |
+| `src/pg` | libpq: connections, queries, cancelling, the row store, SSH tunnels; running pg_dump, pg_restore and psql |
 | `src/config` | Connection profiles and passwords |
 | `src/sql` | Lexing, statement splitting, psql syntax, other languages' bodies |
 | `src/catalog` | Catalog queries and everything derived from their results |
@@ -16,7 +16,7 @@ without a display.
 
 Only `src/app` may depend on Qt Widgets. A query, a parser, a layout or a
 renderer belongs in a library where a test can reach it: the ER layout, the
-export formats, the completion matcher and the EXPLAIN plan parser all live
+export formats, the CSV import, the completion matcher and the EXPLAIN plan parser all live
 outside the widgets and have tests of their own. Each library keeps its
 tests in its own `tests/` subdirectory.
 

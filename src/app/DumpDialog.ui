@@ -1,0 +1,391 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DumpDialog</class>
+ <widget class="QWizard" name="DumpDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>560</width>
+    <height>400</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Back Up</string>
+  </property>
+  <widget class="slonisko::ToolPage" name="filePage">
+   <property name="title">
+    <string>Backup File</string>
+   </property>
+   <layout class="QVBoxLayout" name="filePageLayout">
+    <item>
+     <layout class="QFormLayout" name="filePageForm">
+      <item row="0" column="0">
+       <widget class="QLabel" name="databaseLabel">
+        <property name="text">
+         <string>Database:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLabel" name="databaseName"/>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="formatLabel">
+        <property name="text">
+         <string>&amp;Format:</string>
+        </property>
+        <property name="buddy">
+         <cstring>format</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QComboBox" name="format"/>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="pathLabel">
+        <property name="text">
+         <string>Save &amp;to:</string>
+        </property>
+        <property name="buddy">
+         <cstring>path</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <layout class="QHBoxLayout" name="pathRow">
+        <item>
+         <widget class="QLineEdit" name="path"/>
+        </item>
+        <item>
+         <widget class="QPushButton" name="browse">
+          <property name="text">
+           <string>&amp;Browse…</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="toolLabel">
+        <property name="text">
+         <string>Pro&amp;gram:</string>
+        </property>
+        <property name="buddy">
+         <cstring>chooseTool</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <layout class="QHBoxLayout" name="toolRow" stretch="1,0">
+        <item>
+         <widget class="QLabel" name="tool">
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextSelectableByMouse</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="chooseTool">
+          <property name="text">
+           <string>C&amp;hoose…</string>
+          </property>
+          <property name="toolTip">
+           <string>Use another copy of the program, e.g. of another PostgreSQL version</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QLabel" name="problem">
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+      <property name="textInteractionFlags">
+       <set>Qt::TextSelectableByMouse</set>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <spacer name="filePageSpacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>0</width>
+        <height>0</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QWizardPage" name="contentsPage">
+   <property name="title">
+    <string>Contents</string>
+   </property>
+   <layout class="QVBoxLayout" name="contentsPageLayout">
+    <item>
+     <layout class="QFormLayout" name="contentsPageForm">
+      <item row="0" column="0">
+       <widget class="QLabel" name="contentLabel">
+        <property name="text">
+         <string>C&amp;ontents:</string>
+        </property>
+        <property name="buddy">
+         <cstring>content</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QComboBox" name="content"/>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="schemasLabel">
+        <property name="text">
+         <string>&amp;Schemas:</string>
+        </property>
+        <property name="buddy">
+         <cstring>schemas</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="schemas">
+        <property name="placeholderText">
+         <string>all; or names, separated by commas</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="tablesLabel">
+        <property name="text">
+         <string>&amp;Tables:</string>
+        </property>
+        <property name="buddy">
+         <cstring>tables</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLineEdit" name="tables">
+        <property name="placeholderText">
+         <string>all; or schema.table, separated by commas</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <spacer name="contentsPageSpacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>0</width>
+        <height>0</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QWizardPage" name="optionsPage">
+   <property name="title">
+    <string>Options</string>
+   </property>
+   <layout class="QVBoxLayout" name="optionsPageLayout">
+    <item>
+     <layout class="QFormLayout" name="optionsPageForm">
+      <property name="fieldGrowthPolicy">
+       <enum>QFormLayout::FieldsStayAtSizeHint</enum>
+      </property>
+      <item row="0" column="0" colspan="2">
+       <widget class="QCheckBox" name="clean">
+        <property name="text">
+         <string>Drop &amp;objects before creating them</string>
+        </property>
+        <property name="toolTip">
+         <string>A script only: an archive leaves this to the restore</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0" colspan="2">
+       <widget class="QCheckBox" name="create">
+        <property name="text">
+         <string>Create the data&amp;base</string>
+        </property>
+        <property name="toolTip">
+         <string>A script only: an archive leaves this to the restore</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0" colspan="2">
+       <widget class="QCheckBox" name="noOwner">
+        <property name="text">
+         <string>Leave out o&amp;wners</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="2">
+       <widget class="QCheckBox" name="noPrivileges">
+        <property name="text">
+         <string>Leave out &amp;privileges</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0" colspan="2">
+       <widget class="QCheckBox" name="inserts">
+        <property name="text">
+         <string>Data as &amp;INSERT statements</string>
+        </property>
+        <property name="toolTip">
+         <string>Slower to restore than COPY, but runs on other databases too</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="jobsLabel">
+        <property name="text">
+         <string>Parallel &amp;jobs:</string>
+        </property>
+        <property name="buddy">
+         <cstring>jobs</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QSpinBox" name="jobs">
+        <property name="minimum">
+         <number>1</number>
+        </property>
+        <property name="maximum">
+         <number>64</number>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="0">
+       <widget class="QLabel" name="compressionLabel">
+        <property name="text">
+         <string>Co&amp;mpression:</string>
+        </property>
+        <property name="buddy">
+         <cstring>compression</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="6" column="1">
+       <widget class="QSpinBox" name="compression">
+        <property name="minimum">
+         <number>-1</number>
+        </property>
+        <property name="maximum">
+         <number>9</number>
+        </property>
+        <property name="value">
+         <number>-1</number>
+        </property>
+        <property name="specialValueText">
+         <string>default</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <spacer name="optionsPageSpacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>0</width>
+        <height>0</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+   </layout>
+  </widget>
+  <widget class="slonisko::ToolPage" name="runPage">
+   <property name="title">
+    <string>Back Up</string>
+   </property>
+   <layout class="QVBoxLayout" name="runLayout" stretch="0,1,0,0">
+    <item>
+     <layout class="QFormLayout" name="commandForm">
+      <item row="0" column="0">
+       <widget class="QLabel" name="commandLabel">
+        <property name="text">
+         <string>Comman&amp;d:</string>
+        </property>
+        <property name="buddy">
+         <cstring>command</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLineEdit" name="command">
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QPlainTextEdit" name="log">
+      <property name="readOnly">
+       <bool>true</bool>
+      </property>
+      <property name="lineWrapMode">
+       <enum>QPlainTextEdit::NoWrap</enum>
+      </property>
+      <property name="placeholderText">
+       <string>What the program writes shows here.</string>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QProgressBar" name="busy">
+      <property name="maximum">
+       <number>0</number>
+      </property>
+      <property name="textVisible">
+       <bool>false</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="status">
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+      <property name="textInteractionFlags">
+       <set>Qt::TextSelectableByMouse</set>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>slonisko::ToolPage</class>
+   <extends>QWizardPage</extends>
+   <header>ToolDialog.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections/>
+</ui>

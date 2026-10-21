@@ -32,7 +32,7 @@ clang-format -i $(git ls-files '*.cpp' '*.h')
 
 | Directory     | What belongs there                                             |
 |---------------|----------------------------------------------------------------|
-| `src/pg`      | libpq: connections, queries, cancelling, the row store, tunnels |
+| `src/pg`      | libpq: connections, queries, cancelling, the row store, tunnels, client programs |
 | `src/config`  | Connection profiles and passwords                              |
 | `src/sql`     | Lexing, statement splitting, psql syntax                       |
 | `src/catalog` | Catalog queries and everything derived from their results      |

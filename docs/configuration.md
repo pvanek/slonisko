@@ -16,6 +16,19 @@ platform, through `QSettings`:
 Passwords are not in there unless they have to be: see
 [Passwords](connections.md#passwords).
 
+## Client programs
+
+```{index} pg_dump; location, pg_restore; location, psql; location
+```
+
+Backups and restores run PostgreSQL's own `pg_dump`, `pg_restore` and
+`psql`. slonisko looks for them on `PATH` and in the directories where
+PostgreSQL's packages install each version. *Choose…* in the backup and
+restore wizards picks another copy; its directory is remembered as
+`clientTools/directory`, and slonisko then uses the programs from that
+directory whatever their version. See
+[Choosing the program](import-and-backup.md#choosing-the-program).
+
 ## Connection profiles
 
 ```{index} connection profiles
