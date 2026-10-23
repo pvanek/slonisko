@@ -52,6 +52,12 @@ struct Plan
 // nullopt and sets error.
 std::optional<Plan> parsePlan(const QByteArray &json, QString *error = nullptr);
 
+// Time spent in all loops of a node, with ANALYZE; its total cost without.
+double inclusiveValue(const PlanNode &node);
+// The rows a node hands its parent, in all its loops: the actual count with
+// ANALYZE, the estimate without.
+double outputRows(const PlanNode &node);
+
 // The plan as text, the way psql prints EXPLAIN: one line per node, its
 // children under it behind "->", its details indented below it.
 QString planText(const Plan &plan);

@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "catalog/Plan.h"
+#include "catalog/PlanExport.h"
+#include "catalog/PlanGraph.h"
 #include "pg/QueryRunner.h"
 
 #include <QFile>
+#include <QRegularExpression>
 #include <QTest>
 
 using namespace slonisko::catalog;
@@ -99,6 +102,127 @@ private Q_SLOTS:
             "        ->  Index Only Scan on public.customers c using customers_pkey  (cost=")));
         QVERIFY(!planText(*plan).contains(QLatin1String("actual time"))); // Not analyzed.
         QVERIFY(planText(Plan {}).isEmpty());
+    }
+
+    // Leaves side by side, each parent over the middle of its children.
+    void diagramLayout()
+    {
+        const auto plan = parsePlan(Estimated);
+        QVERIFY(plan);
+        const PlanDiagramLayout layout = layoutPlanDiagram(*plan, QSizeF(100, 50), QSizeF(20, 30));
+        QCOMPARE(layout.boxes.size(), std::size_t(4));
+        const auto &[join, scan, hash, index]
+            = std::tie(layout.boxes[0], layout.boxes[1], layout.boxes[2], layout.boxes[3]);
+        QCOMPARE(join.node, &plan->root);
+        QCOMPARE(join.parent, -1);
+        QCOMPARE(scan.rect, QRectF(0, 80, 100, 50));
+        QCOMPARE(hash.rect, QRectF(120, 80, 100, 50));
+        QCOMPARE(index.rect, QRectF(120, 160, 100, 50));
+        QCOMPARE(index.parent, 2);
+        QCOMPARE(index.depth, 2);
+        QCOMPARE(join.rect, QRectF(60, 0, 100, 50));
+        QCOMPARE(layout.size, QSizeF(220, 210));
+        QCOMPARE(layout.maxRows, 50.0);
+        QVERIFY(layoutPlanDiagram(Plan {}, QSizeF(100, 50), QSizeF(20, 30)).boxes.empty());
+
+        QCOMPARE(edgeWidth(0, 1000, 8), 1.0);
+        QCOMPARE(edgeWidth(1000, 1000, 8), 8.0);
+        QVERIFY(edgeWidth(10, 1000, 8) < edgeWidth(100, 1000, 8));
+    }
+
+    // Each frame as wide as its share of the root, its children above it;
+    // what is left over beside them is the parent's own.
+    void flame()
+    {
+        const auto plan = parsePlan(Estimated);
+        QVERIFY(plan);
+        const std::vector<FlameFrame> frames = flameGraph(*plan);
+        QCOMPARE(frames.size(), std::size_t(4));
+        QCOMPARE(flameDepth(frames), 3);
+        QCOMPARE(frames[0].start, 0.0);
+        QCOMPARE(frames[0].width, 1.0);
+        QCOMPARE(frames[1].start, 0.0); // Seq Scan: 60 of 100.
+        QCOMPARE(frames[1].width, 0.6);
+        QCOMPARE(frames[2].start, 0.6); // Hash: 10.
+        QCOMPARE(frames[2].width, 0.1);
+        QCOMPARE(frames[3].depth, 2);
+        QCOMPARE(frames[3].start, 0.6);
+        QCOMPARE(frames[3].width, 0.1);
+        QCOMPARE(frames[3].parent, 2);
+
+        // Children that add up to more than their parent, as parallel
+        // workers do, share its width.
+        Plan parallel;
+        parallel.root.nodeType = QStringLiteral("Gather");
+        parallel.root.totalCost = 10;
+        for (int i = 0; i < 2; ++i) {
+            PlanNode worker;
+            worker.nodeType = QStringLiteral("Parallel Seq Scan");
+            worker.totalCost = 8;
+            parallel.root.children.push_back(worker);
+        }
+        const std::vector<FlameFrame> scaled = flameGraph(parallel);
+        QCOMPARE(scaled[1].width, 0.5);
+        QCOMPARE(scaled[2].start, 0.5);
+        QCOMPARE(scaled[2].width, 0.5);
+        QVERIFY(flameGraph(Plan {}).empty());
+    }
+
+    // A line per node that took anything itself, its stack from the root.
+    void foldedStacks()
+    {
+        const auto plan = parsePlan(Estimated);
+        QVERIFY(plan);
+        QCOMPARE(planToFoldedStacks(*plan),
+                 QStringLiteral("Hash Left Join 3000\n"
+                                "Hash Left Join;Seq Scan on public.orders o 6000\n"
+                                "Hash Left Join;Hash;Index Only Scan on public.customers c "
+                                "using customers_pkey 1000\n"));
+        QVERIFY(planToFoldedStacks(Plan {}).isEmpty());
+
+        // A semicolon would split a frame in two.
+        Plan odd;
+        odd.root.nodeType = QStringLiteral("Function Scan");
+        odd.root.object = QStringLiteral("f;g");
+        odd.root.totalCost = 1;
+        odd.root.exclusive = 1;
+        QCOMPARE(planToFoldedStacks(odd), QStringLiteral("Function Scan on f,g 100\n"));
+    }
+
+    void graphviz()
+    {
+        auto plan = parsePlan(Estimated);
+        QVERIFY(plan);
+        plan->root.children[0].object = QStringLiteral("public.\"odd\\name\"");
+        const QString dot = planToDot(*plan);
+        QVERIFY(dot.startsWith(QLatin1String("digraph plan {\n    rankdir=BT;")));
+        QCOMPARE(dot.count(QLatin1String("[label=")), 4);
+        QVERIFY(dot.contains(QLatin1String("n1 -> n0 [penwidth=")));
+        QVERIFY(dot.contains(QLatin1String("n3 -> n2 [penwidth=")));
+        QVERIFY2(dot.contains(QLatin1String("Seq Scan\\npublic.\\\"odd\\\\name\\\"\\n")),
+                 qPrintable(dot));
+        // The join has no object: its condition instead.
+        QVERIFY(dot.contains(QLatin1String("Hash Left Join\\nHash Cond: (o.customer_id = c.id)")));
+        QVERIFY(dot.trimmed().endsWith(QLatin1Char('}')));
+        QVERIFY(planToDot(Plan {}).isEmpty());
+    }
+
+    void mermaid()
+    {
+        auto plan = parsePlan(Estimated);
+        QVERIFY(plan);
+        plan->root.children[0].details = {QStringLiteral("Filter: (\"#\" > 10)")};
+        plan->root.children[0].object.clear();
+        const QString mmd = planToMermaid(*plan);
+        QVERIFY(mmd.startsWith(QLatin1String("flowchart BT\n")));
+        QVERIFY(mmd.contains(QLatin1String("n1 -->|50 rows| n0")));
+        QVERIFY2(mmd.contains(QLatin1String("Filter: (#quot;#35;#quot; #gt; 10)")),
+                 qPrintable(mmd));
+        // The scan takes 60 % of the plan itself, the join 30 %.
+        QVERIFY(mmd.contains(QRegularExpression(QStringLiteral("n1\\[.*\\]:::hot"))));
+        QVERIFY(mmd.contains(QRegularExpression(QStringLiteral("n0\\[.*\\]:::hot"))));
+        QVERIFY(!mmd.contains(QRegularExpression(QStringLiteral("n2\\[.*\\]:::"))));
+        QVERIFY(mmd.contains(QLatin1String("classDef hot")));
     }
 
     void invalid()

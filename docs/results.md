@@ -230,10 +230,51 @@ that the next EXPLAIN can be compared with it. Pinned rows come before the
 ```{index} EXPLAIN, query plan
 ```
 
-Explaining a statement opens the *Plan* tab instead of rows: the plan as a
-tree, with cost, estimated and actual rows, loops, time and each node's own
-share of the total, or the same plan as the text `psql` would print. The
-summary line above says whether the plan was executed and what it cost.
+Explaining a statement opens the *Plan* tab instead of rows. The summary
+line above says whether the plan was executed and what it cost. The tabs
+down the left side show the same plan four ways:
+
+*Tree*
+: Each node with its cost, estimated and actual rows, loops, time and its
+  own share of the total.
+
+*Text*
+: The plan as `psql` would print it.
+
+*Diagram*
+: A box per node, the first to run at the bottom and the root at the top.
+  The lines carry the rows each node hands to the one above it: the more
+  rows, the thicker the line. A box is tinted by the node's own share of
+  the time, or of the cost when the plan was not executed, and a bar along
+  its bottom shows that share. A row count off from its estimate by more
+  than ten times is shown in orange. Drag to move around, and zoom with
+  {kbd}`Ctrl` and the mouse wheel. A plan too big to fit opens shrunk, but
+  only as far as it stays readable.
+
+*Flame Graph*
+: Where the time went. Each node is a bar as wide as the time spent in it
+  and in the nodes it runs, which sit on top of it. The root is at the
+  bottom and spans the whole width. Without ANALYZE the widths are costs.
+  The colour goes from yellow to red with the node's own share. Click a bar
+  to widen it to the whole width; click one below it to go back.
+
+A node chosen in one view is chosen in the others. Double-click a box or a
+bar to see the node in the tree.
+
+*Export* beside the summary copies or saves the diagram and the flame
+graph:
+
+- **Pictures:** SVG, PNG or PDF, drawn black on white whatever the
+  program's colours. The diagram comes out whole. The flame graph comes
+  out zoomed as it is shown, and only as tall as its bars.
+- **Diagram as text:** Graphviz (`.dot`) or Mermaid (`.mmd`) source,
+  copied to the clipboard or saved. Those tools lay the plan out
+  themselves.
+- **Flame graph as text:** *folded stacks*, the format `flamegraph.pl`,
+  [speedscope](https://www.speedscope.app/) and similar tools read. Each
+  line lists the operations from the root down to one node, then what that
+  node took itself: whole microseconds when the plan was executed,
+  hundredths of a cost unit when it was not.
 
 ```{figure} images/plan.png
 :alt: An executed plan as a tree, the nodes with the largest own share marked in red

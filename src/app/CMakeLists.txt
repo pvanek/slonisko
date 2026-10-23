@@ -9,6 +9,8 @@ add_library(slonisko_ui STATIC
     BrowserModel.h
     CompletionPopup.cpp
     CompletionPopup.h
+    DiagramFile.cpp
+    DiagramFile.h
     ConnectionBrowser.cpp
     ConnectionBrowser.h
     ConnectionDialog.cpp
@@ -29,6 +31,8 @@ add_library(slonisko_ui STATIC
     PageTabWidget.h
     PageWindow.cpp
     PageWindow.h
+    PlanGraphView.cpp
+    PlanGraphView.h
     PlanView.cpp
     PlanView.h
     ExportDialog.cpp

@@ -22,6 +22,10 @@ add_library(slonisko_catalog STATIC
     Objects.h
     Plan.cpp
     Plan.h
+    PlanGraph.cpp
+    PlanGraph.h
+    PlanExport.cpp
+    PlanExport.h
     Scope.cpp
     Scope.h
     Semantic.cpp

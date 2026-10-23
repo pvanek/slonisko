@@ -3,6 +3,7 @@
 
 #include "ObjectPage.h"
 
+#include "DiagramFile.h"
 #include "ErdView.h"
 #include "Icons.h"
 #include "ResultTextView.h"
@@ -14,16 +15,10 @@
 #include <QAbstractTableModel>
 #include <QAction>
 #include <QClipboard>
-#include <QDir>
-#include <QFileDialog>
-#include <QFileInfo>
 #include <QGuiApplication>
 #include <QHeaderView>
 #include <QLabel>
 #include <QMenu>
-#include <QMessageBox>
-#include <QRegularExpression>
-#include <QSettings>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
@@ -375,25 +370,11 @@ void ObjectPage::exportDiagram(const QString &filter)
 {
     if (!m_diagram || m_diagram->graph().isEmpty())
         return;
-    QSettings settings;
     // A name made from the object's, with the suffix of the format chosen.
-    static const QRegularExpression suffixOf(QStringLiteral("\\*(\\.\\w+)"));
-    const QString suffix = suffixOf.match(filter).captured(1);
-    QString name = m_name;
-    name.replace(QRegularExpression(QStringLiteral("[\\\\/:*?\"<>|]")), QStringLiteral("_"));
-    const QString dir = settings.value(QStringLiteral("files/lastDirectory")).toString();
-    QString path = QFileDialog::getSaveFileName(this, tr("Export Diagram"),
-                                                QDir(dir).filePath(name + suffix), filter);
-    if (path.isEmpty())
-        return;
-    if (QFileInfo(path).suffix().isEmpty())
-        path += suffix;
-    settings.setValue(QStringLiteral("files/lastDirectory"), QFileInfo(path).absolutePath());
-    QString error;
-    if (!m_diagram->saveDiagram(path, &error)) {
-        QMessageBox::warning(this, tr("Export Diagram"),
-                             tr("Could not save %1:\n%2").arg(path, error));
-    }
+    exportToFile(this, tr("Export Diagram"), m_name, filter,
+                 [this](const QString &path, QString *error) {
+                     return m_diagram->saveDiagram(path, error);
+                 });
 }
 
 void ObjectPage::showMessage(const QString &text, bool error)

@@ -3,18 +3,15 @@
 
 #include "ErdView.h"
 
-#include "SvgDevice.h"
+#include "DiagramFile.h"
 #include "catalog/ErdExport.h"
 
 #include <QEvent>
 #include <QFileInfo>
 #include <QGraphicsItem>
 #include <QGraphicsScene>
-#include <QImage>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPdfWriter>
-#include <QSaveFile>
 #include <QStyleOptionGraphicsItem>
 #include <QWheelEvent>
 
@@ -36,10 +33,6 @@ constexpr qreal MaxScale = 3.0;
 constexpr qreal MinOpeningScale = 0.7;
 // Below this the columns are not readable anyway, so only the name is drawn.
 constexpr qreal NamesOnlyDetail = 0.55;
-// A PNG is drawn at twice the size, for screens that need it, unless that
-// would take more than about 256 MB; a whole database can be that big.
-constexpr qreal PngScale = 2.0;
-constexpr qreal MaxPngPixels = 64e6;
 
 QColor mix(const QColor &a, const QColor &b, float part)
 {
@@ -577,14 +570,9 @@ QRectF ErdView::exportRect() const
 
 void ErdView::renderForExport(QPainter *painter, const QRectF &target)
 {
-    QPalette light;
-    light.setColor(QPalette::Base, Qt::white);
-    light.setColor(QPalette::Text, Qt::black);
-    light.setColor(QPalette::Window, QColor(0xef, 0xef, 0xef));
-    light.setColor(QPalette::Highlight, QColor(0x30, 0x8c, 0xc6));
     const QList<QGraphicsItem *> selected = m_scene->selectedItems();
     m_scene->clearSelection();
-    m_scene->setPalette(light);
+    m_scene->setPalette(exportPalette());
     // A cached item would go out as a picture of itself, not as lines and
     // text a vector file can keep sharp.
     for (ErdTableItem *table : std::as_const(m_tables))
@@ -602,77 +590,27 @@ void ErdView::renderForExport(QPainter *painter, const QRectF &target)
 
 bool ErdView::saveDiagram(const QString &path, QString *error)
 {
-    auto fail = [error](const QString &message) {
+    if (m_graph.isEmpty()) {
         if (error)
-            *error = message;
+            *error = tr("There is no diagram to save.");
         return false;
-    };
-    if (m_graph.isEmpty())
-        return fail(tr("There is no diagram to save."));
-
+    }
     const QString suffix = QFileInfo(path).suffix().toLower();
-    const QRectF rect = exportRect();
-    // Fonts are set in points; the diagram was laid out at the screen's
-    // resolution, so the file is drawn at the same one.
-    const int dpi = logicalDpiY();
-
-    if (suffix == QLatin1String("png")) {
-        const qreal scale
-            = std::min(PngScale, std::sqrt(MaxPngPixels / (rect.width() * rect.height())));
-        QImage image((rect.size() * scale).toSize(), QImage::Format_ARGB32_Premultiplied);
-        if (image.isNull())
-            return fail(tr("The diagram is too big for an image."));
-        const int dotsPerMeter = qRound(dpi / 0.0254);
-        image.setDotsPerMeterX(dotsPerMeter);
-        image.setDotsPerMeterY(dotsPerMeter);
-        {
-            QPainter painter(&image);
-            painter.setRenderHints(QPainter::Antialiasing | QPainter::TextAntialiasing);
-            renderForExport(&painter, QRectF(QPointF(), QSizeF(image.size())));
-        }
-        // Printed, it comes out the size it is on the screen.
-        image.setDotsPerMeterX(qRound(dotsPerMeter * scale));
-        image.setDotsPerMeterY(qRound(dotsPerMeter * scale));
-        QSaveFile file(path);
-        if (!file.open(QIODevice::WriteOnly) || !image.save(&file, "PNG") || !file.commit())
-            return fail(file.errorString());
-        return true;
+    if (isPictureFile(path)) {
+        // Fonts are set in points; the diagram was laid out at the screen's
+        // resolution, so the file is drawn at the same one.
+        return savePicture(
+            path, exportRect().size(), logicalDpiY(),
+            [this](QPainter *painter, const QRectF &target) { renderForExport(painter, target); },
+            error);
     }
-
-    if (suffix == QLatin1String("pdf")) {
-        QPdfWriter writer(path);
-        writer.setResolution(dpi);
-        writer.setPageSize(QPageSize(rect.size() * 72.0 / dpi, QPageSize::Point, QString(),
-                                     QPageSize::ExactMatch));
-        writer.setPageMargins(QMarginsF());
-        writer.setCreator(QStringLiteral("Slonisko"));
-        writer.setTitle(QFileInfo(path).completeBaseName());
-        QPainter painter;
-        if (!painter.begin(&writer))
-            return fail(tr("Cannot write to the file."));
-        renderForExport(&painter, QRectF(QPointF(), rect.size()));
-        painter.end();
-        return true;
-    }
-
-    QByteArray content;
-    if (suffix == QLatin1String("svg")) {
-        SvgDevice device(rect.size(), dpi);
-        QPainter painter(&device);
-        renderForExport(&painter, QRectF(QPointF(), rect.size()));
-        painter.end();
-        content = device.svg();
-    } else if (suffix == QLatin1String("dot") || suffix == QLatin1String("gv")) {
-        content = catalog::erdToDot(m_graph).toUtf8();
-    } else if (suffix == QLatin1String("mmd")) {
-        content = catalog::erdToMermaid(m_graph).toUtf8();
-    } else {
-        return fail(tr("Unknown file type: choose .svg, .png, .pdf, .dot or .mmd."));
-    }
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly) || file.write(content) != content.size() || !file.commit())
-        return fail(file.errorString());
-    return true;
+    if (suffix == QLatin1String("dot") || suffix == QLatin1String("gv"))
+        return saveText(path, catalog::erdToDot(m_graph).toUtf8(), error);
+    if (suffix == QLatin1String("mmd"))
+        return saveText(path, catalog::erdToMermaid(m_graph).toUtf8(), error);
+    if (error)
+        *error = tr("Unknown file type: choose .svg, .png, .pdf, .dot or .mmd.");
+    return false;
 }
 
 void ErdView::showEvent(QShowEvent *event)

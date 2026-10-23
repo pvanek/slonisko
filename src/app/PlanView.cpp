@@ -3,12 +3,20 @@
 
 #include "PlanView.h"
 
+#include "PlanGraphView.h"
+#include "DiagramFile.h"
 #include "ResultTextView.h"
+#include "catalog/PlanExport.h"
+#include "catalog/PlanGraph.h"
 
+#include <QClipboard>
 #include <QColor>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMenu>
+#include <QScrollArea>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QToolButton>
@@ -56,6 +64,20 @@ QModelIndex PlanModel::index(int row, int column, const QModelIndex &parent) con
     if (row >= int(p.children.size()))
         return {};
     return createIndex(row, column, quintptr(p.children[std::size_t(row)]));
+}
+
+const PlanNode *PlanModel::nodeAt(const QModelIndex &index) const
+{
+    return index.isValid() ? m_items[index.internalId()].node : nullptr;
+}
+
+QModelIndex PlanModel::indexOf(const PlanNode *node) const
+{
+    for (std::size_t i = 0; i < m_items.size(); ++i) {
+        if (m_items[i].node == node)
+            return createIndex(m_items[i].row, 0, quintptr(i));
+    }
+    return {};
 }
 
 QModelIndex PlanModel::parent(const QModelIndex &child) const
@@ -157,12 +179,8 @@ QVariant PlanModel::data(const QModelIndex &index, int role) const
         return lines.join(QLatin1Char('\n'));
     }
     // A row estimate far off the actual count is a common cause of bad plans.
-    if (role == Qt::ForegroundRole && column == EstimatedRows && n.actualRows) {
-        const double estimated = std::max(n.planRows, 1.0);
-        const double actual = std::max(*n.actualRows, 1.0);
-        if (estimated / actual > 10 || actual / estimated > 10)
-            return QColor(200, 100, 0);
-    }
+    if (role == Qt::ForegroundRole && column == EstimatedRows && catalog::rowsMisestimated(n))
+        return QColor(200, 100, 0);
     return {};
 }
 
@@ -188,13 +206,50 @@ PlanView::PlanView(QWidget *parent)
     m_modeTabs->addTab(tr("Tree"));
     m_modeTabs->addTab(tr("Text"));
     m_modeTabs->setTabToolTip(0, tr("The plan as a tree, with costs and timings"));
+    m_modeTabs->addTab(tr("Diagram"));
+    m_modeTabs->addTab(tr("Flame Graph"));
     m_modeTabs->setTabToolTip(1, tr("The plan as text, the way psql prints it"));
+    m_modeTabs->setTabToolTip(
+        2,
+        tr("The plan as boxes, the rows flowing up from each node to the one above it; "
+           "Ctrl+wheel zooms"));
+    m_modeTabs->setTabToolTip(3,
+                              tr("Where the time went: each node as wide as the time spent "
+                                 "in it and under it; click one to widen it"));
     connect(m_modeTabs, &QTabBar::currentChanged, this,
             [this](int index) { setViewMode(ViewMode(index)); });
 
     m_stack = new QStackedWidget(this);
     m_stack->addWidget(m_tree);
     m_stack->addWidget(m_text);
+
+    m_diagram = new PlanDiagramView(this);
+    m_stack->addWidget(m_diagram);
+    m_flame = new FlameGraphView(this);
+    auto *flameScroll = new QScrollArea(this);
+    flameScroll->setWidget(m_flame);
+    flameScroll->setWidgetResizable(true);
+    flameScroll->setFrameShape(QFrame::NoFrame);
+    flameScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_flamePage = flameScroll;
+    m_stack->addWidget(m_flamePage);
+
+    connect(m_tree->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this](const QModelIndex &current) {
+                const PlanNode *node = m_model->nodeAt(current);
+                m_diagram->setCurrentNode(node);
+                m_flame->setCurrentNode(node);
+            });
+    connect(m_diagram, &PlanDiagramView::nodeClicked, this, &PlanView::selectNode);
+    connect(m_flame, &FlameGraphView::nodeClicked, this, &PlanView::selectNode);
+    // Double-clicked: to the tree, with all the node's figures.
+    const auto toTree = [this](const PlanNode *node) {
+        selectNode(node);
+        setViewMode(ViewMode::Tree);
+        m_tree->setFocus();
+    };
+    connect(m_diagram, &PlanDiagramView::nodeActivated, this, toTree);
+    connect(m_flame, &FlameGraphView::nodeActivated, this, toTree);
 
     auto *middle = new QHBoxLayout;
     middle->setContentsMargins(0, 0, 0, 0);
@@ -208,6 +263,7 @@ PlanView::PlanView(QWidget *parent)
     m_header = new QHBoxLayout;
     m_header->setContentsMargins(0, 0, 4, 0);
     m_header->addWidget(m_summary, 1);
+    addExportButton();
     layout->addLayout(m_header);
     layout->addLayout(middle, 1);
     showMessage(tr("Explain a statement with Ctrl+E, or Ctrl+Shift+E to also run it."));
@@ -216,6 +272,9 @@ PlanView::PlanView(QWidget *parent)
 void PlanView::setPlan(const catalog::Plan &plan, const QString &title)
 {
     m_title = title;
+    // They point into the model's plan, which is about to go.
+    m_diagram->clear();
+    m_flame->clear();
     m_model->setPlan(plan);
     m_tree->expandAll();
     for (const int column : {PlanModel::ActualRows, PlanModel::Loops, PlanModel::TimeMs})
@@ -233,6 +292,9 @@ void PlanView::setPlan(const catalog::Plan &plan, const QString &title)
     m_summary->setStyleSheet(QString());
     m_summary->setText(summary.join(QStringLiteral(" · ")));
     m_text->setText(catalog::planText(plan));
+    // The model's copy, which the tree's indexes point into too.
+    m_diagram->setPlan(m_model->plan());
+    m_flame->setPlan(m_model->plan());
     Q_EMIT changed();
 }
 
@@ -241,8 +303,91 @@ void PlanView::setViewMode(ViewMode mode)
     m_mode = mode;
     if (m_modeTabs->currentIndex() != int(mode))
         m_modeTabs->setCurrentIndex(int(mode));
-    m_stack->setCurrentWidget(mode == ViewMode::Tree ? static_cast<QWidget *>(m_tree)
-                                                     : static_cast<QWidget *>(m_text));
+    switch (mode) {
+    case ViewMode::Tree:
+        m_stack->setCurrentWidget(m_tree);
+        break;
+    case ViewMode::Text:
+        m_stack->setCurrentWidget(m_text);
+        break;
+    case ViewMode::Diagram:
+        m_stack->setCurrentWidget(m_diagram);
+        break;
+    case ViewMode::Flame:
+        m_stack->setCurrentWidget(m_flamePage);
+        break;
+    }
+}
+
+void PlanView::addExportButton()
+{
+    // Text formats are mostly pasted into documentation or a profiler, so
+    // they can go straight to the clipboard; pictures only make sense as files.
+    auto *menu = new QMenu(this);
+    menu->setObjectName(QStringLiteral("planExportMenu"));
+    auto copy = [this, menu](const QString &objectName, const QString &text, auto toText) {
+        QAction *action = menu->addAction(text);
+        action->setObjectName(objectName);
+        connect(action, &QAction::triggered, this, [this, toText] {
+            if (hasPlan())
+                QGuiApplication::clipboard()->setText(toText(m_model->plan()));
+        });
+    };
+    auto save = [this, menu](const QStringList &filters, const QStringList &texts,
+                             const QString &name, auto saveTo) {
+        for (int i = 0; i < filters.size(); ++i) {
+            menu->addAction(texts.value(i, filters[i]), this, [=, this] {
+                if (!hasPlan())
+                    return;
+                exportToFile(
+                    this, tr("Export Plan"), name, filters[i],
+                    [=](const QString &path, QString *error) { return saveTo(path, error); });
+            });
+        }
+    };
+
+    menu->addSection(tr("Diagram"));
+    copy(QStringLiteral("copyMermaid"), tr("Copy as Mermaid"), &catalog::planToMermaid);
+    copy(QStringLiteral("copyGraphviz"), tr("Copy as Graphviz"), &catalog::planToDot);
+    save(PlanDiagramView::fileFilters(),
+         {tr("Save as SVG…"), tr("Save as PNG…"), tr("Save as PDF…"), tr("Save as Graphviz…"),
+          tr("Save as Mermaid…")},
+         QStringLiteral("plan"), [this](const QString &path, QString *error) {
+             return m_diagram->saveDiagram(path, error);
+         });
+    menu->addSection(tr("Flame Graph"));
+    copy(QStringLiteral("copyFolded"), tr("Copy as Folded Stacks"), &catalog::planToFoldedStacks);
+    save(FlameGraphView::fileFilters(),
+         {tr("Save as SVG…"), tr("Save as PNG…"), tr("Save as PDF…"), tr("Save as Folded Stacks…")},
+         QStringLiteral("plan-flame"), [this](const QString &path, QString *error) {
+             return m_flame->saveFlameGraph(path, error);
+         });
+    // Nothing to copy or save while a message is shown instead of a plan.
+    connect(menu, &QMenu::aboutToShow, this, [this, menu] {
+        for (QAction *action : menu->actions())
+            action->setEnabled(hasPlan());
+    });
+
+    m_exportButton = new QToolButton(this);
+    m_exportButton->setIcon(QIcon::fromTheme(QStringLiteral("document-export"),
+                                             QIcon::fromTheme(QStringLiteral("document-save-as"))));
+    m_exportButton->setText(tr("Export"));
+    m_exportButton->setToolTip(tr("Copy the plan's diagram or flame graph as text, or save "
+                                  "either to a file"));
+    m_exportButton->setMenu(menu);
+    m_exportButton->setPopupMode(QToolButton::InstantPopup);
+    m_exportButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_exportButton->setAutoRaise(true);
+    m_header->addWidget(m_exportButton, 0, Qt::AlignTop);
+}
+
+void PlanView::selectNode(const PlanNode *node)
+{
+    const QModelIndex index = m_model->indexOf(node);
+    if (index.isValid()) {
+        m_tree->setCurrentIndex(index);
+        m_tree->scrollTo(index);
+    }
 }
 
 bool PlanView::hasPlan() const
@@ -263,6 +408,8 @@ QToolButton *PlanView::addHeaderAction(QAction *action)
 void PlanView::showMessage(const QString &text, bool error)
 {
     m_title.clear();
+    m_diagram->clear();
+    m_flame->clear();
     m_model->clear();
     m_text->setText(QString());
     m_summary->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());

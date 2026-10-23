@@ -106,14 +106,6 @@ PlanNode parseNode(const QJsonObject &n, bool analyzed)
     return node;
 }
 
-// Time spent in all loops of a node, or its cost when not analyzed.
-double inclusive(const PlanNode &n)
-{
-    if (n.actualTotalMs)
-        return *n.actualTotalMs * n.loops.value_or(1);
-    return n.totalCost;
-}
-
 void computeExclusive(PlanNode &n, double whole)
 {
     double children = 0;
@@ -123,9 +115,9 @@ void computeExclusive(PlanNode &n, double whole)
         const QString relationship
             = c.properties.value(QStringLiteral("Parent Relationship")).toString();
         if (relationship != QLatin1String("InitPlan") && relationship != QLatin1String("SubPlan"))
-            children += inclusive(c);
+            children += inclusiveValue(c);
     }
-    n.exclusive = std::max(0.0, inclusive(n) - children);
+    n.exclusive = std::max(0.0, inclusiveValue(n) - children);
     n.exclusiveShare = whole > 0 ? std::min(1.0, n.exclusive / whole) : 0;
 }
 
@@ -171,6 +163,20 @@ void appendNode(const PlanNode &node, int indent, QStringList &out)
 
 } // namespace
 
+double inclusiveValue(const PlanNode &node)
+{
+    if (node.actualTotalMs)
+        return *node.actualTotalMs * node.loops.value_or(1);
+    return node.totalCost;
+}
+
+double outputRows(const PlanNode &node)
+{
+    if (node.actualRows)
+        return *node.actualRows * node.loops.value_or(1);
+    return node.planRows;
+}
+
 QString planText(const Plan &plan)
 {
     if (plan.root.nodeType.isEmpty())
@@ -207,7 +213,7 @@ std::optional<Plan> parsePlan(const QByteArray &json, QString *error)
         plan.planningMs = top.value(QLatin1String("Planning Time")).toDouble();
     if (top.contains(QLatin1String("Execution Time")))
         plan.executionMs = top.value(QLatin1String("Execution Time")).toDouble();
-    computeExclusive(plan.root, inclusive(plan.root));
+    computeExclusive(plan.root, inclusiveValue(plan.root));
     return plan;
 }
 
