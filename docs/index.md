@@ -107,6 +107,7 @@ to send a small donation. Thank you.
 :caption: Using slonisko
 :maxdepth: 2
 
+installing
 getting-started
 connections
 editor
