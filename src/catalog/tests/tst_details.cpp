@@ -59,10 +59,18 @@ CREATE PUBLICATION slonisko_details_pub FOR TABLE t;
 DROP EVENT TRIGGER IF EXISTS slonisko_details_evt;
 CREATE FUNCTION evt() RETURNS event_trigger LANGUAGE plpgsql AS $$BEGIN END$$;
 CREATE EVENT TRIGGER slonisko_details_evt ON ddl_command_end EXECUTE FUNCTION evt();
+DROP FOREIGN DATA WRAPPER IF EXISTS slonisko_details_fdw CASCADE;
+CREATE FOREIGN DATA WRAPPER slonisko_details_fdw OPTIONS (debug 'true');
+CREATE SERVER slonisko_details_srv FOREIGN DATA WRAPPER slonisko_details_fdw
+    OPTIONS (host 'db.example.com');
+CREATE USER MAPPING FOR CURRENT_USER SERVER slonisko_details_srv
+    OPTIONS (user 'remote', password 'secret');
+CREATE FOREIGN TABLE ft (id int) SERVER slonisko_details_srv;
 )sql";
 
 const char *const Teardown = R"sql(
 DROP EVENT TRIGGER IF EXISTS slonisko_details_evt;
+DROP FOREIGN DATA WRAPPER IF EXISTS slonisko_details_fdw CASCADE;
 DROP PUBLICATION IF EXISTS slonisko_details_pub;
 DROP SCHEMA IF EXISTS slonisko_details_test CASCADE;
 )sql";
@@ -227,6 +235,14 @@ private Q_SLOTS:
         row("event trigger", ObjectKind::EventTrigger,
             "SELECT oid FROM pg_event_trigger WHERE evtname = 'slonisko_details_evt'",
             "slonisko_details_evt");
+        row("foreign data wrapper", ObjectKind::ForeignDataWrapper,
+            "SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname = 'slonisko_details_fdw'",
+            "slonisko_details_fdw");
+        row("foreign server", ObjectKind::ForeignServer,
+            "SELECT oid FROM pg_foreign_server WHERE srvname = 'slonisko_details_srv'",
+            "slonisko_details_srv");
+        row("foreign table", ObjectKind::ForeignTable,
+            "SELECT 'slonisko_details_test.ft'::regclass::oid", "slonisko_details_test.ft");
         row("role", ObjectKind::Role, "SELECT oid FROM pg_roles WHERE rolname = current_user", "");
         row("tablespace", ObjectKind::Tablespace,
             "SELECT oid FROM pg_tablespace WHERE spcname = 'pg_default'", "pg_default");
@@ -338,6 +354,42 @@ private Q_SLOTS:
         QCOMPARE(property(detail, QStringLiteral("row security")), QStringLiteral("enabled"));
         QCOMPARE(firstColumn(table(detail, QStringLiteral("Policies"))),
                  QStringList {QStringLiteral("t_read")});
+    }
+
+    void foreignServer()
+    {
+        const Oid wrapper = oidFrom(
+            "SELECT oid FROM pg_foreign_data_wrapper WHERE fdwname = 'slonisko_details_fdw'");
+        const ObjectDetail fdw = detailOf(ObjectKind::ForeignDataWrapper, wrapper);
+        QCOMPARE(property(fdw, QStringLiteral("options")), QStringLiteral("debug=true"));
+        QVERIFY(property(fdw, QStringLiteral("handler")).isEmpty()); // Has none.
+        QCOMPARE(firstColumn(table(fdw, QStringLiteral("Servers")), 0),
+                 QStringList {QStringLiteral("slonisko_details_srv")});
+
+        const Oid server
+            = oidFrom("SELECT oid FROM pg_foreign_server WHERE srvname = 'slonisko_details_srv'");
+        const ObjectDetail srv = detailOf(ObjectKind::ForeignServer, server);
+        QCOMPARE(property(srv, QStringLiteral("wrapper")), QStringLiteral("slonisko_details_fdw"));
+        QCOMPARE(property(srv, QStringLiteral("options")), QStringLiteral("host=db.example.com"));
+        QCOMPARE(firstColumn(table(srv, QStringLiteral("Foreign Tables")), 1),
+                 QStringList {QStringLiteral("ft")});
+        const DetailTable mappings = table(srv, QStringLiteral("User Mappings"));
+        QCOMPARE(mappings.rows.size(), 1u);
+        QCOMPARE(mappings.rows[0][1], QStringLiteral("user=remote, password=********"));
+    }
+
+    void userMappingHidesThePassword()
+    {
+        const Oid mapping = oidFrom("SELECT umid FROM pg_user_mappings "
+                                    "WHERE srvname = 'slonisko_details_srv'");
+        QVERIFY(mapping > 0);
+        const ObjectDetail detail = detailOf(ObjectKind::UserMapping, mapping);
+        const QString user = QString::fromUtf8(run("SELECT current_user").results[0].value(0, 0));
+        QCOMPARE(detail.title, user + QStringLiteral(" on slonisko_details_srv"));
+        QCOMPARE(property(detail, QStringLiteral("server")),
+                 QStringLiteral("slonisko_details_srv"));
+        QCOMPARE(property(detail, QStringLiteral("options")),
+                 QStringLiteral("user=remote, password=********"));
     }
 
     // The tree has no oid for the database a connection was made to.

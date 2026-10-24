@@ -141,6 +141,13 @@ std::vector<Section> relationSections(ObjectKind kind, Oid oid)
     return sections;
 }
 
+// A user mapping's options usually hold the remote password, which has no
+// business on a screen someone may be sharing. pg_user_mappings shows the
+// options only to those allowed to see them anyway.
+const QByteArray UserMappingOptions
+    = "array_to_string(ARRAY(SELECT CASE WHEN o LIKE 'password=%' THEN 'password=********' "
+      "ELSE o END FROM unnest(m.umoptions) o), ', ')";
+
 // Everything else, kind by kind.
 
 std::vector<Section> sectionsOf(ObjectKind kind, Oid oid)
@@ -395,6 +402,54 @@ std::vector<Section> sectionsOf(ObjectKind kind, Oid oid)
              "FROM pg_depend d WHERE d.deptype = 'e' AND d.refclassid = 'pg_extension'::regclass "
              "  AND d.refobjid = "
                  + id + " ORDER BY 1, 2"}};
+
+    case ForeignDataWrapper:
+        return {{nullptr,
+                 "SELECT w.fdwname AS name, pg_get_userbyid(w.fdwowner) AS owner, "
+                 "  NULLIF(w.fdwhandler, 0)::regproc::text AS handler, "
+                 "  NULLIF(w.fdwvalidator, 0)::regproc::text AS validator, "
+                 "  array_to_string(w.fdwoptions, ', ') AS options, "
+                 "  array_to_string(w.fdwacl, E'\\n') AS privileges, "
+                 "  obj_description(w.oid, 'pg_foreign_data_wrapper') AS comment "
+                 "FROM pg_foreign_data_wrapper w WHERE w.oid = "
+                     + id},
+                {"Servers",
+                 "SELECT s.srvname AS name, s.srvtype AS type, s.srvversion AS version, "
+                 "  pg_get_userbyid(s.srvowner) AS owner "
+                 "FROM pg_foreign_server s WHERE s.srvfdw = "
+                     + id + " ORDER BY 1",
+                 false, true}};
+
+    case ForeignServer:
+        return {{nullptr,
+                 "SELECT s.srvname AS name, w.fdwname AS wrapper, "
+                 "  pg_get_userbyid(s.srvowner) AS owner, s.srvtype AS type, "
+                 "  s.srvversion AS version, array_to_string(s.srvoptions, ', ') AS options, "
+                 "  array_to_string(s.srvacl, E'\\n') AS privileges, "
+                 "  obj_description(s.oid, 'pg_foreign_server') AS comment "
+                 "FROM pg_foreign_server s JOIN pg_foreign_data_wrapper w ON w.oid = s.srvfdw "
+                 "WHERE s.oid = "
+                     + id},
+                {"User Mappings",
+                 "SELECT m.usename AS user, " + UserMappingOptions
+                     + " AS options FROM pg_user_mappings m WHERE m.srvid = " + id + " ORDER BY 1",
+                 false, true},
+                {"Foreign Tables",
+                 "SELECT n.nspname AS schema, c.relname AS name FROM pg_foreign_table f "
+                 "JOIN pg_class c ON c.oid = f.ftrelid "
+                 "JOIN pg_namespace n ON n.oid = c.relnamespace WHERE f.ftserver = "
+                     + id + " ORDER BY 1, 2",
+                 false, true}};
+
+    case UserMapping:
+        return {{nullptr,
+                 "SELECT m.usename || ' on ' || m.srvname AS name, m.usename AS user, "
+                 "  m.srvname AS server, w.fdwname AS wrapper, "
+                     + UserMappingOptions
+                     + " AS options "
+                       "FROM pg_user_mappings m JOIN pg_foreign_server s ON s.oid = m.srvid "
+                       "JOIN pg_foreign_data_wrapper w ON w.oid = s.srvfdw WHERE m.umid = "
+                     + id}};
 
     case Publication:
         return {

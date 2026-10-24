@@ -71,7 +71,11 @@ QIcon object(catalog::ObjectKind kind)
     case K::EventTrigger:
         return themed(QStringLiteral("code-function"), QStyle::SP_CommandLink);
     case K::Role:
+    case K::UserMapping:
         return themed(QStringLiteral("user-identity"), QStyle::SP_DirHomeIcon);
+    case K::ForeignDataWrapper:
+    case K::ForeignServer:
+        return themed(QStringLiteral("network-server"), QStyle::SP_DriveNetIcon);
     case K::Tablespace:
         return themed(QStringLiteral("drive-harddisk"), QStyle::SP_DriveHDIcon);
     case K::Extension:

@@ -286,6 +286,32 @@ private Q_SLOTS:
         QCOMPARE(notices[1][0].toString(), QStringLiteral("WARNING:  careful"));
     }
 
+    // Notifications reach a listener that is idle, and one that sends them
+    // itself, where they come along with the query's result.
+    void notifications()
+    {
+        REQUIRE_SERVER();
+        Connection listener;
+        listener.open(conninfo);
+        QVERIFY(waitForState(listener, State::Ready));
+        QSignalSpy received(&listener, &Connection::notification);
+        run(listener, "LISTEN slonisko_channel");
+
+        Connection sender;
+        sender.open(conninfo);
+        QVERIFY(waitForState(sender, State::Ready));
+        run(sender, "NOTIFY slonisko_channel, 'hello'; NOTIFY slonisko_other");
+        QTRY_COMPARE(received.size(), 1);
+        QCOMPARE(received[0][0].toString(), QStringLiteral("slonisko_channel"));
+        QCOMPARE(received[0][1].toString(), QStringLiteral("hello"));
+        QCOMPARE(received[0][2].toInt(), sender.backendPid());
+
+        run(listener, "NOTIFY slonisko_channel");
+        QTRY_COMPARE(received.size(), 2);
+        QCOMPARE(received[1][1].toString(), QString());
+        QCOMPARE(received[1][2].toInt(), listener.backendPid());
+    }
+
     void busyConnectionRejectsQueries()
     {
         REQUIRE_SERVER();

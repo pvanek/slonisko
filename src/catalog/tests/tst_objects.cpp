@@ -33,6 +33,7 @@ const char *const Setup = R"sql(
 DROP SCHEMA IF EXISTS slonisko_objects_test CASCADE;
 DROP PUBLICATION IF EXISTS slonisko_objects_pub;
 DROP EVENT TRIGGER IF EXISTS slonisko_objects_evt;
+DROP FOREIGN DATA WRAPPER IF EXISTS slonisko_objects_fdw CASCADE;
 CREATE SCHEMA slonisko_objects_test;
 SET search_path = slonisko_objects_test;
 CREATE TABLE t (id int PRIMARY KEY, name text NOT NULL, dropped int, CHECK (id > 0));
@@ -58,10 +59,16 @@ SET client_min_messages = error;
 CREATE PUBLICATION slonisko_objects_pub FOR TABLE t;
 CREATE FUNCTION evt() RETURNS event_trigger LANGUAGE plpgsql AS $$BEGIN END$$;
 CREATE EVENT TRIGGER slonisko_objects_evt ON ddl_command_end EXECUTE FUNCTION evt();
+CREATE FOREIGN DATA WRAPPER slonisko_objects_fdw;
+CREATE SERVER slonisko_objects_srv TYPE 'test' VERSION '1' FOREIGN DATA WRAPPER slonisko_objects_fdw;
+CREATE USER MAPPING FOR PUBLIC SERVER slonisko_objects_srv;
+CREATE USER MAPPING FOR CURRENT_USER SERVER slonisko_objects_srv;
+CREATE FOREIGN TABLE ft (id int) SERVER slonisko_objects_srv;
 )sql";
 
 const char *const Teardown = R"sql(
 DROP EVENT TRIGGER IF EXISTS slonisko_objects_evt;
+DROP FOREIGN DATA WRAPPER IF EXISTS slonisko_objects_fdw CASCADE;
 DROP PUBLICATION IF EXISTS slonisko_objects_pub;
 DROP SCHEMA IF EXISTS slonisko_objects_test CASCADE;
 )sql";
@@ -102,6 +109,26 @@ private Q_SLOTS:
         QVERIFY(names(Folder::Tablespaces).contains(QStringLiteral("pg_default")));
     }
 
+    void foreignDataFolders()
+    {
+        const auto wrappers = list(Folder::ForeignDataWrappers);
+        const auto fdw
+            = std::ranges::find(wrappers, QStringLiteral("slonisko_objects_fdw"), &DbObject::name);
+        QVERIFY(fdw != wrappers.end());
+        QCOMPARE(fdw->kind, ObjectKind::ForeignDataWrapper);
+
+        const auto servers = list(Folder::ForeignServers, fdw->oid);
+        QCOMPARE(namesOf(servers), QStringList {QStringLiteral("slonisko_objects_srv")});
+        QCOMPARE(servers[0].kind, ObjectKind::ForeignServer);
+        QCOMPARE(servers[0].detail, QStringLiteral("test 1"));
+
+        const auto mappings = list(Folder::UserMappings, servers[0].oid);
+        const QString user
+            = QString::fromUtf8(run("SELECT current_user").results.back().value(0, 0));
+        QCOMPARE(namesOf(mappings), (QStringList {user, QStringLiteral("public")}));
+        QCOMPARE(mappings[0].kind, ObjectKind::UserMapping);
+    }
+
     void systemObjectsLast()
     {
         const auto schemas = list(Folder::Schemas);
@@ -125,7 +152,7 @@ private Q_SLOTS:
 
         QCOMPARE(names(Folder::Views, m_schema), QStringList {QStringLiteral("v")});
         QCOMPARE(names(Folder::MaterializedViews, m_schema), QStringList {QStringLiteral("mv")});
-        QCOMPARE(names(Folder::ForeignTables, m_schema), QStringList {});
+        QCOMPARE(names(Folder::ForeignTables, m_schema), QStringList {QStringLiteral("ft")});
         QCOMPARE(names(Folder::Sequences, m_schema), QStringList {QStringLiteral("s")});
         QCOMPARE(names(Folder::Functions, m_schema),
                  (QStringList {QStringLiteral("add(a integer, b integer)"), QStringLiteral("evt()"),

@@ -192,6 +192,17 @@ nothing, aliases and CTEs are not links.
 A table's page: an overview, then its columns, indexes, constraints, triggers and diagram.
 ```
 
+## Notifications
+
+```{index} LISTEN, NOTIFY, notifications
+```
+
+After [`LISTEN`](https://www.postgresql.org/docs/current/sql-listen.html) in an editor, every
+[`NOTIFY`](https://www.postgresql.org/docs/current/sql-notify.html) on that channel shows in the page's
+*Messages*, with the sending server process and the payload — also while
+the editor sits idle. The editor's connection is its own, so another
+editor does not hear them; `UNLISTEN` stops them.
+
 ## psql commands and variables
 
 ```{index} psql, psql variables, COPY

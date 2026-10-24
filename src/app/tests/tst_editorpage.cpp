@@ -180,6 +180,21 @@ private Q_SLOTS:
         QCOMPARE(model()->rowCount(), 1);
     }
 
+    // LISTEN in the editor, and what is sent to the channel shows in its
+    // messages, also while the editor is idle.
+    void notifications()
+    {
+        setText("LISTEN slonisko_editor;");
+        runAndWait();
+        bool sent = false;
+        m_session->runner()->run("NOTIFY slonisko_editor, 'rows %1 changed'", this,
+                                 [&](const pg::QueryOutcome &) { sent = true; });
+        QTRY_VERIFY(sent);
+        QTRY_VERIFY2(messages().contains(QLatin1String("Notification on \"slonisko_editor\"")),
+                     qPrintable(messages()));
+        QVERIFY(messages().contains(QLatin1String(": rows %1 changed")));
+    }
+
     void psqlVariables()
     {
         setText("\\set n 3\n\\set who 'O''Brien'\n\\echo counting to :n\n"

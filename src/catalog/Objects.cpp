@@ -33,6 +33,16 @@ const char *sqlFor(Folder folder)
                "WHERE n.nspname !~ '^pg_(toast|temp_|toast_temp_)' ORDER BY 5, 2";
     case Extensions:
         return "SELECT e.oid, e.extname, e.extversion, NULL, false FROM pg_extension e ORDER BY 2";
+    case ForeignDataWrappers:
+        return "SELECT w.oid, w.fdwname, NULL, NULL, false FROM pg_foreign_data_wrapper w "
+               "ORDER BY 2";
+    case ForeignServers:
+        return "SELECT s.oid, s.srvname, NULLIF(concat_ws(' ', s.srvtype, s.srvversion), ''), "
+               "NULL, false FROM pg_foreign_server s WHERE s.srvfdw = %1 ORDER BY 2";
+    case UserMappings:
+        // The view rather than pg_user_mapping, which only superusers may read.
+        return "SELECT m.umid, m.usename, NULL, NULL, false FROM pg_user_mappings m "
+               "WHERE m.srvid = %1 ORDER BY 2";
     case Publications:
         return "SELECT p.oid, p.pubname, NULL, NULL, false FROM pg_publication p ORDER BY 2";
     case EventTriggers:
@@ -132,6 +142,12 @@ ObjectKind kindIn(Folder folder, const QByteArray &subkind)
         return ObjectKind::Schema;
     case Extensions:
         return ObjectKind::Extension;
+    case ForeignDataWrappers:
+        return ObjectKind::ForeignDataWrapper;
+    case ForeignServers:
+        return ObjectKind::ForeignServer;
+    case UserMappings:
+        return ObjectKind::UserMapping;
     case Publications:
         return ObjectKind::Publication;
     case EventTriggers:
@@ -181,7 +197,11 @@ std::vector<Folder> foldersOf(ObjectKind kind)
 {
     switch (kind) {
     case ObjectKind::Database:
-        return {Schemas, Extensions, Publications, EventTriggers};
+        return {Schemas, Extensions, ForeignDataWrappers, Publications, EventTriggers};
+    case ObjectKind::ForeignDataWrapper:
+        return {ForeignServers};
+    case ObjectKind::ForeignServer:
+        return {UserMappings};
     case ObjectKind::Schema:
         return {Tables,    Views,      MaterializedViews, ForeignTables, Sequences,
                 Functions, Procedures, Aggregates,        Types,         Domains};
@@ -213,6 +233,12 @@ QString folderTitle(Folder folder)
         return QStringLiteral("Schemas");
     case Extensions:
         return QStringLiteral("Extensions");
+    case ForeignDataWrappers:
+        return QStringLiteral("Foreign Data Wrappers");
+    case ForeignServers:
+        return QStringLiteral("Foreign Servers");
+    case UserMappings:
+        return QStringLiteral("User Mappings");
     case Publications:
         return QStringLiteral("Publications");
     case EventTriggers:
@@ -314,6 +340,12 @@ QString kindName(ObjectKind kind)
         return QStringLiteral("policy");
     case ObjectKind::Extension:
         return QStringLiteral("extension");
+    case ObjectKind::ForeignDataWrapper:
+        return QStringLiteral("foreign data wrapper");
+    case ObjectKind::ForeignServer:
+        return QStringLiteral("foreign server");
+    case ObjectKind::UserMapping:
+        return QStringLiteral("user mapping");
     case ObjectKind::Publication:
         return QStringLiteral("publication");
     case ObjectKind::EventTrigger:

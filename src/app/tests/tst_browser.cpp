@@ -105,6 +105,7 @@ private Q_SLOTS:
         const QModelIndex db = child(connection, m_server->profile.database);
         QCOMPARE(childNames(expand(db)),
                  (QStringList {QStringLiteral("Schemas"), QStringLiteral("Extensions"),
+                               QStringLiteral("Foreign Data Wrappers"),
                                QStringLiteral("Publications"), QStringLiteral("Event Triggers")}));
 
         const QModelIndex schemas = expand(child(db, QStringLiteral("Schemas")));

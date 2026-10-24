@@ -37,6 +37,9 @@ Connection
 │   │       ├── Types
 │   │       └── Domains
 │   ├── Extensions
+│   ├── Foreign Data Wrappers
+│   │   └── Foreign Data Wrapper
+│   │       └── Foreign Servers ── User Mappings
 │   ├── Publications
 │   └── Event Triggers
 ├── DBA Tools
@@ -76,6 +79,12 @@ out. TOAST and temporary schemas are not listed.
 
 [Extensions](https://www.postgresql.org/docs/current/extend-extensions.html)
 : With the installed version.
+
+[Foreign Data Wrappers](https://www.postgresql.org/docs/current/ddl-foreign-data.html)
+: Each holds its [foreign servers](https://www.postgresql.org/docs/current/sql-createserver.html), and each
+  server its [user mappings](https://www.postgresql.org/docs/current/sql-createusermapping.html), named after
+  the role they are for or `public`. A mapping's password is shown as
+  `********`; its other options only to those PostgreSQL lets see them.
 
 [Publications](https://www.postgresql.org/docs/current/logical-replication-publication.html)
 : Tables whose changes this database sends to logical replication
@@ -138,9 +147,8 @@ Columns
 ### Not shown
 
 The tree has nothing yet for collations, conversions, operators and
-operator classes, casts, languages, text search configurations, foreign
-data wrappers and servers, user mappings, subscriptions, rules and
-extended statistics. The editor can still query them, of course, and
+operator classes, casts, languages, text search configurations,
+subscriptions, rules and extended statistics. The editor can still query them, of course, and
 {doc}`docgen` and the {doc}`quality-report` read the catalog on their own.
 
 ## An object's page
@@ -171,6 +179,9 @@ set. The tabs after it depend on the kind:
 | Trigger | *Definition* |
 | Constraint, policy | — the overview has the definition |
 | Extension | *Objects* the extension owns |
+| Foreign data wrapper | *Servers*, when there are any |
+| Foreign server | *User Mappings* and *Foreign Tables* using it, when there are any |
+| User mapping | — the overview has the user, the server and the options |
 | Publication | *Tables* it publishes |
 | Event trigger | — |
 | Role | *Member of* and *Members*, when there are any |

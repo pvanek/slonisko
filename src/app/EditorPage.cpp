@@ -160,6 +160,15 @@ EditorPage::EditorPage(ConnectionBrowser *browser, const QString &name, QWidget 
     connect(m_connection, &pg::Connection::stateChanged, this, &EditorPage::onConnectionState);
     connect(m_connection, &pg::Connection::notice, this,
             [this](const QString &message) { m_panel->log(message); });
+    connect(m_connection, &pg::Connection::notification, this,
+            [this](const QString &channel, const QString &payload, int pid) {
+                // One arg() call, so that a %1 in the payload stays as it is.
+                m_panel->log(payload.isEmpty()
+                                 ? tr("Notification on \"%1\" from server process %2.")
+                                       .arg(channel, QString::number(pid))
+                                 : tr("Notification on \"%1\" from server process %2: %3")
+                                       .arg(channel, QString::number(pid), payload));
+            });
     connect(m_browser, &ConnectionBrowser::sessionsChanged, this, &EditorPage::updateSessions);
     connect(m_editor, &QsciScintilla::modificationChanged, this, &EditorPage::titleChanged);
     setUpResults(m_panel->results());

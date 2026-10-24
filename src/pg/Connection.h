@@ -80,12 +80,17 @@ Q_SIGNALS:
     // A server notice or warning, such as RAISE NOTICE output. Emitted
     // asynchronously, so it may arrive after the result it belongs to.
     void notice(const QString &message);
+    // A NOTIFY on a channel this connection LISTENs on, sent by the server
+    // process pid. Arrives while the connection is idle too, and like
+    // notice() asynchronously.
+    void notification(const QString &channel, const QString &payload, int pid);
 
 private:
     void onSocketActivity();
     void pollConnect();
     void readInput();
     void processResults();
+    void takeNotifications();
     bool sendCopyData();
     bool copyInEnded();
     void connectionLost();

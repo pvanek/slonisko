@@ -36,6 +36,9 @@ enum class ObjectKind {
     Trigger,
     Policy,
     Extension,
+    ForeignDataWrapper,
+    ForeignServer,
+    UserMapping,
     Publication,
     EventTrigger,
     Role,
@@ -51,8 +54,12 @@ enum class Folder {
     // In a database.
     Schemas,
     Extensions,
+    ForeignDataWrappers,
     Publications,
     EventTriggers,
+    // In a foreign data wrapper, and in a foreign server.
+    ForeignServers,
+    UserMappings,
     // In a schema.
     Tables,
     Views,

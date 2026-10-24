@@ -177,14 +177,30 @@ void Connection::readInput()
         connectionLost();
         return;
     }
-    // Notifications are not exposed yet; free them so they do not pile up.
-    while (NotifyPtr(PQnotifies(conn))) { }
-
+    const QPointer<Connection> guard(this);
     if (m_state == State::Busy) {
         watch(true, unsent == 1);
         processResults();
     } else if (PQstatus(conn) == CONNECTION_BAD) {
         connectionLost();
+    }
+    // After the results: reading them is what parses the notifications that
+    // arrived along with them.
+    if (guard && m_conn)
+        takeNotifications();
+}
+
+void Connection::takeNotifications()
+{
+    while (const NotifyPtr n {PQnotifies(m_conn.get())}) {
+        const QString channel = QString::fromUtf8(n->relname);
+        const QString payload = QString::fromUtf8(n->extra);
+        const int pid = n->be_pid;
+        // Receivers may close or delete the connection, which must not
+        // happen in the middle of this loop.
+        QMetaObject::invokeMethod(
+            this, [this, channel, payload, pid] { Q_EMIT notification(channel, payload, pid); },
+            Qt::QueuedConnection);
     }
 }
 
