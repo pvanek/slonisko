@@ -14,8 +14,9 @@ The object browser on the left, a SQL editor and its results on the right.
 ```
 
 - **Left** — connections and files, on tabs down the side. The connection
-  tab is the object browser: servers, their databases, schemas and
-  everything in them, plus DBA tools and system information.
+  tab is the {doc}`object browser <object-browser>`: servers, their
+  databases, schemas and everything in them, plus DBA tools and system
+  information.
 - **Right** — the workspace, where every tab is a page: a SQL script with
   its results, a monitoring query, or the details of one object.
 - **Bottom of each page** — what the page has to say: row counts, timings,

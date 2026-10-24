@@ -110,6 +110,7 @@ to send a small donation. Thank you.
 installing
 getting-started
 connections
+object-browser
 editor
 results
 import-and-backup
