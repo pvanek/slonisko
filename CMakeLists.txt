@@ -4,14 +4,14 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(slonisko
-    VERSION 0.1.3
+    VERSION 0.1.4
     DESCRIPTION "PostgreSQL GUI client"
     LANGUAGES CXX)
 
 # The version above is the only one there is: the AppStream metainfo, the RPM
 # spec, the packages and the program itself all take it from here. A release
 # changes it and this date, the day it is released, for the metainfo.
-set(SLONISKO_RELEASE_DATE 2026-10-21)
+set(SLONISKO_RELEASE_DATE 2026-10-24)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
