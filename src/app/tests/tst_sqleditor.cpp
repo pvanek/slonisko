@@ -194,6 +194,34 @@ private Q_SLOTS:
         QVERIFY(pieces[0].psqlCommand);
     }
 
+    void statementMarkInFoldMargin()
+    {
+        SqlEditor e;
+        e.setText(QStringLiteral("SELECT 1;\n\nSELECT 2,\n  3;\nSELECT 4;\n"));
+        const auto marked = [&e](int line) {
+            const long markers = e.SendScintilla(QsciScintillaBase::SCI_MARKERGET, line);
+            return (markers & (1 << SqlEditor::StatementMarker)) != 0;
+        };
+        e.setCursorPosition(find(e, "3;"));
+        QTRY_VERIFY(marked(2));
+        QVERIFY(marked(3));
+        QVERIFY(!marked(0));
+        QVERIFY(!marked(1));
+        QVERIFY(!marked(4));
+        const long mask
+            = e.SendScintilla(QsciScintillaBase::SCI_GETMARGINMASKN, SqlEditor::FoldMargin);
+        QVERIFY(mask & (1 << SqlEditor::StatementMarker));
+        QCOMPARE(e.marginWidth(SqlEditor::FoldMargin), SqlEditor::FoldMarginWidth);
+
+        // A selection shows what runs by itself. QScintilla reports the
+        // cursor moving only when it updates the view, so it has to be shown.
+        e.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&e));
+        e.selectRange(find(e, "SELECT 4"), find(e, "SELECT 4") + 8);
+        QTRY_VERIFY(!marked(2));
+        QVERIFY(!marked(4));
+    }
+
     void selectionRunsItsStatements()
     {
         SqlEditor e;

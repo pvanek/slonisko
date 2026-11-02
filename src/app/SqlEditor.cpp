@@ -41,7 +41,10 @@ SqlEditor::SqlEditor(QWidget *parent)
     connect(this, &QsciScintilla::linesChanged, this, &SqlEditor::updateMarginWidth);
     updateMarginWidth();
 
-    setFolding(BoxedTreeFoldStyle, 2);
+    setFolding(BoxedTreeFoldStyle, FoldMargin);
+    // Wider than QScintilla's 14 pixels, to leave the statement bar room
+    // beside the fold boxes.
+    setMarginWidth(FoldMargin, FoldMarginWidth);
     // Scintilla puts the text right against the fold margin; give it air.
     send(SCI_SETMARGINLEFT, 0, 9);
     setIndentationsUseTabs(false);
@@ -53,9 +56,10 @@ SqlEditor::SqlEditor(QWidget *parent)
     SendScintilla(SCI_SETMULTIPLESELECTION, 1);
     SendScintilla(SCI_SETADDITIONALSELECTIONTYPING, 1);
 
-    // The statement Run would execute: a faint box.
-    SendScintilla(SCI_INDICSETSTYLE, StatementIndicator, INDIC_FULLBOX);
-    SendScintilla(SCI_INDICSETUNDER, StatementIndicator, 1);
+    // The statement Run would execute: a bar beside its lines in the fold
+    // margin. An indicator under the text is drawn line by line, as a stack
+    // of ragged boxes rather than one block.
+    SendScintilla(SCI_MARKERDEFINE, StatementMarker, SC_MARK_LEFTRECT);
     SendScintilla(SCI_INDICSETSTYLE, ErrorIndicator, INDIC_SQUIGGLEPIXMAP);
     SendScintilla(SCI_INDICSETFORE, ErrorIndicator, QColor(220, 40, 40));
 
@@ -408,14 +412,17 @@ std::optional<std::pair<qsizetype, qsizetype>> SqlEditor::currentStatementRange(
 
 void SqlEditor::updateStatementMark()
 {
-    const long length = send(SCI_GETLENGTH);
-    send(SCI_SETINDICATORCURRENT, StatementIndicator);
-    send(SCI_INDICATORCLEARRANGE, 0, length);
+    send(SCI_MARKERDELETEALL, StatementMarker);
     const bool selection = send(SCI_GETSELECTIONEND) > send(SCI_GETSELECTIONSTART);
     if (selection)
         return; // The selection itself shows what runs.
-    if (const auto range = currentStatementRange())
-        send(SCI_INDICATORFILLRANGE, range->first, range->second - range->first);
+    const auto range = currentStatementRange();
+    if (!range)
+        return;
+    const long first = send(SCI_LINEFROMPOSITION, range->first);
+    const long last = send(SCI_LINEFROMPOSITION, std::max(range->first, range->second - 1));
+    for (long line = first; line <= last; ++line)
+        send(SCI_MARKERADD, line, StatementMarker);
 }
 
 void SqlEditor::markError(qsizetype pos, const QString &message)
@@ -651,14 +658,15 @@ void SqlEditor::applyTheme()
     const QColor text = colors.color(QPalette::Text);
     const bool dark = base.lightness() < 128;
 
-    SendScintilla(SCI_INDICSETFORE, StatementIndicator,
-                  dark ? QColor(120, 160, 255) : QColor(60, 110, 220));
-    SendScintilla(SCI_INDICSETALPHA, StatementIndicator, dark ? 22 : 14);
+    SendScintilla(SCI_MARKERSETBACK, StatementMarker,
+                  dark ? QColor(75, 100, 155) : QColor(165, 195, 245));
     setCaretLineBackgroundColor(dark ? QColor(255, 255, 255, 18) : QColor(0, 0, 0, 10));
     setCaretForegroundColor(text);
     setMatchedBraceBackgroundColor(dark ? QColor(80, 80, 40) : QColor(255, 240, 160));
 
     applyMarginColors(this);
+    // The fold margin shows only the fold markers until told otherwise.
+    send(SCI_SETMARGINMASKN, FoldMargin, SC_MASK_FOLDERS | (1 << StatementMarker));
 }
 
 void SqlEditor::applyMarginColors(QsciScintilla *editor)

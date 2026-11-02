@@ -65,8 +65,8 @@ transactions relate, and where passwords are kept.
 
 Type SQL in the editor and press {kbd}`Ctrl+Enter`. Without a selection,
 the statement under the cursor is run; with one, everything selected. The
-statement about to run is outlined faintly, so there is never a doubt about
-what {kbd}`Ctrl+Enter` will do.
+statement about to run is marked by a bar in the margin beside its lines, so
+there is never a doubt about what {kbd}`Ctrl+Enter` will do.
 
 Rows appear in the grid below the editor, errors in *Messages* with the
 offending word underlined in the script.

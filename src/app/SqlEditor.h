@@ -90,7 +90,10 @@ public:
     void setSearchScope(std::optional<std::pair<qsizetype, qsizetype>> range);
     std::optional<std::pair<qsizetype, qsizetype>> searchScope() const;
 
-    static constexpr int StatementIndicator = 8;
+    static constexpr int FoldMargin = 2;
+    static constexpr int FoldMarginWidth = 20;
+    // Below Scintilla's fold markers (25 to 31), so they are drawn over it.
+    static constexpr int StatementMarker = 24;
     static constexpr int ErrorIndicator = 9;
     // Semantic highlighting: one indicator per SemanticSpan::Kind, from here
     // on, in that order. Later ones are drawn over earlier ones.

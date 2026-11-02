@@ -20,7 +20,8 @@ underline. Resting on a red error mark shows the server's message.
 
 {kbd}`Ctrl+Enter`
 : Runs the statement under the cursor, or everything selected. The piece
-  about to run is outlined while the cursor sits in it.
+  about to run is marked by a bar in the fold margin while the cursor sits
+  in it.
 
 {kbd}`Ctrl+E` / {kbd}`Ctrl+Shift+E`
 : Explains the statement, or explains it with `ANALYZE` — the second one
