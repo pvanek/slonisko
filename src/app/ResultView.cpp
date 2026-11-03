@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ResultView.h"
+#include "CalloutLabel.h"
 
 #include "ExportDialog.h"
 #include "ResultModel.h"
@@ -191,8 +192,8 @@ private:
 ResultView::ResultView(QWidget *parent)
     : QWidget(parent), m_title(new QLabel(this)), m_status(new QLabel(this)),
       m_refresh(new QToolButton(this)), m_stop(new QToolButton(this)),
-      m_stack(new QStackedWidget(this)), m_table(new QTableView(this)), m_message(new QLabel(this)),
-      m_model(new ResultModel(this))
+      m_stack(new QStackedWidget(this)), m_table(new QTableView(this)),
+      m_message(new CalloutLabel(this)), m_model(new ResultModel(this))
 {
     QFont bold = m_title->font();
     bold.setBold(true);
@@ -342,7 +343,6 @@ ResultView::ResultView(QWidget *parent)
     m_message->setWordWrap(true);
     m_message->setAlignment(Qt::AlignTop | Qt::AlignLeft);
     m_message->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    m_message->setMargin(8);
 
     // The text view is a Scintilla: it can select a block of columns.
     m_text = new ResultTextView(this);
@@ -443,14 +443,20 @@ ResultView::ResultView(QWidget *parent)
     m_stack->addWidget(m_table);
     m_stack->addWidget(m_text);
     m_stack->addWidget(recordPage);
-    m_stack->addWidget(m_message);
+    // The message sits at the top of its page, so a callout around an error
+    // is as tall as the text rather than the whole result area.
+    m_messagePage = new QWidget(this);
+    auto *messageLayout = new QVBoxLayout(m_messagePage);
+    messageLayout->addWidget(m_message);
+    messageLayout->addStretch();
+    m_stack->addWidget(m_messagePage);
 
     // Row count and how long the query took: out of the way at the bottom.
     m_status->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     auto *footer = new QHBoxLayout;
     footer->setContentsMargins(4, 2, 4, 2);
     footer->addWidget(m_editLabel);
-    m_note = new QLabel(this);
+    m_note = new CalloutLabel(this);
     m_note->setTextFormat(Qt::PlainText);
     m_note->hide();
     footer->addWidget(m_note);
@@ -685,7 +691,7 @@ int ResultView::columnIndex(const QString &name) const
 void ResultView::setNote(const QString &text, bool error)
 {
     m_note->setText(text);
-    m_note->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());
+    m_note->setError(error);
     m_note->setVisible(!text.isEmpty());
 }
 
@@ -741,7 +747,7 @@ void ResultView::restore(const Layout &layout)
 
 bool ResultView::showsRows() const
 {
-    return m_model->hasColumns() && m_stack->currentWidget() != m_message;
+    return m_model->hasColumns() && m_stack->currentWidget() != m_messagePage;
 }
 
 void ResultView::append(const pg::Result &result)
@@ -761,7 +767,7 @@ void ResultView::setViewMode(ViewMode mode)
 
 void ResultView::updateView(bool force)
 {
-    if (!force && m_stack->currentWidget() == m_message && !m_model->hasColumns())
+    if (!force && m_stack->currentWidget() == m_messagePage && !m_model->hasColumns())
         return; // A message, an error or nothing run yet: no rows to show.
 
     switch (m_mode) {
@@ -988,8 +994,8 @@ void ResultView::setRerun(std::function<void()> rerun)
 void ResultView::setMessage(const QString &text, bool error)
 {
     m_message->setText(text);
-    m_message->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());
-    m_stack->setCurrentWidget(m_message);
+    m_message->setError(error);
+    m_stack->setCurrentWidget(m_messagePage);
 }
 
 } // namespace slonisko

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ImportDialog.h"
+#include "CalloutLabel.h"
 
 #include "Session.h"
 #include "catalog/Scope.h"
@@ -475,12 +476,7 @@ void ImportDialog::finish(bool ok, const QString &message)
 void ImportDialog::setStatus(const QString &text, bool error)
 {
     m_ui->status->setText(text);
-    // A red that reads on a dark background too.
-    const bool dark = palette().color(QPalette::Window).lightness() < 128;
-    m_ui->status->setStyleSheet(
-        error ? QStringLiteral("color: %1;")
-                    .arg(dark ? QStringLiteral("#ff7b72") : QStringLiteral("#c62828"))
-              : QString());
+    m_ui->status->setError(error);
 }
 
 void ImportDialog::reject()

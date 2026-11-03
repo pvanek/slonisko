@@ -14,6 +14,8 @@ class QTabWidget;
 
 namespace slonisko {
 
+class CalloutLabel;
+
 class ErdView;
 class ResultTextView;
 class Session;
@@ -69,7 +71,7 @@ private:
     QLabel *m_heading = nullptr;
     QAction *m_reconnect = nullptr;
     QAction *m_disconnect = nullptr;
-    QLabel *m_message = nullptr;
+    CalloutLabel *m_message = nullptr;
     QTabWidget *m_tabs = nullptr;
     ResultTextView *m_definition = nullptr;
     ErdView *m_diagram = nullptr;

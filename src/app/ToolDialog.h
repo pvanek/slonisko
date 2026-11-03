@@ -23,6 +23,8 @@ class QSettings;
 
 namespace slonisko {
 
+class CalloutLabel;
+
 class Session;
 
 // A wizard page whose wizard says when it is complete: the file page while
@@ -77,12 +79,12 @@ protected:
         ToolPage *filePage = nullptr; // The first: the file, the program and what is wrong.
         QLabel *tool = nullptr;
         QPushButton *chooseTool = nullptr;
-        QLabel *problem = nullptr;
+        CalloutLabel *problem = nullptr;
         ToolPage *runPage = nullptr; // The last: the command, and running it.
         QLineEdit *command = nullptr;
         QPlainTextEdit *log = nullptr;
         QProgressBar *busy = nullptr;
-        QLabel *status = nullptr;
+        CalloutLabel *status = nullptr;
     };
 
     // settings may be null: no remembered directory, then.
@@ -116,7 +118,7 @@ private:
     void chooseTool();
     void run();
     void onFinished(bool ok, const QString &message);
-    static void setText(QLabel *label, const QString &text, bool error);
+    static void setText(CalloutLabel *label, const QString &text, bool error);
     // Finish runs the program rather than closing; Close closes.
     void accept() override;
     void reject() override;

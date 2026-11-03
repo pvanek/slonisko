@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ResultPanel.h"
+#include "CalloutLabel.h"
 
 #include "PlanView.h"
 #include "ResultView.h"
@@ -280,8 +281,11 @@ void ResultPanel::log(const QString &text, bool error)
         = QTime::currentTime().toString(QStringLiteral("HH:mm:ss")) + QStringLiteral("  ") + text;
     if (error)
         m_messages->appendHtml(
-            QStringLiteral("<span style=\"color:#c62828\">%1</span>")
-                .arg(line.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>"))));
+            QStringLiteral("<span style=\"color:%1\">%2</span>")
+                .arg(CalloutLabel::textColor(CalloutLabel::Tone::Error,
+                                             m_messages->palette().color(QPalette::Base))
+                         .name(),
+                     line.toHtmlEscaped().replace(QLatin1Char('\n'), QStringLiteral("<br>"))));
     else
         m_messages->appendPlainText(line);
 }

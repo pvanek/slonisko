@@ -22,6 +22,8 @@ class QToolButton;
 
 namespace slonisko {
 
+class CalloutLabel;
+
 class RecordModel;
 class ResultTextView;
 class ResultModel;
@@ -159,7 +161,7 @@ private:
     QHBoxLayout *m_header = nullptr;
     QLabel *m_title = nullptr;
     QLabel *m_status = nullptr;
-    QLabel *m_note = nullptr;
+    CalloutLabel *m_note = nullptr;
     QString m_keyColumn;
     QToolButton *m_refresh = nullptr;
     QToolButton *m_stop = nullptr;
@@ -174,7 +176,8 @@ private:
     QToolButton *m_export = nullptr;
     QAction *m_previousRow = nullptr;
     QAction *m_nextRow = nullptr;
-    QLabel *m_message = nullptr;
+    CalloutLabel *m_message = nullptr;
+    QWidget *m_messagePage = nullptr;
     ResultModel *m_model = nullptr;
     QLabel *m_editLabel = nullptr;
     QWidget *m_editBar = nullptr;

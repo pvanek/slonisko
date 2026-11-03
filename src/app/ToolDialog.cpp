@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ToolDialog.h"
+#include "CalloutLabel.h"
 
 #include "Session.h"
 
@@ -231,15 +232,10 @@ void ToolDialog::onFinished(bool ok, const QString &message)
     Q_EMIT toolFinished(ok);
 }
 
-void ToolDialog::setText(QLabel *label, const QString &text, bool error)
+void ToolDialog::setText(CalloutLabel *label, const QString &text, bool error)
 {
     label->setText(text);
-    // A red that reads on a dark background too.
-    const bool dark = label->palette().color(QPalette::Window).lightness() < 128;
-    label->setStyleSheet(
-        error ? QStringLiteral("color: %1;")
-                    .arg(dark ? QStringLiteral("#ff7b72") : QStringLiteral("#c62828"))
-              : QString());
+    label->setError(error);
 }
 
 void ToolDialog::accept()

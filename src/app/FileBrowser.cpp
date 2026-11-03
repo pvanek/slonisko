@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "FileBrowser.h"
+#include "CalloutLabel.h"
 
 #include <QComboBox>
 #include <QCompleter>
@@ -120,7 +121,11 @@ bool FileBrowser::setPath(const QString &path)
 {
     const QFileInfo info(QDir::fromNativeSeparators(path.trimmed()));
     if (path.trimmed().isEmpty() || !info.isDir()) {
-        m_path->setStyleSheet(QStringLiteral("color: #c62828;"));
+        m_path->setStyleSheet(
+            QStringLiteral("color: %1;")
+                .arg(CalloutLabel::textColor(CalloutLabel::Tone::Error,
+                                             m_path->palette().color(QPalette::Base))
+                         .name()));
         return false;
     }
     const QString absolute = info.absoluteFilePath();

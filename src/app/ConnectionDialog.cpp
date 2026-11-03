@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ConnectionDialog.h"
+#include "CalloutLabel.h"
 
 #include "Session.h"
 #include "ui_ConnectionDialog.h"
@@ -253,7 +254,7 @@ void ConnectionDialog::testConnection()
 {
     const config::ConnectionProfile p = profile();
     m_ui->testButton->setEnabled(false);
-    m_ui->status->setStyleSheet(QString());
+    m_ui->status->setTone(CalloutLabel::Tone::Plain);
     m_ui->status->setText(tr("Connecting…"));
 
     // Typed secrets win; otherwise use the saved ones, if any.
@@ -304,8 +305,7 @@ void ConnectionDialog::startTest(const QString &password, const QString &sshSecr
 void ConnectionDialog::finishTest(bool ok, const QString &message)
 {
     m_ui->testButton->setEnabled(true);
-    m_ui->status->setStyleSheet(ok ? QStringLiteral("color: #2e7d32;")
-                                   : QStringLiteral("color: #c62828;"));
+    m_ui->status->setTone(ok ? CalloutLabel::Tone::Success : CalloutLabel::Tone::Error);
     m_ui->status->setText(message);
     if (m_test) {
         m_test->deleteLater();

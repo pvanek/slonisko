@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 slonisko_add_test(tst_connectiondialog slonisko_ui)
+slonisko_add_test(tst_calloutlabel slonisko_ui)
 slonisko_add_db_test(tst_browser slonisko_ui)
 slonisko_add_test(tst_connectionfolders slonisko_ui)
 slonisko_add_test(tst_sqleditor slonisko_ui)
@@ -19,7 +20,7 @@ slonisko_add_db_test(tst_editorpage slonisko_ui)
 slonisko_add_db_test(tst_importdialog slonisko_ui)
 slonisko_add_db_test(tst_tooldialogs slonisko_ui)
 slonisko_add_db_test(tst_docgenwizard slonisko_ui)
-set_property(TEST tst_docgenwizard tst_connectiondialog tst_browser tst_connectionfolders tst_sqleditor tst_searchbar tst_resulttextview tst_resultview tst_valueviewer tst_exportdialog tst_editorpage tst_filebrowser tst_pagewindows tst_shortcuts tst_erdview tst_importdialog tst_tooldialogs APPEND PROPERTY
+set_property(TEST tst_docgenwizard tst_calloutlabel tst_connectiondialog tst_browser tst_connectionfolders tst_sqleditor tst_searchbar tst_resulttextview tst_resultview tst_valueviewer tst_exportdialog tst_editorpage tst_filebrowser tst_pagewindows tst_shortcuts tst_erdview tst_importdialog tst_tooldialogs APPEND PROPERTY
     ENVIRONMENT QT_QPA_PLATFORM=offscreen)
 
 # Software centres and Flathub reject an invalid desktop or metainfo file,

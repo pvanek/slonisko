@@ -18,6 +18,8 @@ class QTreeView;
 
 namespace slonisko {
 
+class CalloutLabel;
+
 class FlameGraphView;
 class PlanDiagramView;
 class ResultTextView;
@@ -112,7 +114,7 @@ private:
     void addExportButton();
 
     QHBoxLayout *m_header = nullptr;
-    QLabel *m_summary = nullptr;
+    CalloutLabel *m_summary = nullptr;
     QToolButton *m_exportButton = nullptr;
     QString m_title;
     QTabBar *m_modeTabs = nullptr;

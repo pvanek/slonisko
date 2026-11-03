@@ -7,6 +7,8 @@ add_library(slonisko_ui STATIC
     BrowserDelegate.h
     BrowserModel.cpp
     BrowserModel.h
+    CalloutLabel.cpp
+    CalloutLabel.h
     CompletionPopup.cpp
     CompletionPopup.h
     DiagramFile.cpp

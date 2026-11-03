@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "ObjectPage.h"
+#include "CalloutLabel.h"
 
 #include "DiagramFile.h"
 #include "ErdView.h"
@@ -85,7 +86,7 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
                        catalog::Oid oid, const QString &name, QWidget *parent)
     : WorkspacePage(parent), m_session(session), m_database(database), m_kind(kind), m_oid(oid),
       m_name(name.isEmpty() ? tr("Loading…") : name), m_heading(new QLabel(this)),
-      m_message(new QLabel(this)), m_tabs(new QTabWidget(this)),
+      m_message(new CalloutLabel(this)), m_tabs(new QTabWidget(this)),
       m_definition(new ResultTextView(this))
 {
     QFont bold = m_heading->font();
@@ -96,6 +97,8 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
     m_message->setMargin(8);
     m_message->setWordWrap(true);
     m_message->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    // Only as tall as its text, with the tabs hidden too: it may be a callout.
+    m_message->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     m_tabs->setDocumentMode(true);
     // They only ever appear as tabs; loose, they would sit over the heading.
     m_definition->hide();
@@ -391,7 +394,7 @@ void ObjectPage::showMessage(const QString &text, bool error)
     m_diagramLoaded = false;
     m_tabs->hide();
     m_definition->setText(QString());
-    m_message->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());
+    m_message->setError(error);
     m_message->setText(text);
     m_message->show();
 }

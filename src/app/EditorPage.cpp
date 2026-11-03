@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "EditorPage.h"
+#include "CalloutLabel.h"
 
 #include "ConnectionBrowser.h"
 #include "Icons.h"
@@ -540,8 +541,11 @@ void EditorPage::updateStatus()
         break; // The transaction indicator says the rest.
     }
     m_status->setText(text);
+    // In a toolbar a panel would be too much: just text that reads.
+    const QColor red = CalloutLabel::textColor(CalloutLabel::Tone::Error,
+                                               m_status->palette().color(QPalette::Window));
     m_status->setStyleSheet(m_connection->state() == pg::Connection::State::Failed
-                                ? QStringLiteral("color: #c62828;")
+                                ? QStringLiteral("color: %1;").arg(red.name())
                                 : QString());
 
     // Still in the transaction while a statement runs in it.

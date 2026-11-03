@@ -289,7 +289,7 @@
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="status">
+    <widget class="slonisko::CalloutLabel" name="status">
      <property name="wordWrap">
       <bool>true</bool>
      </property>
@@ -325,6 +325,13 @@
   <tabstop>columns</tabstop>
   <tabstop>preview</tabstop>
  </tabstops>
+ <customwidgets>
+  <customwidget>
+   <class>slonisko::CalloutLabel</class>
+   <extends>QLabel</extends>
+   <header>CalloutLabel.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

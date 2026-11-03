@@ -3,6 +3,7 @@
 
 #include "DocGenWizard.h"
 
+#include "CalloutLabel.h"
 #include "Session.h"
 
 #include "ui_DocGenWizard.h"
@@ -248,6 +249,7 @@ void DocGenWizard::generate()
 {
     m_succeeded = false;
     m_result = {};
+    m_ui->status->setError(false);
     pg::QueryRunner *runner = m_session ? m_session->runner(m_database) : nullptr;
     if (!runner) {
         fail(tr("Not connected."));
@@ -358,6 +360,7 @@ void DocGenWizard::fail(const QString &message)
 {
     m_ui->progress->hide();
     setRunning(false);
+    m_ui->status->setError(true);
     m_ui->status->setText(
         tr("Failed: %1\n\nGo back to change what to write, or where.").arg(message));
     Q_EMIT generated(false);

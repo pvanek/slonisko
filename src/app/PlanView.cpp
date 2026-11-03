@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "PlanView.h"
+#include "CalloutLabel.h"
 
 #include "PlanGraphView.h"
 #include "DiagramFile.h"
@@ -185,7 +186,7 @@ QVariant PlanModel::data(const QModelIndex &index, int role) const
 }
 
 PlanView::PlanView(QWidget *parent)
-    : QWidget(parent), m_summary(new QLabel(this)), m_tree(new QTreeView(this)),
+    : QWidget(parent), m_summary(new CalloutLabel(this)), m_tree(new QTreeView(this)),
       m_model(new PlanModel(this))
 {
     m_summary->setMargin(4);
@@ -289,7 +290,7 @@ void PlanView::setPlan(const catalog::Plan &plan, const QString &title)
         summary << tr("planning %1 ms").arg(*plan.planningMs, 0, 'f', 3);
     if (plan.executionMs)
         summary << tr("execution %1 ms").arg(*plan.executionMs, 0, 'f', 3);
-    m_summary->setStyleSheet(QString());
+    m_summary->setError(false);
     m_summary->setText(summary.join(QStringLiteral(" · ")));
     m_text->setText(catalog::planText(plan));
     // The model's copy, which the tree's indexes point into too.
@@ -412,7 +413,7 @@ void PlanView::showMessage(const QString &text, bool error)
     m_flame->clear();
     m_model->clear();
     m_text->setText(QString());
-    m_summary->setStyleSheet(error ? QStringLiteral("color: #c62828;") : QString());
+    m_summary->setError(error);
     m_summary->setText(text);
     Q_EMIT changed();
 }
