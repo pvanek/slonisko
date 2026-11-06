@@ -198,7 +198,7 @@ const Relation *Model::relation(const QString &schema, const QString &name) cons
     return it == relations.end() ? nullptr : &*it;
 }
 
-std::vector<QByteArray> modelQueries(const SchemaFilter &filter)
+std::vector<QByteArray> modelQueries(const SchemaFilter &filter, bool qualified)
 {
     const QByteArray schemas = schemaCondition(filter);
     // The relations documented, which the queries about their parts start from.
@@ -330,8 +330,12 @@ std::vector<QByteArray> modelQueries(const SchemaFilter &filter)
           "CASE WHEN p.prokind <> 'a' THEN pg_get_functiondef(p.oid) END, p.prosrc "
           "FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
           "JOIN pg_language l ON l.oid = p.prolang WHERE "
-        + schemas + " AND " + notInExtension("pg_proc", "p.oid")
-        + " ORDER BY n.nspname, p.proname, 5";
+        + schemas + " AND "
+        + notInExtension("pg_proc", "p.oid")
+        // A range type's constructors are the type's own.
+        + " AND NOT EXISTS (SELECT 1 FROM pg_depend i WHERE i.classid = 'pg_proc'::regclass "
+          "AND i.objid = p.oid AND i.deptype = 'i')"
+          " ORDER BY n.nspname, p.proname, 5";
     // A table's row type is the table's; only free-standing composites count.
     const QByteArray types = "FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace "
                              "WHERE "
@@ -369,6 +373,14 @@ std::vector<QByteArray> modelQueries(const SchemaFilter &filter)
                                "obj_description(e.oid, 'pg_extension') "
                                "FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace "
                                "ORDER BY e.extname";
+    // The server qualifies whatever its search_path does not show; with
+    // only pg_catalog on it, that is everything of the user's. A query
+    // string of several statements is one transaction, so SET LOCAL holds
+    // for the query alone and the shared connection keeps its own path.
+    if (qualified) {
+        for (QByteArray &query : queries)
+            query.prepend("SET LOCAL search_path = pg_catalog; ");
+    }
     return queries;
 }
 

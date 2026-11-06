@@ -89,6 +89,8 @@ private:
     // or its quality report.
     void generateDocumentation(Session *session, const QString &database,
                                DocGenWizard::Kind kind = DocGenWizard::Kind::Documentation);
+    // Tools → Compare Schemas.
+    void compareSchemas();
     void showHelp();
     QString helpKeyword() const;
     void showAbout();

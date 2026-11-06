@@ -89,6 +89,7 @@ add_subdirectory(src/sql)
 add_subdirectory(src/catalog)
 add_subdirectory(src/docgen)
 add_subdirectory(src/quality)
+add_subdirectory(src/schemadiff)
 add_subdirectory(src/app)
 
 if(SLONISKO_SCREENSHOTS)

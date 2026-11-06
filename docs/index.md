@@ -117,6 +117,7 @@ import-and-backup
 diagrams
 docgen
 quality-report
+schema-diff
 ```
 
 ```{toctree}

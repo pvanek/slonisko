@@ -237,7 +237,11 @@ QByteArray schemaCondition(const SchemaFilter &filter);
 // The queries reading a model, to run in order; their results go to
 // parseModel() in the same order. Objects that belong to an extension are
 // left out: they are the extension's, documented elsewhere.
-std::vector<QByteArray> modelQueries(const SchemaFilter &filter);
+//
+// qualified reads every name in definitions, types and defaults with its
+// schema, whatever the connection's search_path: for comparing databases,
+// whose search paths may differ, and for SQL that runs anywhere.
+std::vector<QByteArray> modelQueries(const SchemaFilter &filter, bool qualified = false);
 Model parseModel(const std::vector<pg::Result> &results);
 
 // Quotes an identifier the way PostgreSQL needs it, only when it needs it.

@@ -69,6 +69,9 @@ add_library(slonisko_ui STATIC
     SaveChangesDialog.cpp
     SaveChangesDialog.h
     SaveChangesDialog.ui
+    SchemaDiffWizard.cpp
+    SchemaDiffWizard.h
+    SchemaDiffWizard.ui
     SearchBar.cpp
     SearchBar.h
     SearchBar.ui
@@ -99,7 +102,8 @@ target_link_libraries(slonisko_ui PUBLIC
     Slonisko::Sql
     Slonisko::Catalog
     Slonisko::Docgen
-    Slonisko::Quality)
+    Slonisko::Quality
+    Slonisko::SchemaDiff)
 if(Qt6Help_FOUND)
     target_link_libraries(slonisko_ui PUBLIC Qt6::Help)
     target_compile_definitions(slonisko_ui PUBLIC SLONISKO_WITH_HELP)

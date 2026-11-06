@@ -69,6 +69,8 @@ public:
     void updateProfile(const config::ConnectionProfile &profile);
     void removeProfile(const QUuid &id);
     const config::ConnectionProfile *profile(const QUuid &id) const;
+    // In the order they were set and added.
+    const std::vector<config::ConnectionProfile> &profiles() const { return m_profiles; }
 
     // The same as config::ProfileStore does to the stored ones. What ends up
     // in another folder goes to its end.

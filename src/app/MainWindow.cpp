@@ -16,6 +16,7 @@
 #include "HelpWindow.h"
 #include "ResultPanel.h"
 #include "ResultView.h"
+#include "SchemaDiffWizard.h"
 #include "Session.h"
 #include "SqlEditor.h"
 
@@ -229,6 +230,21 @@ void MainWindow::generateDocumentation(Session *session, const QString &database
     wizard->show();
 }
 
+void MainWindow::compareSchemas()
+{
+    auto *wizard = new SchemaDiffWizard(m_browser, this);
+    // Not modal, so the script can be opened in an editor and compared
+    // with the databases while the wizard stays.
+    wizard->setAttribute(Qt::WA_DeleteOnClose);
+    connect(wizard, &SchemaDiffWizard::scriptRequested, this,
+            [this](Session *session, const QString &database, const QString &script) {
+                EditorPage *editor = newEditor(session, database);
+                editor->editor()->setText(script);
+                showPage(editor);
+            });
+    wizard->show();
+}
+
 EditorPage *MainWindow::newEditor(Session *session, const QString &database)
 {
     auto *page = new EditorPage(m_browser, tr("Script %1").arg(++m_editorCount));
@@ -431,6 +447,9 @@ void MainWindow::setupMenus()
     file->addSeparator();
     QAction *quit = file->addAction(tr("&Quit"), this, &QWidget::close);
     quit->setShortcut(QKeySequence::Quit);
+
+    QMenu *tools = menuBar()->addMenu(tr("&Tools"));
+    tools->addAction(tr("Compare &Schemas…"), this, &MainWindow::compareSchemas);
 
     QMenu *help = menuBar()->addMenu(tr("&Help"));
     QAction *manual = help->addAction(QIcon::fromTheme(QStringLiteral("help-contents")),

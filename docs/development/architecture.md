@@ -14,6 +14,7 @@ without a display.
 | `src/catalog` | Catalog queries and everything derived from their results |
 | `src/docgen` | Schema documentation: its model, pages and writers, and `slonisko-docgen` |
 | `src/quality` | The quality report: catalog checks, server health, their analysis and pages, and `slonisko-quality-report` |
+| `src/schemadiff` | Comparing two databases' schemas, and the script that makes one like the other |
 | `src/app` | The GUI |
 
 Only `src/app` may depend on Qt Widgets. A query, a parser, a layout or a
@@ -65,3 +66,14 @@ statistics show, as `quality::Topic`s in sections; `quality::buildReport()`
 turns those into `docgen::Page`s, which docgen's writers spell out in any
 of its formats. The program writes it from the same wizard as the
 documentation.
+
+## Comparing schemas
+
+`src/schemadiff` also builds on `src/docgen`: each side is a `docgen::Model`,
+read with every name qualified by its schema, so that definitions compare
+the same whatever the connections' search paths. `schemadiff::compare()`
+matches the objects by name and returns the `Change`s, each with its
+hazards and statements; every statement has a phase, and the phases order
+the script so that dependents are dropped first and made last.
+`schemadiff::script()` writes it out. The program's wizard reads both models
+through the sessions of two of the browser's connections.

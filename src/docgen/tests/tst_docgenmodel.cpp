@@ -236,6 +236,9 @@ private Q_SLOTS:
         QVERIFY(!named(model.routines, "similarity"));
         QVERIFY(!named(model.types, "gtrgm"));
         QVERIFY(named(model.extensions, "pg_trgm"));
+        // Nor are a range type's constructors anyone's but the type's.
+        QVERIFY(!named(model.routines, "money_range"));
+        QVERIFY(!named(model.routines, "money_multirange"));
 
         const Routine *touch = named(model.routines, "touch");
         QVERIFY(touch);

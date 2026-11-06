@@ -29,9 +29,10 @@ struct Options
 
 // Reads the model through a runner, its queries one after another. done
 // gets the model, or the error that stopped it; it is not called once
-// context is gone.
+// context is gone. qualified is modelQueries()' own.
 void loadModel(pg::QueryRunner *runner, const SchemaFilter &filter, QObject *context,
-               std::function<void(const Model &model, const QString &error)> done);
+               std::function<void(const Model &model, const QString &error)> done,
+               bool qualified = false);
 
 // Builds the pages and writes them. Touches nothing but
 // the output directory and Graphviz, so it may run on a thread of its own.

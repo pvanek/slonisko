@@ -13,9 +13,9 @@
 namespace slonisko::docgen {
 
 void loadModel(pg::QueryRunner *runner, const SchemaFilter &filter, QObject *context,
-               std::function<void(const Model &model, const QString &error)> done)
+               std::function<void(const Model &model, const QString &error)> done, bool qualified)
 {
-    const std::vector<QByteArray> queries = modelQueries(filter);
+    const std::vector<QByteArray> queries = modelQueries(filter, qualified);
     auto results = std::make_shared<std::vector<pg::Result>>();
     auto error = std::make_shared<QString>();
     const std::size_t count = queries.size();
