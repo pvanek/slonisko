@@ -18,8 +18,9 @@
 - Optional: Graphviz, for the diagrams of HTML schema documentation and its
   tests
 
-The build makes three programs, `slonisko` and the command line
-`slonisko-docgen` and `slonisko-quality-report`, always all of them.
+The build makes four programs, `slonisko` and the command line
+`slonisko-docgen`, `slonisko-quality-report` and `slonisko-schemadiff`,
+always all of them.
 
 On openSUSE Tumbleweed:
 

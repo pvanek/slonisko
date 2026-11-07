@@ -9,9 +9,10 @@ One directory per target, each self-contained:
 | `windows/`  | Portable zip and Inno Setup installer            |
 | `flatpak/`  | Flatpak manifest and a bundle of it              |
 
-Every package carries three programs: `slonisko` and the command line
-`slonisko-docgen` and `slonisko-quality-report` (see the manual's *Schema
-documentation* and *Quality report*). The RPM spec puts the command line
+Every package carries four programs: `slonisko` and the command line
+`slonisko-docgen`, `slonisko-quality-report` and `slonisko-schemadiff` (see
+the manual's *Schema documentation*, *Quality report* and *Comparing
+schemas*). The RPM spec puts the command line
 tools into a package of their own, `slonisko-docgen`, which needs neither
 Qt Widgets nor QScintilla; macOS keeps them in the bundle's
 `Contents/MacOS`, Windows beside `slonisko.exe`, the Flatpak in `/app/bin`.

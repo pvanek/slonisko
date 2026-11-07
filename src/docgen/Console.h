@@ -10,7 +10,8 @@
 
 namespace slonisko::docgen {
 
-// What slonisko-docgen and slonisko-quality-report share on the command line.
+// What slonisko-docgen, slonisko-quality-report and slonisko-schemadiff share on
+// the command line.
 
 QTextStream &err();
 

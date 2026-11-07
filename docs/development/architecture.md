@@ -76,4 +76,5 @@ matches the objects by name and returns the `Change`s, each with its
 hazards and statements; every statement has a phase, and the phases order
 the script so that dependents are dropped first and made last.
 `schemadiff::script()` writes it out. The program's wizard reads both models
-through the sessions of two of the browser's connections.
+through the sessions of two of the browser's connections; `slonisko-schemadiff`
+opens two connections of its own.

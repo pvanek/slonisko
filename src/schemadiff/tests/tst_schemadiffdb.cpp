@@ -6,7 +6,11 @@
 #include "sql/Splitter.h"
 
 #include <QFile>
+#include <QProcess>
+#include <QTemporaryDir>
 #include <QTest>
+
+#include <algorithm>
 
 using namespace slonisko;
 using namespace slonisko::schemadiff;
@@ -152,6 +156,31 @@ class TestSchemaDiffDb : public QObject
         return model.value_or(docgen::Model {});
     }
 
+    struct Tool
+    {
+        int exitCode = -1;
+        QByteArray out;
+        QByteArray errors;
+    };
+
+    Tool runTool(const QStringList &arguments)
+    {
+        QProcess process;
+        process.start(QStringLiteral(SLONISKO_SCHEMADIFF), arguments);
+        Tool tool;
+        if (!process.waitForFinished(120'000))
+            return tool;
+        tool.exitCode = process.exitCode();
+        tool.out = process.readAllStandardOutput();
+        tool.errors = process.readAllStandardError();
+        return tool;
+    }
+
+    QString conninfo(const QByteArray &database) const
+    {
+        return QString::fromUtf8(m_conninfo + " dbname=" + database);
+    }
+
     static QString describe(const Diff &diff)
     {
         QStringList out;
@@ -216,6 +245,69 @@ private Q_SLOTS:
         // Names are read qualified, so the script is the same whatever the
         // search_path.
         QVERIFY(diff.changes.size() > 20);
+    }
+
+    // Before roundTrip(), which makes the two the same.
+    void commandLine()
+    {
+        const QString target = conninfo(TargetDatabase);
+        const QString reference = conninfo(ReferenceDatabase);
+
+        // By default the script, what the wizard shows, and success.
+        Tool tool = runTool({target, reference});
+        QVERIFY2(tool.exitCode == 0, tool.errors.constData());
+        const Diff diff = compare(load(m_target.runner), load(m_reference.runner));
+        const QString expected = script(
+            diff, {QString::fromUtf8(TargetDatabase), QString::fromUtf8(ReferenceDatabase), true});
+        QCOMPARE(QString::fromUtf8(tool.out), expected);
+        QVERIFY2(tool.errors.contains("differences:"), tool.errors.constData());
+
+        tool = runTool({QStringLiteral("--no-transaction"), target, reference});
+        QCOMPARE(tool.exitCode, 0);
+        QVERIFY(!tool.out.contains("BEGIN;"));
+
+        // --check lists the differences and fails on them.
+        tool = runTool({QStringLiteral("--check"), QStringLiteral("-q"), target, reference});
+        QCOMPARE(tool.exitCode, 3);
+        QVERIFY2(tool.errors.isEmpty(), tool.errors.constData());
+        const QList<QByteArray> lines = tool.out.split('\n');
+        QVERIFY2(lines.contains("removed table shop.dropped\tdata loss"), tool.out.constData());
+        QVERIFY2(lines.contains("changed function shop.f(x integer): definition"),
+                 tool.out.constData());
+        QCOMPARE(lines.size() - 1, qsizetype(diff.changes.size()));
+
+        // --exit-code fails too, with the script in the file.
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString file = dir.filePath(QStringLiteral("align.sql"));
+        tool = runTool(
+            {QStringLiteral("--exit-code"), QStringLiteral("-o"), file, target, reference});
+        QCOMPARE(tool.exitCode, 3);
+        QVERIFY(tool.out.isEmpty());
+        QFile written(file);
+        QVERIFY(written.open(QIODevice::ReadOnly));
+        QCOMPARE(QString::fromUtf8(written.readAll()), expected);
+
+        // Only the schemas asked for: gone exists in the target alone.
+        tool = runTool({QStringLiteral("--check"), QStringLiteral("-n"), QStringLiteral("gone"),
+                        target, reference});
+        QCOMPARE(tool.exitCode, 3);
+        QList<QByteArray> only = tool.out.split('\n');
+        only.removeLast();
+        std::sort(only.begin(), only.end());
+        QCOMPARE(only,
+                 QList<QByteArray>({"removed schema gone", "removed table gone.old\tdata loss"}));
+
+        // A database is like itself.
+        tool = runTool({QStringLiteral("--check"), target, target});
+        QVERIFY2(tool.exitCode == 0, tool.errors.constData());
+        QVERIFY(tool.out.isEmpty());
+
+        QCOMPARE(runTool({target}).exitCode, 2);
+        QCOMPARE(runTool({QStringLiteral("--no-such-option"), target, reference}).exitCode, 2);
+        tool = runTool({target, conninfo("slonisko_no_such_database")});
+        QCOMPARE(tool.exitCode, 1);
+        QVERIFY2(tool.errors.contains("reference:"), tool.errors.constData());
     }
 
     // The script makes the target like the reference: compared again,

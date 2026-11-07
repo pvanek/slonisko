@@ -59,10 +59,11 @@ echo "== Bundling libraries"
 # Copies the Qt frameworks and plugins, and every other non-system library
 # the program reaches (libpq, OpenSSL, Kerberos, QtKeychain), into
 # Contents/Frameworks, and points the program at those copies. The command
-# line slonisko-docgen and slonisko-quality-report live beside it in Contents/MacOS
-# and are given the same treatment.
+# line slonisko-docgen, slonisko-quality-report and slonisko-schemadiff live
+# beside it in Contents/MacOS and are given the same treatment.
 macdeployqt "$app" -verbose=1 -executable="$app/Contents/MacOS/slonisko-docgen" \
-    -executable="$app/Contents/MacOS/slonisko-quality-report"
+    -executable="$app/Contents/MacOS/slonisko-quality-report" \
+    -executable="$app/Contents/MacOS/slonisko-schemadiff"
 
 # Homebrew keeps the plugins of all its Qt modules in one directory, and
 # macdeployqt takes them all, but not the frameworks of modules the program

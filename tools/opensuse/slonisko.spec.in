@@ -76,7 +76,7 @@ SQL is parsed with PostgreSQL's own parser (libpg_query), and passwords are
 kept in the system wallet.
 
 %package        docgen
-Summary:        PostgreSQL schema documentation and quality report generators
+Summary:        PostgreSQL schema documentation, quality report and schema diff tools
 # Unlike the program it reads no SQL, so libpg_query is not linked in.
 License:        GPL-3.0-or-later
 Group:          Productivity/Databases/Tools
@@ -95,9 +95,14 @@ duplicates, and the health of the server: settings, long transactions,
 vacuum, transaction ID wraparound, sequences running out.
 
 Both write a static website, Markdown, AsciiDoc, an Antora component or a
-Sphinx project. The same is in slonisko itself, on a database's context
-menu; this package is the command line tools on their own, for scripts and
-CI.
+Sphinx project.
+
+slonisko-schemadiff compares the schemas of two databases and writes the
+SQL that makes one like the other, marking what may lose data or lock a
+table; it can also just fail when they differ.
+
+The same is in slonisko itself; this package is the command line tools on
+their own, for scripts and CI.
 
 %prep
 %autosetup -p1
@@ -145,5 +150,6 @@ export QT_QPA_PLATFORM=offscreen
 %license LICENSE
 %{_bindir}/%{name}-docgen
 %{_bindir}/%{name}-quality-report
+%{_bindir}/%{name}-schemadiff
 
 %changelog

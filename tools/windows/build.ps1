@@ -105,6 +105,7 @@ $Exe = "$Stage\bin\slonisko.exe"
 # program does (Qt Core and Network, libpq), all of it copied for the program.
 $DocgenExe = "$Stage\bin\slonisko-docgen.exe"
 $ReportExe = "$Stage\bin\slonisko-quality-report.exe"
+$SchemaDiffExe = "$Stage\bin\slonisko-schemadiff.exe"
 
 Write-Host '== Bundling libraries'
 # Qt's DLLs and plugins. The Help module brings Qt SQL, and with it the
@@ -121,7 +122,7 @@ Copy-Item "$env:VCToolsRedistDir\x64\Microsoft.VC*.CRT\*.dll" "$Stage\bin"
 
 # Everything else the program loads: libpq and what it loads in turn
 # (OpenSSL, zlib, ...).
-foreach ($program in $Exe, $DocgenExe, $ReportExe) {
+foreach ($program in $Exe, $DocgenExe, $ReportExe, $SchemaDiffExe) {
     cmake "-DEXECUTABLE=$program" "-DSEARCH_DIRS=$PgDir\bin" `
         -P "$PSScriptRoot\deploy-dlls.cmake"
 }

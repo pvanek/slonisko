@@ -1,14 +1,22 @@
 # Comparing schemas
 
-```{index} compare schemas, schema diff, migration script, alignment script, pg-schema-diff
+```{index} compare schemas, schema diff, migration script, alignment script, pg-schema-diff, slonisko-schemadiff
 ```
 
-**Tools → Compare Schemas…** compares the schemas of two databases and
-writes the SQL that makes one like the other: production against the
+Slonisko compares the schemas of two databases and writes the SQL that
+makes one like the other: production against the
 development database it should catch up with, a staging copy against the
 one it was copied from, two databases of the same server. The idea is that of Stripe's
 [pg-schema-diff](https://github.com/stripe/pg-schema-diff): you say what
-the schema should be, and the script says how to get there.
+the schema should be, and the script says how to get there. It comes in two forms that write the
+same script:
+
+- **Tools → Compare Schemas…** in the program, on two of the browser's
+  connections;
+- **`slonisko-schemadiff`**, a command line tool installed with it, for
+  scripts and continuous integration: to fail a job when a database has
+  drifted from the schema it should have, or to write the script for
+  someone to review.
 
 The two sides are called **Reference** and **Target**. Reference is the
 schema to match, and is only read. The script runs on Target, and once it
@@ -119,3 +127,67 @@ needs attention
 Read the script before running it, and run it on a copy first. Only whoever
 knows the data can tell whether a column may go, or whether a `NOT NULL`
 column added to a table with rows needs a default.
+
+## On the command line
+
+```{index} slonisko-schemadiff; command line, schema drift
+```
+
+```sh
+slonisko-schemadiff [options] <target> <reference>
+```
+
+Target first, as in the wizard's script: the database the script is for,
+then the one whose schema it should have. Both are libpq connection strings
+or URIs, as `psql` takes them; for whatever they leave out, libpq's `PG*`
+environment variables and `~/.pgpass` apply. The script goes to the
+standard output, and a count of the differences to the standard error.
+
+```sh
+# The script that brings production up to staging, for review
+slonisko-schemadiff -o align.sql \
+    "host=prod.example.com dbname=shop user=reader" \
+    "host=staging.example.com dbname=shop user=reader"
+
+# In CI: fail when the database built from the migrations differs from the
+# expected one, listing what differs
+slonisko-schemadiff --check -n app "dbname=migrated" "dbname=expected"
+```
+
+| Option | |
+|---|---|
+| `-o`, `--output` *file* | Where to write the script, or with `--check` the differences; by default the standard output |
+| `-n`, `--schema` *pattern* | Only schemas matching; `*` and `?` are wildcards. May be repeated |
+| `-N`, `--exclude-schema` *pattern* | Leave out schemas matching. May be repeated |
+| `-W`, `--password` | Ask for the password before connecting; it is used for both databases |
+| `--concurrently` | Build and drop indexes on existing tables `CONCURRENTLY`, as **Build indexes concurrently** does |
+| `--no-transaction` | Leave out `BEGIN` and `COMMIT`, as unchecking **In one transaction** does |
+| `--check` | Write the differences instead of the script, and exit with 3 when there are any |
+| `--exit-code` | Exit with 3 when the schemas differ; the script is written all the same |
+| `-q`, `--quiet` | Print only errors |
+
+`--check` writes one difference a line, as the script heads it: added,
+removed or changed, which object, and what about it differs; then, after a
+tab, its hazards, if it has any.
+
+```text
+removed column shop.orders.note	data loss
+changed column shop.orders.total: type integer → bigint	table rewrite
+added index orders_state on shop.orders	blocks writes
+```
+
+It exits with 0 when the script or the list is written, 1 when it cannot
+be (a database it cannot connect to or read, a file it cannot write), 2
+for options it does not understand or not two connections, and 3 when the
+schemas differ and `--check` or `--exit-code` is given.
+
+It is installed where `slonisko-docgen` is (see
+{doc}`its section <docgen>`); in the Flatpak it is run as
+
+```sh
+flatpak run --command=slonisko-schemadiff cz.yarpen.slonisko --help
+```
+
+Both accounts only need to read the catalog, which any account can.
+Nothing is run on either database: the script is only written.
+
