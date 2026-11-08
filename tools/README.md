@@ -12,9 +12,10 @@ One directory per target, each self-contained:
 Every package carries four programs: `slonisko` and the command line
 `slonisko-docgen`, `slonisko-quality-report` and `slonisko-schemadiff` (see
 the manual's *Schema documentation*, *Quality report* and *Comparing
-schemas*). The RPM spec puts the command line
-tools into a package of their own, `slonisko-docgen`, which needs neither
-Qt Widgets nor QScintilla; macOS keeps them in the bundle's
+schemas*). The RPM spec puts each command line
+tool into a package of its own, named after it (`slonisko-docgen`,
+`slonisko-quality-report`, `slonisko-schemadiff`), which needs neither Qt
+Widgets nor QScintilla; macOS keeps them in the bundle's
 `Contents/MacOS`, Windows beside `slonisko.exe`, the Flatpak in `/app/bin`.
 
 Whatever more than one of them needs belongs in the source tree where the

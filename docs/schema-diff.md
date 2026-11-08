@@ -182,7 +182,8 @@ for options it does not understand or not two connections, and 3 when the
 schemas differ and `--check` or `--exit-code` is given.
 
 It is installed where `slonisko-docgen` is (see
-{doc}`its section <docgen>`); in the Flatpak it is run as
+{doc}`its section <docgen>`), on openSUSE in a package of its own,
+`slonisko-schemadiff`; in the Flatpak it is run as
 
 ```sh
 flatpak run --command=slonisko-schemadiff cz.yarpen.slonisko --help

@@ -76,8 +76,9 @@ SQL is parsed with PostgreSQL's own parser (libpg_query), and passwords are
 kept in the system wallet.
 
 %package        docgen
-Summary:        PostgreSQL schema documentation, quality report and schema diff tools
-# Unlike the program it reads no SQL, so libpg_query is not linked in.
+Summary:        PostgreSQL schema documentation generator
+# Unlike the program it reads no SQL, so libpg_query is not linked in; the
+# same goes for the other command line tools.
 License:        GPL-3.0-or-later
 Group:          Productivity/Databases/Tools
 # Draws the diagrams of HTML output; without it they are left as source.
@@ -87,22 +88,40 @@ Recommends:     graphviz
 slonisko-docgen writes documentation of a PostgreSQL database's schemas:
 tables, views, routines, types and sequences, with their columns, keys,
 indexes, triggers, comments and definitions, ER diagrams and an index of
-names.
-
-slonisko-quality-report writes a quality report of a database: schema
-advice, missing, duplicate and unused indexes, broken dependencies,
-duplicates, and the health of the server: settings, long transactions,
-vacuum, transaction ID wraparound, sequences running out.
-
-Both write a static website, Markdown, AsciiDoc, an Antora component or a
+names, as a static website, Markdown, AsciiDoc, an Antora component or a
 Sphinx project.
 
-slonisko-schemadiff compares the schemas of two databases and writes the
-SQL that makes one like the other, marking what may lose data or lock a
-table; it can also just fail when they differ.
+The same is in slonisko itself; this is the command line tool on its own,
+for scripts and CI.
 
-The same is in slonisko itself; this package is the command line tools on
-their own, for scripts and CI.
+%package        quality-report
+Summary:        PostgreSQL database quality report generator
+License:        GPL-3.0-or-later
+Group:          Productivity/Databases/Tools
+
+%description    quality-report
+slonisko-quality-report writes a quality report of a PostgreSQL database:
+schema advice, missing, duplicate and unused indexes, broken dependencies,
+duplicates, and the health of the server: settings, long transactions,
+vacuum, transaction ID wraparound, sequences running out. It is written as
+a static website, Markdown, AsciiDoc, an Antora component or a Sphinx
+project.
+
+The same is in slonisko itself; this is the command line tool on its own,
+for scripts and CI.
+
+%package        schemadiff
+Summary:        PostgreSQL schema comparison and alignment script generator
+License:        GPL-3.0-or-later
+Group:          Productivity/Databases/Tools
+
+%description    schemadiff
+slonisko-schemadiff compares the schemas of two PostgreSQL databases and
+writes the SQL that makes one like the other, marking what may lose data or
+lock a table; it can also just fail when they differ.
+
+The same is in slonisko itself; this is the command line tool on its own,
+for scripts and CI.
 
 %prep
 %autosetup -p1
@@ -149,7 +168,13 @@ export QT_QPA_PLATFORM=offscreen
 %files docgen
 %license LICENSE
 %{_bindir}/%{name}-docgen
+
+%files quality-report
+%license LICENSE
 %{_bindir}/%{name}-quality-report
+
+%files schemadiff
+%license LICENSE
 %{_bindir}/%{name}-schemadiff
 
 %changelog

@@ -226,6 +226,9 @@ wrong format or option, and 3 for a finding at or above `--fail-on`. A part
 of the server's state that the account may not read is a warning on the
 standard error and a notice in the report, not a failure.
 
+It is installed where `slonisko-docgen` is (see {doc}`its section <docgen>`),
+on openSUSE in a package of its own, `slonisko-quality-report`.
+
 ## The account it connects as
 
 Any account can read the catalog. For the rest, the account needs to be a

@@ -181,7 +181,7 @@ connection, a folder it cannot write to), and 2 for a missing or unknown
 format and options it does not understand, such as `--css` for Markdown.
 
 Where it is installed depends on the package: on Linux it is in the
-`PATH` (on openSUSE in its own package, `slonisko-docgen`); on macOS it is
+`PATH` (on openSUSE in a package of its own, `slonisko-docgen`); on macOS it is
 `/Applications/Slonisko.app/Contents/MacOS/slonisko-docgen`; on Windows it is
 `slonisko-docgen.exe` beside `slonisko.exe`. In the Flatpak it is run as
 
