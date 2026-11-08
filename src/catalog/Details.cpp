@@ -3,6 +3,7 @@
 
 #include "catalog/Details.h"
 
+#include "catalog/Scope.h"
 #include "pg/Result.h"
 
 #include <QCoreApplication>
@@ -561,6 +562,8 @@ ObjectDetail parseDetail(ObjectKind kind, const std::vector<pg::Result> &results
     const bool qualified = kind != ObjectKind::Extension && kind != ObjectKind::Trigger
         && kind != ObjectKind::Policy && kind != ObjectKind::Constraint;
     detail.title = schema.isEmpty() || !qualified ? name : schema + QLatin1Char('.') + name;
+    detail.schema = schema;
+    detail.name = name;
 
     const std::vector<Section> sections = sectionsOf(kind, 0);
     for (std::size_t i = 1; i < sections.size() && i < results.size(); ++i) {
@@ -577,6 +580,21 @@ ObjectDetail parseDetail(ObjectKind kind, const std::vector<pg::Result> &results
             tableOf(QCoreApplication::translate("slonisko::catalog", section.title), result));
     }
     return detail;
+}
+
+bool hasDataPreview(ObjectKind kind)
+{
+    return kind == ObjectKind::Table || kind == ObjectKind::PartitionedTable
+        || kind == ObjectKind::View || kind == ObjectKind::MaterializedView
+        || kind == ObjectKind::ForeignTable;
+}
+
+QByteArray previewQuery(const QString &schema, const QString &name, int limit)
+{
+    const QString relation = schema.isEmpty()
+        ? scope::quoted(name)
+        : scope::quoted(schema) + QLatin1Char('.') + scope::quoted(name);
+    return QStringLiteral("SELECT * FROM %1 LIMIT %2").arg(relation).arg(limit).toUtf8();
 }
 
 } // namespace slonisko::catalog

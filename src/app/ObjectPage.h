@@ -19,6 +19,7 @@ class DependencyView;
 
 class ErdView;
 class ResultTextView;
+class ResultView;
 class Session;
 
 // What one database object is: its properties, the lists that belong to it
@@ -44,6 +45,8 @@ public:
     ErdView *diagram() const { return m_diagram; }
     // What depends on the object; null for kinds nothing can depend on.
     DependencyView *dependencies() const { return m_dependencies; }
+    // The first rows of a table or view; null for kinds without rows.
+    ResultView *data() const { return m_data; }
     // Opens the Dependencies tab, now or once the page has loaded.
     void showDependencies();
     // Reads everything about the object again.
@@ -62,6 +65,7 @@ private:
     void showDetail(const catalog::ObjectDetail &detail);
     void loadDiagram();
     void loadDependencies();
+    void loadData();
     // Opens the tab whose queries wait for it, if one of them is current.
     void onTabChanged();
     // Asks where to save the diagram, in the one format the filter names.
@@ -86,6 +90,8 @@ private:
     QWidget *m_diagramTab = nullptr; // The diagram with its own little toolbar.
     bool m_diagramLoaded = false; // Its queries run when the tab is first opened.
     catalog::ErdGraph m_graph;
+    ResultView *m_data = nullptr;
+    bool m_dataLoaded = false; // Waits for its tab too: a view may take long to run.
     DependencyView *m_dependencies = nullptr;
     bool m_dependenciesLoaded = false; // Also waits for its tab: it reads the whole catalog.
     bool m_wantDependencies = false; // Asked for before the tabs were there.

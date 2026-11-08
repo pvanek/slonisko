@@ -29,6 +29,8 @@ struct DetailTable
 struct ObjectDetail
 {
     QString title; // "public.orders"
+    QString schema; // What the title is made of, unquoted.
+    QString name;
     QString subtitle; // "table", "view", "extension"
     DetailTable properties; // Two columns: property and value.
     std::vector<DetailTable> tables;
@@ -42,5 +44,13 @@ bool hasDetails(ObjectKind kind);
 // parseDetail() in the same order.
 std::vector<QByteArray> detailQueries(ObjectKind kind, Oid oid);
 ObjectDetail parseDetail(ObjectKind kind, const std::vector<pg::Result> &results);
+
+// Whether an object of this kind has rows to look at.
+bool hasDataPreview(ObjectKind kind);
+// Enough rows to see what the data looks like, few enough that a big table
+// does not keep the connection, which the object tree shares, busy.
+constexpr int PreviewRows = 1000;
+// The first rows of a relation, in whatever order the server has them.
+QByteArray previewQuery(const QString &schema, const QString &name, int limit = PreviewRows);
 
 } // namespace slonisko::catalog

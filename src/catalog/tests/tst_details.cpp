@@ -170,6 +170,32 @@ private Q_SLOTS:
         QVERIFY(!detail.definition.isEmpty());
     }
 
+    void dataPreview()
+    {
+        QVERIFY(hasDataPreview(ObjectKind::Table));
+        QVERIFY(hasDataPreview(ObjectKind::View));
+        QVERIFY(hasDataPreview(ObjectKind::MaterializedView));
+        QVERIFY(hasDataPreview(ObjectKind::ForeignTable));
+        QVERIFY(hasDataPreview(ObjectKind::PartitionedTable));
+        QVERIFY(!hasDataPreview(ObjectKind::Sequence));
+        QVERIFY(!hasDataPreview(ObjectKind::Function));
+
+        QCOMPARE(previewQuery(QStringLiteral("Odd \"Schema\""), QStringLiteral("t"), 5),
+                 QByteArray("SELECT * FROM \"Odd \"\"Schema\"\"\".t LIMIT 5"));
+
+        // The names come from the detail, as the page has them.
+        QVERIFY(run("CREATE TABLE slonisko_details_test.\"Mixed Case\" AS "
+                    "SELECT generate_series(1, 10) AS n")
+                    .ok());
+        const ObjectDetail detail
+            = detailOf(ObjectKind::Table, oidOf("'slonisko_details_test.\"Mixed Case\"'"));
+        QCOMPARE(detail.schema, QStringLiteral("slonisko_details_test"));
+        QCOMPARE(detail.name, QStringLiteral("Mixed Case"));
+        const QueryOutcome rows = run(previewQuery(detail.schema, detail.name, 3));
+        QVERIFY2(rows.ok(), qPrintable(rows.error));
+        QCOMPARE(rows.results.back().rowCount(), 3);
+    }
+
     void extension()
     {
         const ObjectDetail detail

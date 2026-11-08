@@ -8,7 +8,9 @@
 #include "DiagramFile.h"
 #include "ErdView.h"
 #include "Icons.h"
+#include "ResultModel.h"
 #include "ResultTextView.h"
+#include "ResultView.h"
 #include "Session.h"
 #include "Shortcuts.h"
 #include "catalog/ErdExport.h"
@@ -175,6 +177,17 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
             Q_EMIT objectRequested(m_session, m_database, catalog::ObjectKind::Table, neighbour);
         });
     }
+    if (catalog::hasDataPreview(m_kind)) {
+        m_data = new ResultView(this);
+        m_data->setSortable(true);
+        m_data->hide();
+        // The row count alone would pass for the table's size.
+        connect(m_data, &ResultView::finished, this, [this] {
+            const bool cut = m_data->model()->rows().rowCount() >= catalog::PreviewRows;
+            m_data->setNote(cut ? tr("The first %1 rows only.").arg(catalog::PreviewRows)
+                                : QString());
+        });
+    }
     if (catalog::hasDependencies(m_kind)) {
         m_dependencies = new DependencyView(this);
         m_dependencies->hide();
@@ -183,7 +196,7 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
                     Q_EMIT objectRequested(m_session, m_database, dependentKind, dependent);
                 });
     }
-    // The diagram's keys and the dependencies are queries of their own, so
+    // The rows, the diagram's keys and the dependencies are queries of their own, so
     // they wait until their tab is actually opened.
     connect(m_tabs, &QTabWidget::currentChanged, this, &ObjectPage::onTabChanged);
 
@@ -290,6 +303,7 @@ void ObjectPage::refresh()
                 // them; the dependencies otherwise wait for their tab to be
                 // opened again.
                 m_dependenciesLoaded = false;
+                m_dataLoaded = false;
                 showDetail(catalog::parseDetail(m_kind, *results));
                 if (m_diagramTab && m_tabs->currentWidget() == m_diagramTab)
                     loadDiagram();
@@ -319,6 +333,10 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
         m_diagramTab->setParent(this);
         m_diagramTab->hide();
     }
+    if (m_data) {
+        m_data->setParent(this);
+        m_data->hide();
+    }
     if (m_dependencies) {
         m_dependencies->setParent(this);
         m_dependencies->hide();
@@ -335,6 +353,8 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
                            ? table.title
                            : QStringLiteral("%1 (%2)").arg(table.title).arg(table.rows.size()));
     }
+    if (m_data)
+        m_tabs->addTab(m_data, tr("Data"));
     if (!detail.definition.isEmpty()) {
         m_definition->setText(detail.definition);
         m_tabs->addTab(m_definition, tr("Definition"));
@@ -350,7 +370,7 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
         m_tabs->setCurrentWidget(m_dependencies);
     } else if (currentWidget
                && (currentWidget == m_dependencies || currentWidget == m_diagramTab
-                   || currentWidget == m_definition)) {
+                   || currentWidget == m_definition || currentWidget == m_data)) {
         m_tabs->setCurrentWidget(currentWidget);
     } else {
         for (int tab = 0; tab < m_tabs->count(); ++tab) {
@@ -414,6 +434,17 @@ void ObjectPage::onTabChanged()
         loadDiagram();
     if (current && current == m_dependencies && !m_dependenciesLoaded)
         loadDependencies();
+    if (current && current == m_data && !m_dataLoaded)
+        loadData();
+}
+
+void ObjectPage::loadData()
+{
+    pg::QueryRunner *runner = m_session ? m_session->runner(m_database) : nullptr;
+    if (!m_data || !runner || m_detail.name.isEmpty())
+        return;
+    m_dataLoaded = true;
+    m_data->run(runner, m_detail.title, catalog::previewQuery(m_detail.schema, m_detail.name));
 }
 
 void ObjectPage::loadDependencies()
@@ -492,6 +523,12 @@ void ObjectPage::showMessage(const QString &text, bool error)
         m_dependencies->clear();
     }
     m_dependenciesLoaded = false;
+    if (m_data) {
+        m_data->stop();
+        m_data->setParent(this);
+        m_data->hide();
+    }
+    m_dataLoaded = false;
     m_tabs->hide();
     m_definition->setText(QString());
     m_message->setError(error);

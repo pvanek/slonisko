@@ -169,8 +169,8 @@ set. The tabs after it depend on the kind:
 |---|---|
 | Database | *Settings* set per database or per role in it, when there are any; *Diagram* |
 | Schema | *Contents*: how many objects of each kind it holds; *Dependencies*; *Diagram* |
-| Table, partitioned table, foreign table | *Columns*, *Indexes*, *Constraints*, *Triggers*, *Policies* when there are any; *Dependencies*; *Diagram* |
-| View, materialized view | *Columns*, *Indexes* when there are any, *Definition*, *Dependencies* |
+| Table, partitioned table, foreign table | *Columns*, *Indexes*, *Constraints*, *Triggers*, *Policies* when there are any; *Data*; *Dependencies*; *Diagram* |
+| View, materialized view | *Columns*, *Indexes* when there are any; *Data*; *Definition*; *Dependencies* |
 | Sequence | *Dependencies*; the overview has its range, increment, last value and the column that owns it |
 | Function, procedure | *Definition*, the `CREATE` statement; *Dependencies* |
 | Aggregate | *Support*: its transition and final functions and state type; *Dependencies* |
@@ -191,6 +191,24 @@ set. The tabs after it depend on the kind:
 A column has no page of its own; its table's *Columns* tab says all there
 is. The *Diagram* tab is described in {doc}`diagrams`, the *Dependencies*
 tab below.
+
+## A look at the rows
+
+```{index} data preview, Data tab
+```
+
+The *Data* tab of a table, view, materialized view or foreign table shows
+its first 1000 rows, `SELECT * FROM` it with a `LIMIT`, in no particular
+order. The query runs only once the tab is opened, since a view or a foreign
+table may take a while, and again on *Refresh* or *Run Again*; *Stop*
+cancels it. When the limit is reached, a note above the rows says so, so
+that the row count is not taken for the table's size.
+
+The rows are read-only here. Clicking a column's header sorts the rows that
+were fetched, not the whole table. They can be copied, exported and viewed
+as text or one record at a time, as in the editor's results, see
+{doc}`results`. To edit them, or to see more of them, query the table in an
+editor.
 
 ## What depends on an object
 

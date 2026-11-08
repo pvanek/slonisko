@@ -856,6 +856,48 @@ private Q_SLOTS:
         QVERIFY(scene->sceneRect().contains(scene->itemsBoundingRect()));
     }
 
+    void objectPagePreviewsData()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("DROP TABLE IF EXISTS \"Preview Rows\" CASCADE");
+        runSql("CREATE TABLE \"Preview Rows\" AS SELECT n FROM generate_series(1, 1500) n");
+        runSql("SELECT '\"Preview Rows\"'::regclass::oid");
+        const unsigned int table = model()->index(0, 0).data().toString().toUInt();
+
+        ObjectPage *page = w.showObject(m_session.get(), {}, catalog::ObjectKind::Table, table,
+                                        QStringLiteral("Preview Rows"));
+        QVERIFY(page->data());
+        QTRY_VERIFY(!page->detail().title.isEmpty());
+
+        // Nothing runs until the tab is opened.
+        const int dataTab = tabNamed(page, QStringLiteral("Data"));
+        QVERIFY(dataTab >= 0);
+        QVERIFY(!page->data()->showsRows());
+
+        page->tabs()->setCurrentIndex(dataTab);
+        QTRY_VERIFY(page->data()->showsRows() && !page->data()->isRunning());
+        QCOMPARE(page->data()->model()->rowCount(), catalog::PreviewRows);
+        QVERIFY(page->data()->note().contains(QString::number(catalog::PreviewRows)));
+
+        // A refresh of the page keeps the tab open and reads the rows again.
+        runSql("DELETE FROM \"Preview Rows\" WHERE n > 10");
+        page->refresh();
+        QTRY_COMPARE(page->data()->model()->rowCount(), 10);
+        QCOMPARE(page->tabs()->currentWidget(), page->data());
+        QVERIFY(page->data()->note().isEmpty());
+
+        // A sequence has no rows to show.
+        runSql("CREATE TEMP SEQUENCE preview_seq");
+        runSql("SELECT 'preview_seq'::regclass::oid");
+        const unsigned int seq = model()->index(0, 0).data().toString().toUInt();
+        ObjectPage *seqPage = w.showObject(m_session.get(), {}, catalog::ObjectKind::Sequence, seq,
+                                           QStringLiteral("preview_seq"));
+        QVERIFY(!seqPage->data());
+
+        runSql("DROP TABLE \"Preview Rows\"");
+    }
+
     // Dependencies, asked for in the tree, open the object's page at them.
     void objectPageShowsDependencies()
     {
