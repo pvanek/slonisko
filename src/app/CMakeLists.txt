@@ -50,6 +50,8 @@ add_library(slonisko_ui STATIC
     ErdView.h
     HelpWindow.cpp
     HelpWindow.h
+    DependencyView.cpp
+    DependencyView.h
     ObjectPage.cpp
     ObjectPage.h
     Qsci.h

@@ -4,6 +4,7 @@
 #include "ObjectPage.h"
 #include "CalloutLabel.h"
 
+#include "DependencyView.h"
 #include "DiagramFile.h"
 #include "ErdView.h"
 #include "Icons.h"
@@ -16,6 +17,7 @@
 #include <QAbstractTableModel>
 #include <QAction>
 #include <QClipboard>
+#include <QFutureWatcher>
 #include <QGuiApplication>
 #include <QHeaderView>
 #include <QLabel>
@@ -26,6 +28,7 @@
 #include <QTableView>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
+#include <QtConcurrent>
 
 #include <memory>
 
@@ -162,12 +165,6 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
                                 m_diagramTab);
         hint->setEnabled(false);
         diagramBar->addWidget(hint);
-        // Reading the keys is two more queries, so they wait until the tab
-        // is actually opened.
-        connect(m_tabs, &QTabWidget::currentChanged, this, [this] {
-            if (m_tabs->currentWidget() == m_diagramTab && !m_diagramLoaded)
-                loadDiagram();
-        });
         auto *diagramLayout = new QVBoxLayout(m_diagramTab);
         diagramLayout->setContentsMargins(0, 0, 0, 0);
         diagramLayout->setSpacing(0);
@@ -178,6 +175,17 @@ ObjectPage::ObjectPage(Session *session, const QString &database, catalog::Objec
             Q_EMIT objectRequested(m_session, m_database, catalog::ObjectKind::Table, neighbour);
         });
     }
+    if (catalog::hasDependencies(m_kind)) {
+        m_dependencies = new DependencyView(this);
+        m_dependencies->hide();
+        connect(m_dependencies, &DependencyView::objectActivated, this,
+                [this](catalog::ObjectKind dependentKind, unsigned int dependent) {
+                    Q_EMIT objectRequested(m_session, m_database, dependentKind, dependent);
+                });
+    }
+    // The diagram's keys and the dependencies are queries of their own, so
+    // they wait until their tab is actually opened.
+    connect(m_tabs, &QTabWidget::currentChanged, this, &ObjectPage::onTabChanged);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -278,11 +286,14 @@ void ObjectPage::refresh()
                     showMessage(*error, true);
                     return;
                 }
+                // A refresh with the diagram or the dependencies open reloads
+                // them; the dependencies otherwise wait for their tab to be
+                // opened again.
+                m_dependenciesLoaded = false;
                 showDetail(catalog::parseDetail(m_kind, *results));
-                // A refresh with the diagram open reloads it; otherwise it
-                // waits for its tab to be opened again.
                 if (m_diagramTab && m_tabs->currentWidget() == m_diagramTab)
                     loadDiagram();
+                onTabChanged();
             });
     }
 }
@@ -296,14 +307,21 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
     }
 
     const QString current = m_tabs->tabText(m_tabs->currentIndex());
+    QWidget *currentWidget = m_tabs->currentWidget();
+    // Its queries would start for the tab that happens to be first now.
+    const QSignalBlocker blocker(m_tabs);
     m_tabs->clear();
     // clear() deletes no pages, it leaves them in the tab widget's stack;
-    // take these two back.
+    // take these back.
     m_definition->setParent(this);
     m_definition->hide();
     if (m_diagramTab) {
         m_diagramTab->setParent(this);
         m_diagramTab->hide();
+    }
+    if (m_dependencies) {
+        m_dependencies->setParent(this);
+        m_dependencies->hide();
     }
     m_heading->setText(detail.title + QStringLiteral("  ·  ") + detail.subtitle);
     m_message->hide();
@@ -321,16 +339,28 @@ void ObjectPage::showDetail(const catalog::ObjectDetail &detail)
         m_definition->setText(detail.definition);
         m_tabs->addTab(m_definition, tr("Definition"));
     }
+    if (m_dependencies)
+        m_tabs->addTab(m_dependencies, tr("Dependencies"));
     if (m_diagramTab)
         m_tabs->addTab(m_diagramTab, tr("Diagram"));
 
-    // Back to the tab that was open before the refresh, where there is one.
-    for (int tab = 0; tab < m_tabs->count(); ++tab) {
-        if (m_tabs->tabText(tab) == current) {
-            m_tabs->setCurrentIndex(tab);
-            break;
+    // Back to the tab that was open before the refresh, where there is one;
+    // the lists' titles have their counts, which may have changed.
+    if (m_wantDependencies && m_dependencies) {
+        m_tabs->setCurrentWidget(m_dependencies);
+    } else if (currentWidget
+               && (currentWidget == m_dependencies || currentWidget == m_diagramTab
+                   || currentWidget == m_definition)) {
+        m_tabs->setCurrentWidget(currentWidget);
+    } else {
+        for (int tab = 0; tab < m_tabs->count(); ++tab) {
+            if (m_tabs->tabText(tab) == current) {
+                m_tabs->setCurrentIndex(tab);
+                break;
+            }
         }
     }
+    m_wantDependencies = false;
     if (detail.title != m_name) {
         m_name = detail.title; // The tree's name is short; this one is full.
         Q_EMIT titleChanged();
@@ -369,6 +399,70 @@ void ObjectPage::loadDiagram()
     }
 }
 
+void ObjectPage::showDependencies()
+{
+    if (m_dependencies && m_tabs->indexOf(m_dependencies) >= 0)
+        m_tabs->setCurrentWidget(m_dependencies);
+    else
+        m_wantDependencies = true;
+}
+
+void ObjectPage::onTabChanged()
+{
+    QWidget *current = m_tabs->currentWidget();
+    if (current && current == m_diagramTab && !m_diagramLoaded)
+        loadDiagram();
+    if (current && current == m_dependencies && !m_dependenciesLoaded)
+        loadDependencies();
+}
+
+void ObjectPage::loadDependencies()
+{
+    pg::QueryRunner *runner = m_session ? m_session->runner(m_database) : nullptr;
+    if (!m_dependencies || !runner)
+        return;
+
+    m_dependenciesLoaded = true;
+    m_dependencies->showMessage(tr("Reading what depends on it…"));
+    const quint64 generation = m_generation;
+    const std::vector<QByteArray> queries = catalog::dependencyQueries(m_kind, m_oid);
+    auto results = std::make_shared<std::vector<pg::Result>>();
+    auto error = std::make_shared<QString>();
+    for (const QByteArray &query : queries) {
+        runner->run(query, this,
+                    [this, generation, results, error,
+                     wanted = queries.size()](const pg::QueryOutcome &outcome) {
+                        if (generation != m_generation)
+                            return;
+                        if (!outcome.ok() && error->isEmpty())
+                            *error = outcome.error;
+                        results->push_back(outcome.results.empty() ? pg::Result()
+                                                                   : outcome.results.back());
+                        if (results->size() < wanted)
+                            return;
+                        if (!error->isEmpty()) {
+                            m_dependencies->showMessage(*error, true);
+                            return;
+                        }
+                        m_dependencies->showMessage(tr("Reading the function bodies…"));
+                        // Parsing every function body can take a moment.
+                        using Graph = std::shared_ptr<const catalog::DependencyGraph>;
+                        auto *watcher = new QFutureWatcher<Graph>(this);
+                        connect(watcher, &QFutureWatcher<Graph>::finished, this,
+                                [this, watcher, generation] {
+                                    watcher->deleteLater();
+                                    if (generation == m_generation)
+                                        m_dependencies->setGraph(watcher->result());
+                                });
+                        watcher->setFuture(
+                            QtConcurrent::run([kind = m_kind, oid = m_oid, results]() -> Graph {
+                                return std::make_shared<const catalog::DependencyGraph>(
+                                    catalog::parseDependencies(kind, oid, *results));
+                            }));
+                    });
+    }
+}
+
 void ObjectPage::exportDiagram(const QString &filter)
 {
     if (!m_diagram || m_diagram->graph().isEmpty())
@@ -392,6 +486,12 @@ void ObjectPage::showMessage(const QString &text, bool error)
     }
     m_graph = {};
     m_diagramLoaded = false;
+    if (m_dependencies) {
+        m_dependencies->setParent(this);
+        m_dependencies->hide();
+        m_dependencies->clear();
+    }
+    m_dependenciesLoaded = false;
     m_tabs->hide();
     m_definition->setText(QString());
     m_message->setError(error);

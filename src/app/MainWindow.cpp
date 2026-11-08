@@ -72,6 +72,11 @@ MainWindow::MainWindow(QWidget *parent)
             [this](Session *s, const QString &database) { newEditor(s, database); });
     connect(m_browser, &ConnectionBrowser::monitoringRequested, this, &MainWindow::showMonitoring);
     connect(m_browser, &ConnectionBrowser::objectRequested, this, &MainWindow::showObject);
+    connect(m_browser, &ConnectionBrowser::dependenciesRequested, this,
+            [this](Session *s, const QString &database, catalog::ObjectKind kind, unsigned int oid,
+                   const QString &name) {
+                showObject(s, database, kind, oid, name)->showDependencies();
+            });
     connect(m_browser, &ConnectionBrowser::documentationRequested, this,
             [this](Session *s, const QString &database) { generateDocumentation(s, database); });
     connect(m_browser, &ConnectionBrowser::qualityReportRequested, this,

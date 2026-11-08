@@ -168,17 +168,18 @@ set. The tabs after it depend on the kind:
 | Object | Tabs after the overview |
 |---|---|
 | Database | *Settings* set per database or per role in it, when there are any; *Diagram* |
-| Schema | *Contents*: how many objects of each kind it holds; *Diagram* |
-| Table, partitioned table, foreign table | *Columns*, *Indexes*, *Constraints*, *Triggers*, *Policies* when there are any; *Diagram* |
-| View, materialized view | *Columns*, *Indexes* when there are any, *Definition* |
-| Sequence | — the overview has its range, increment, last value and the column that owns it |
-| Function, procedure | *Definition*, the `CREATE` statement |
-| Aggregate | *Support*: its transition and final functions and state type |
-| Type, domain | *Values* of an enum, *Attributes* of a composite type, *Constraints* of a domain, as apply |
-| Index | *Columns*, with expressions; *Definition* |
+| Schema | *Contents*: how many objects of each kind it holds; *Dependencies*; *Diagram* |
+| Table, partitioned table, foreign table | *Columns*, *Indexes*, *Constraints*, *Triggers*, *Policies* when there are any; *Dependencies*; *Diagram* |
+| View, materialized view | *Columns*, *Indexes* when there are any, *Definition*, *Dependencies* |
+| Sequence | *Dependencies*; the overview has its range, increment, last value and the column that owns it |
+| Function, procedure | *Definition*, the `CREATE` statement; *Dependencies* |
+| Aggregate | *Support*: its transition and final functions and state type; *Dependencies* |
+| Type, domain | *Values* of an enum, *Attributes* of a composite type, *Constraints* of a domain, as apply; *Dependencies* |
+| Index | *Columns*, with expressions; *Definition*; *Dependencies* |
 | Trigger | *Definition* |
-| Constraint, policy | — the overview has the definition |
-| Extension | *Objects* the extension owns |
+| Constraint | *Dependencies*; the overview has the definition |
+| Policy | — the overview has the definition |
+| Extension | *Objects* the extension owns; *Dependencies* |
 | Foreign data wrapper | *Servers*, when there are any |
 | Foreign server | *User Mappings* and *Foreign Tables* using it, when there are any |
 | User mapping | — the overview has the user, the server and the options |
@@ -188,7 +189,77 @@ set. The tabs after it depend on the kind:
 | Tablespace | *Databases* kept in it, when there are any |
 
 A column has no page of its own; its table's *Columns* tab says all there
-is. The *Diagram* tab is described in {doc}`diagrams`.
+is. The *Diagram* tab is described in {doc}`diagrams`, the *Dependencies*
+tab below.
+
+## What depends on an object
+
+```{index} dependencies, impact of a change, DROP CASCADE, ALTER COLUMN TYPE, pg_depend
+```
+
+Before dropping an object or changing a column's type, the *Dependencies*
+tab shows what that would hit: everything that depends on the object, and
+everything that depends on those in turn, as a tree. *Dependencies* in an
+object's context menu opens its page at that tab. Its queries run when the
+tab is first opened, since they read the dependencies of the whole
+database; on a big one that takes a moment.
+
+Each row says what the object is, how it depends on the one above it — a
+view's query uses it, a foreign key references it, a trigger executes it, a
+policy uses it, a column is of this type — and on which of its columns, when
+that is known. Double-clicking a row opens that object's page.
+
+The last column says what a `DROP` would do to it:
+
+needs CASCADE, then dropped
+: A plain `DROP` is refused because of it; `DROP … CASCADE` drops it too.
+  Views, foreign keys from other tables, policies and functions in standard
+  SQL (`BEGIN ATOMIC`, `RETURN`) are of this kind.
+
+dropped with it
+: Goes along without asking: the object's own indexes, constraints,
+  triggers and policies, its partitions, the sequences it owns.
+
+stays, fails when run
+: PostgreSQL does not know about it, so neither refuses the `DROP` nor
+  drops it, and it fails the next time it runs. Shown in italics. These
+  are functions whose body is a string — PL/pgSQL, and SQL written with
+  `AS '…'` — that name the object, and whatever uses those functions.
+
+The line above the tree adds it up: how many objects would refuse a plain
+`DROP`, how many `CASCADE` would take along, how many would be left to fail.
+
+### Function bodies
+
+The server records nothing about what a PL/pgSQL body or an SQL body in a
+string refers to: it checks only when the function runs. So Slonisko reads
+the bodies itself, with the same parser as the editor, and looks up the
+tables, views, sequences (in `nextval('…')` and the like), functions and
+types they name the way the server would: in the function's own
+`search_path` if it sets one, else in the connection's, and failing that in
+the function's own schema. That is a good guess rather than a certainty:
+
+- what `EXECUTE` runs is only known when it runs, so it is not looked at;
+- the type of a PL/pgSQL variable is not read, except for `%ROWTYPE` and
+  `%TYPE`, which name a table;
+- a body the parser cannot read — it gives up on a PL/pgSQL variable whose
+  type is in a schema other than `public`, for one — is searched for the
+  names after `FROM`, `JOIN`, `INTO` and `UPDATE` and for what is called
+  like a function, and the summary lists those functions.
+
+Functions that belong to an extension are left out.
+
+### One column
+
+For a table, view or similar, *What depends on* can be set to one of its
+columns instead of the whole object, to see what `ALTER COLUMN … TYPE`
+would hit: views that use the column, indexes and constraints on it,
+foreign keys referencing it, triggers that fire on its update, functions
+whose body names the table and mentions a column of that name or `*`. A
+view on the column makes the server refuse the change until the view is
+dropped; indexes and constraints are rebuilt. Past the first level whole
+objects count, so a view on such a view is listed even when it does not
+use that column.
 
 ## What else the context menu offers
 
@@ -198,6 +269,8 @@ is. The *Diagram* tab is described in {doc}`diagrams`.
 Besides *Details* and *Refresh*, the right-click menu has what applies to
 the node:
 
+- on an object that others can depend on: *Dependencies*, see
+  [What depends on an object](#what-depends-on-an-object);
 - on a connection or database: *Open SQL Editor*, *Back Up…* and
   *Restore…* (see {doc}`import-and-backup`); on a database also *Generate
   Schema Documentation…* ({doc}`docgen`) and *Database Quality Report…*

@@ -15,6 +15,7 @@ class QTabWidget;
 namespace slonisko {
 
 class CalloutLabel;
+class DependencyView;
 
 class ErdView;
 class ResultTextView;
@@ -41,6 +42,10 @@ public:
     // The diagram of this table and its neighbours, or of the schema's or
     // the database's tables; null for kinds that have no foreign keys.
     ErdView *diagram() const { return m_diagram; }
+    // What depends on the object; null for kinds nothing can depend on.
+    DependencyView *dependencies() const { return m_dependencies; }
+    // Opens the Dependencies tab, now or once the page has loaded.
+    void showDependencies();
     // Reads everything about the object again.
     void refresh();
 
@@ -56,6 +61,9 @@ Q_SIGNALS:
 private:
     void showDetail(const catalog::ObjectDetail &detail);
     void loadDiagram();
+    void loadDependencies();
+    // Opens the tab whose queries wait for it, if one of them is current.
+    void onTabChanged();
     // Asks where to save the diagram, in the one format the filter names.
     void exportDiagram(const QString &filter);
     void showMessage(const QString &text, bool error = false);
@@ -78,6 +86,9 @@ private:
     QWidget *m_diagramTab = nullptr; // The diagram with its own little toolbar.
     bool m_diagramLoaded = false; // Its queries run when the tab is first opened.
     catalog::ErdGraph m_graph;
+    DependencyView *m_dependencies = nullptr;
+    bool m_dependenciesLoaded = false; // Also waits for its tab: it reads the whole catalog.
+    bool m_wantDependencies = false; // Asked for before the tabs were there.
     quint64 m_generation = 0; // Drops the answers of an earlier refresh.
 };
 

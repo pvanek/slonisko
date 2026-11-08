@@ -5,6 +5,7 @@
 #include "ConnectionBrowser.h"
 #include "MainWindow.h"
 #include "ResultPage.h"
+#include "DependencyView.h"
 #include "EditorPage.h"
 #include "ErdView.h"
 #include <QGraphicsScene>
@@ -29,6 +30,7 @@
 #include <QTabBar>
 #include <QToolButton>
 #include <QTreeView>
+#include <QTreeWidget>
 #include <QTableView>
 #include <QTabWidget>
 #include <QFile>
@@ -852,6 +854,64 @@ private Q_SLOTS:
         QGraphicsScene *scene = page->diagram()->scene();
         QCOMPARE(scene->items().size(), 3);
         QVERIFY(scene->sceneRect().contains(scene->itemsBoundingRect()));
+    }
+
+    // Dependencies, asked for in the tree, open the object's page at them.
+    void objectPageShowsDependencies()
+    {
+        QStandardPaths::setTestModeEnabled(true);
+        MainWindow w;
+        runSql("DROP TABLE IF EXISTS deps_base CASCADE");
+        runSql("CREATE TABLE deps_base (id int PRIMARY KEY, note text)");
+        runSql("CREATE VIEW deps_view AS SELECT note FROM deps_base");
+        runSql("CREATE FUNCTION deps_fn() RETURNS bigint LANGUAGE plpgsql "
+               "AS $$BEGIN RETURN (SELECT count(*) FROM deps_base); END$$");
+        runSql("SELECT 'deps_base'::regclass::oid, 'deps_view'::regclass::oid");
+        const unsigned int base = model()->index(0, 0).data().toString().toUInt();
+        const unsigned int view = model()->index(0, 1).data().toString().toUInt();
+
+        Q_EMIT w.browser()->dependenciesRequested(m_session.get(), QString(),
+                                                  catalog::ObjectKind::Table, base,
+                                                  QStringLiteral("deps_base"));
+        auto *page = qobject_cast<ObjectPage *>(w.currentPage());
+        QVERIFY(page);
+        QVERIFY(page->dependencies());
+        QTRY_COMPARE(page->tabs()->currentWidget(), page->dependencies());
+        QTreeWidget *tree = page->dependencies()->tree();
+        QTRY_VERIFY_WITH_TIMEOUT(tree->topLevelItemCount() > 0, 15'000);
+
+        auto row = [&](const QString &identity) -> QTreeWidgetItem * {
+            const QList<QTreeWidgetItem *> found
+                = tree->findItems(identity, Qt::MatchExactly | Qt::MatchRecursive);
+            return found.isEmpty() ? nullptr : found.first();
+        };
+        QTreeWidgetItem *viewRow = row(QStringLiteral("public.deps_view"));
+        QVERIFY(viewRow);
+        QCOMPARE(viewRow->text(3), QStringLiteral("note"));
+        QVERIFY(row(QStringLiteral("public.deps_fn()")));
+        QVERIFY2(page->dependencies()->summary().contains(QLatin1String("CASCADE")),
+                 qPrintable(page->dependencies()->summary()));
+
+        // The id column: the view does not use it, the function's count(*) neither.
+        QComboBox *column = page->dependencies()->columnBox();
+        QVERIFY(column->isVisibleTo(page));
+        column->setCurrentIndex(column->findData(QStringLiteral("id")));
+        QVERIFY(!row(QStringLiteral("public.deps_view")));
+        QVERIFY(!row(QStringLiteral("public.deps_fn()")));
+        QVERIFY(row(QStringLiteral("deps_base_pkey on public.deps_base")));
+        column->setCurrentIndex(0);
+
+        // A dependent opens its own page.
+        const std::size_t pages = w.pages().size();
+        Q_EMIT tree->itemActivated(row(QStringLiteral("public.deps_view")), 0);
+        QTRY_COMPARE(w.pages().size(), pages + 1);
+        auto *opened = qobject_cast<ObjectPage *>(w.currentPage());
+        QVERIFY(opened);
+        QCOMPARE(opened->oid(), view);
+        QCOMPARE(opened->kind(), catalog::ObjectKind::View);
+
+        runSql("DROP TABLE deps_base CASCADE");
+        runSql("DROP FUNCTION deps_fn()");
     }
 
     // The diagram opens on the table it is about, big enough to read,

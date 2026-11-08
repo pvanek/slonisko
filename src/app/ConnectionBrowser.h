@@ -103,6 +103,10 @@ Q_SIGNALS:
     // An object whose details can be shown was opened.
     void objectRequested(slonisko::Session *session, const QString &database,
                          slonisko::catalog::ObjectKind kind, unsigned int oid, const QString &name);
+    // "Dependencies" on an object: its page, at what depends on it.
+    void dependenciesRequested(slonisko::Session *session, const QString &database,
+                               slonisko::catalog::ObjectKind kind, unsigned int oid,
+                               const QString &name);
 
 private:
     void createActions();
@@ -165,6 +169,7 @@ private:
     QAction *m_refresh = nullptr;
     QAction *m_openEditor = nullptr;
     QAction *m_showDetails = nullptr;
+    QAction *m_showDependencies = nullptr;
     QAction *m_generateDocs = nullptr;
     QAction *m_qualityReport = nullptr;
     std::function<bool(const QString &)> m_confirm;

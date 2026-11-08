@@ -95,6 +95,10 @@ Extensions behind their installed version
 : The server has a newer version than the database uses. Suggests `ALTER
   EXTENSION … UPDATE`.
 
+These are what is broken already. What a change is about to break — a
+`DROP`, or a column's new type — is on the object's *Dependencies* tab, see
+[What depends on an object](object-browser.md#what-depends-on-an-object).
+
 ### Duplicates
 
 The same constraint twice on a table, two triggers on the same events

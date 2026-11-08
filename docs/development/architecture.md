@@ -43,6 +43,17 @@ queues what is asked of one connection and answers with callbacks. The
 catalog snapshot, completion and semantic analysis run off the UI thread;
 the snapshot reloads itself when DDL is committed.
 
+## What depends on an object
+
+`catalog::dependencyQueries()` reads all of the database's `pg_depend`, the
+identity of every object in it, and the bodies of the SQL and PL/pgSQL
+functions the server does not track. `catalog::parseDependencies()` folds
+each internal part — a view's rule, a table's row type, a key's index — into
+what it is part of, and adds an edge for every table, function or type a
+body names, found with libpg_query and looked up along the function's
+search path. That runs on a worker thread; `catalog::impactOf()` then walks
+the graph from one object, or one of its columns, breadth first.
+
 ## Schema documentation
 
 `src/docgen` reads a `docgen::Model` of the chosen schemas in a few catalog

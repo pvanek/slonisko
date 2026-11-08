@@ -5,6 +5,7 @@
 
 #include "BrowserDelegate.h"
 #include "BrowserModel.h"
+#include "catalog/Dependencies.h"
 #include "catalog/Details.h"
 #include "ConnectionDialog.h"
 #include "DumpDialog.h"
@@ -151,6 +152,18 @@ void ConnectionBrowser::createActions()
           });
     m_showDetails = action(QStringLiteral("dialog-information"), tr("&Details"),
                            [this] { showDetails(m_view->currentIndex()); });
+    m_showDependencies = action(QStringLiteral("edit-find"), tr("Dep&endencies"), [this] {
+        const QModelIndex index = m_view->currentIndex();
+        Session *s = m_model->sessionOf(index);
+        if (!s || s->state() != Session::State::Connected)
+            return;
+        Q_EMIT dependenciesRequested(
+            s, index.data(BrowserModel::DatabaseRole).toString(),
+            index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>(),
+            index.data(BrowserModel::OidRole).toUInt(), index.data().toString());
+    });
+    m_showDependencies->setToolTip(
+        tr("Everything that depends on this object: what a DROP or a type change would hit"));
     m_refresh->setShortcuts(Shortcuts::refresh());
     m_refresh->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     m_delete->setShortcut(QKeySequence::Delete);
@@ -198,10 +211,13 @@ void ConnectionBrowser::updateActions()
     m_generateDocs->setEnabled(s && s->state() == Session::State::Connected);
     m_qualityReport->setEnabled(s && s->state() == Session::State::Connected);
     const QModelIndex index = m_view->currentIndex();
-    m_showDetails->setEnabled(
-        s && s->state() == Session::State::Connected
-        && catalog::hasDetails(
-            index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>()));
+    const auto kind = index.data(BrowserModel::ObjectKindRole).value<catalog::ObjectKind>();
+    const bool object
+        = index.data(BrowserModel::NodeTypeRole).value<NodeType>() == NodeType::Object;
+    m_showDetails->setEnabled(s && s->state() == Session::State::Connected
+                              && catalog::hasDetails(kind));
+    m_showDependencies->setEnabled(m_showDetails->isEnabled() && object
+                                   && catalog::hasDependencies(kind));
 }
 
 void ConnectionBrowser::showDetails(const QModelIndex &index)
@@ -271,6 +287,8 @@ void ConnectionBrowser::fillContextMenu(QMenu &menu, const QModelIndex &index)
             menu.addAction(m_openEditor);
         if (m_showDetails->isEnabled())
             menu.addAction(m_showDetails);
+        if (m_showDependencies->isEnabled())
+            menu.addAction(m_showDependencies);
         if (m_generateDocs->isEnabled() && type == NodeType::Database) {
             menu.addAction(m_generateDocs);
             menu.addAction(m_qualityReport);
