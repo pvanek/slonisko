@@ -227,5 +227,14 @@ dump file can be replayed from the editor.
 under another name. A page with unsaved changes says so in its tab and asks
 before it closes. **File → Open Recent** lists the last ten files opened or
 saved, newest first; a file that can no longer be opened drops out of the
-list, and **Clear List** empties it. The file browser on the left opens files by double-click;
+list, and **Clear List** empties it.
+
+```{index} restoring editors, unsaved scripts
+```
+
+The editors open when Slonisko quits open again on its next start, with the
+cursor where it was. An editor with a file comes back with that file, read
+afresh; one without a file comes back with its text, so quitting does not
+ask to save it. That text is also kept a moment after each change, so it
+survives a crash as well. The editors come back without a connection. The file browser on the left opens files by double-click;
 the box above its list filters them by name, `*.sql` to begin with.

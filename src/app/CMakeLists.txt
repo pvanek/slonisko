@@ -57,6 +57,8 @@ add_library(slonisko_ui STATIC
     Qsci.h
     RecentFiles.cpp
     RecentFiles.h
+    SavedEditors.cpp
+    SavedEditors.h
     ResultTextView.cpp
     ResultTextView.h
     ResultModel.cpp

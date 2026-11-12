@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
     QApplication::setWindowIcon(icon);
 
     slonisko::MainWindow window;
+    window.restoreEditors();
     window.show();
     return QApplication::exec();
 }

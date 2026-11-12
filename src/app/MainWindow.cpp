@@ -17,6 +17,7 @@
 #include "HelpWindow.h"
 #include "ResultPanel.h"
 #include "ResultView.h"
+#include "SavedEditors.h"
 #include "SchemaDiffWizard.h"
 #include "Session.h"
 #include "SqlEditor.h"
@@ -32,6 +33,7 @@
 #include <QSplitter>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTimer>
 
 namespace slonisko {
 
@@ -257,6 +259,14 @@ EditorPage *MainWindow::newEditor(Session *session, const QString &database)
 {
     auto *page = new EditorPage(m_browser, tr("Script %1").arg(++m_editorCount));
     connect(page, &EditorPage::fileOpenedOrSaved, m_recent, &RecentFiles::add);
+    const auto storeLater = [this] {
+        if (m_storeTimer)
+            m_storeTimer->start();
+    };
+    connect(page->editor(), &QsciScintilla::textChanged, this, storeLater);
+    connect(page->editor(), &QsciScintilla::cursorPositionChanged, this, storeLater);
+    // Opened or saved under a name: kept as a file from now on.
+    connect(page, &EditorPage::fileOpenedOrSaved, this, storeLater);
     // Ctrl+click on a name in the script opens what it is.
     connect(page, &EditorPage::objectRequested, this,
             [this](Session *from, const QString &db, catalog::ObjectKind kind, unsigned int oid) {
@@ -369,6 +379,8 @@ bool MainWindow::closePage(WorkspacePage *page)
     // This window always has something to work in; page windows just go.
     if (m_pages->count() == 0)
         newEditor();
+    if (m_storeTimer)
+        m_storeTimer->start();
     return true;
 }
 
@@ -417,6 +429,70 @@ void MainWindow::updateRecentMenu()
     }
 }
 
+void MainWindow::restoreEditors()
+{
+    // The blank editor the window starts with takes the first that comes back.
+    EditorPage *blank = currentEditor();
+    if (blank && !blank->isBlank())
+        blank = nullptr;
+    const SavedEditors saved = SavedEditors::load(m_settings);
+    EditorPage *current = nullptr;
+    for (qsizetype i = 0; i < saved.editors.size(); ++i) {
+        const SavedEditor &entry = saved.editors[i];
+        if (entry.filePath.isEmpty() && entry.text.isEmpty())
+            continue;
+        EditorPage *page = blank ? blank : newEditor();
+        if (!entry.filePath.isEmpty()) {
+            // Moved or deleted since: quietly left out, there is nobody to
+            // tell yet.
+            if (!page->openFile(entry.filePath)) {
+                if (page != blank) {
+                    m_pages->takePage(page);
+                    delete page;
+                }
+                continue;
+            }
+        } else {
+            // Stays modified, so closing the tab still asks to save it.
+            page->editor()->setText(entry.text);
+        }
+        blank = nullptr;
+        page->editor()->setCursorPosition(entry.line, entry.column);
+        if (i == saved.current)
+            current = page;
+    }
+    if (current)
+        showPage(current);
+    if (EditorPage *editor = currentEditor())
+        editor->editor()->setFocus();
+
+    m_storeTimer = new QTimer(this);
+    m_storeTimer->setSingleShot(true);
+    m_storeTimer->setInterval(2000);
+    connect(m_storeTimer, &QTimer::timeout, this, &MainWindow::storeEditors);
+}
+
+void MainWindow::storeEditors()
+{
+    SavedEditors saved;
+    const WorkspacePage *current = m_pages->currentPage();
+    // This window's tabs in order, then those of the page windows.
+    for (const WorkspacePage *page : pages()) {
+        const auto *editor = qobject_cast<const EditorPage *>(page);
+        if (!editor || editor->isBlank())
+            continue;
+        SavedEditor entry;
+        entry.filePath = editor->filePath();
+        if (entry.filePath.isEmpty())
+            entry.text = editor->editor()->text();
+        editor->editor()->getCursorPosition(&entry.line, &entry.column);
+        if (page == current)
+            saved.current = int(saved.editors.size());
+        saved.editors << entry;
+    }
+    saved.store(m_settings);
+}
+
 void MainWindow::saveCurrent()
 {
     EditorPage *editor = currentEditor();
@@ -439,10 +515,18 @@ void MainWindow::closeEvent(QCloseEvent *event)
 {
     for (WorkspacePage *page : pages()) {
         showPage(page);
-        if (!page->maybeClose()) {
+        // Text without a file is kept for the next start, so there is
+        // nothing to save; an open transaction still needs an answer.
+        auto *editor = qobject_cast<EditorPage *>(page);
+        const bool kept = m_storeTimer && editor && editor->filePath().isEmpty();
+        if (kept ? !editor->maybeEndTransaction(tr("quitting")) : !page->maybeClose()) {
             event->ignore();
             return;
         }
+    }
+    if (m_storeTimer) {
+        m_storeTimer->stop();
+        storeEditors();
     }
     m_settings.setValue(QStringLiteral("window/geometry"), saveGeometry());
     m_settings.setValue(QStringLiteral("window/mainSplitter"), m_mainSplitter->saveState());

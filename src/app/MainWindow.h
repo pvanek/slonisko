@@ -12,6 +12,7 @@
 class QAction;
 class QMenu;
 class QSplitter;
+class QTimer;
 class QTabWidget;
 
 namespace slonisko {
@@ -75,6 +76,10 @@ public:
     // A page with everything about one object; the same object reuses its page.
     ObjectPage *showObject(Session *session, const QString &database, catalog::ObjectKind kind,
                            unsigned int oid, const QString &name);
+    // Opens the editors open when the application last quit, in place of
+    // the blank one, and from then on keeps them for the next start: on
+    // quitting, and shortly after each change in case it never quits.
+    void restoreEditors();
     // Closes a page, if it agrees (an editor may ask to save).
     bool closePage(int index);
     bool closePage(WorkspacePage *page);
@@ -89,6 +94,7 @@ private:
     void updateActions();
     void openFile();
     void updateRecentMenu();
+    void storeEditors();
     void saveCurrent();
     // The dialog for a database, chosen in the browser: its documentation
     // or its quality report.
@@ -109,6 +115,7 @@ private:
     QList<PageWindow *> m_windows; // Pages dragged out of it.
     RecentFiles *m_recent = nullptr;
     QMenu *m_recentMenu = nullptr; // File → Open Recent.
+    QTimer *m_storeTimer = nullptr; // Set by restoreEditors().
     QAction *m_save = nullptr;
     QAction *m_saveAs = nullptr;
     int m_editorCount = 0;

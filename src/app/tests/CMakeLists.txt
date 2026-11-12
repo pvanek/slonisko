@@ -13,6 +13,7 @@ slonisko_add_test(tst_valueviewer slonisko_ui)
 slonisko_add_test(tst_exportdialog slonisko_ui)
 slonisko_add_test(tst_filebrowser slonisko_ui)
 slonisko_add_test(tst_recentfiles slonisko_ui)
+slonisko_add_test(tst_savededitors slonisko_ui)
 slonisko_add_test(tst_pagewindows slonisko_ui)
 slonisko_add_test(tst_shortcuts slonisko_ui)
 slonisko_add_test(tst_erdview slonisko_ui)
@@ -22,7 +23,7 @@ slonisko_add_db_test(tst_importdialog slonisko_ui)
 slonisko_add_db_test(tst_tooldialogs slonisko_ui)
 slonisko_add_db_test(tst_docgenwizard slonisko_ui)
 slonisko_add_db_test(tst_schemadiffwizard slonisko_ui)
-set_property(TEST tst_docgenwizard tst_schemadiffwizard tst_calloutlabel tst_connectiondialog tst_browser tst_connectionfolders tst_sqleditor tst_searchbar tst_resulttextview tst_resultview tst_valueviewer tst_exportdialog tst_editorpage tst_filebrowser tst_recentfiles tst_pagewindows tst_shortcuts tst_erdview tst_importdialog tst_tooldialogs APPEND PROPERTY
+set_property(TEST tst_docgenwizard tst_schemadiffwizard tst_calloutlabel tst_connectiondialog tst_browser tst_connectionfolders tst_sqleditor tst_searchbar tst_resulttextview tst_resultview tst_valueviewer tst_exportdialog tst_editorpage tst_filebrowser tst_recentfiles tst_savededitors tst_pagewindows tst_shortcuts tst_erdview tst_importdialog tst_tooldialogs APPEND PROPERTY
     ENVIRONMENT QT_QPA_PLATFORM=offscreen)
 
 # Software centres and Flathub reject an invalid desktop or metainfo file,
