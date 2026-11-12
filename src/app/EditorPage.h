@@ -110,6 +110,8 @@ public:
 
 Q_SIGNALS:
     void runningChanged(bool running);
+    // A file was read into the editor or written from it; for the recent files.
+    void fileOpenedOrSaved(const QString &path);
     // Ctrl+click on a name in the script: show what that object is.
     void objectRequested(slonisko::Session *session, const QString &database,
                          slonisko::catalog::ObjectKind kind, unsigned int oid);

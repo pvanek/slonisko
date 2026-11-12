@@ -220,10 +220,12 @@ dump file can be replayed from the editor.
 
 ## Files
 
-```{index} opening files, saving files
+```{index} opening files, saving files, recent files
 ```
 
 {kbd}`Ctrl+O` opens a file, {kbd}`Ctrl+S` saves, {kbd}`Ctrl+Shift+S` saves
 under another name. A page with unsaved changes says so in its tab and asks
-before it closes. The file browser on the left opens files by double-click;
+before it closes. **File → Open Recent** lists the last ten files opened or
+saved, newest first; a file that can no longer be opened drops out of the
+list, and **Clear List** empties it. The file browser on the left opens files by double-click;
 the box above its list filters them by name, `*.sql` to begin with.

@@ -251,6 +251,7 @@ bool EditorPage::openFile(const QString &path, QString *error)
     m_filePath = QFileInfo(path).absoluteFilePath();
     setToolTip(m_filePath);
     Q_EMIT titleChanged();
+    Q_EMIT fileOpenedOrSaved(m_filePath);
     return true;
 }
 
@@ -268,6 +269,7 @@ bool EditorPage::saveFile(const QString &path, QString *error)
     m_filePath = QFileInfo(path).absoluteFilePath();
     setToolTip(m_filePath);
     Q_EMIT titleChanged();
+    Q_EMIT fileOpenedOrSaved(m_filePath);
     return true;
 }
 

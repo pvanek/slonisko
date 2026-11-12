@@ -55,6 +55,8 @@ add_library(slonisko_ui STATIC
     ObjectPage.cpp
     ObjectPage.h
     Qsci.h
+    RecentFiles.cpp
+    RecentFiles.h
     ResultTextView.cpp
     ResultTextView.h
     ResultModel.cpp

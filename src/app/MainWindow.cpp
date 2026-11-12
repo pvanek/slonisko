@@ -10,6 +10,7 @@
 #include "Icons.h"
 #include "PageTabWidget.h"
 #include "PageWindow.h"
+#include "RecentFiles.h"
 #include "ResultModel.h"
 #include "ObjectPage.h"
 #include "ResultPage.h"
@@ -22,6 +23,7 @@
 
 #include <QApplication>
 #include <QCloseEvent>
+#include <QDir>
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -41,7 +43,8 @@ MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent), m_mainSplitter(new QSplitter(Qt::Horizontal, this)),
       m_left(new QTabWidget(m_mainSplitter)),
       m_browser(new ConnectionBrowser(m_settings, true, m_left)),
-      m_files(new FileBrowser(m_settings, m_left)), m_pages(new PageTabWidget(m_mainSplitter))
+      m_files(new FileBrowser(m_settings, m_left)), m_pages(new PageTabWidget(m_mainSplitter)),
+      m_recent(new RecentFiles(m_settings, this))
 {
     m_left->setDocumentMode(true);
     m_left->setTabPosition(QTabWidget::West);
@@ -253,6 +256,7 @@ void MainWindow::compareSchemas()
 EditorPage *MainWindow::newEditor(Session *session, const QString &database)
 {
     auto *page = new EditorPage(m_browser, tr("Script %1").arg(++m_editorCount));
+    connect(page, &EditorPage::fileOpenedOrSaved, m_recent, &RecentFiles::add);
     // Ctrl+click on a name in the script opens what it is.
     connect(page, &EditorPage::objectRequested, this,
             [this](Session *from, const QString &db, catalog::ObjectKind kind, unsigned int oid) {
@@ -288,6 +292,8 @@ EditorPage *MainWindow::openFile(const QString &path)
     QString error;
     if (!editor->openFile(path, &error)) {
         QMessageBox::warning(this, tr("Open File"), tr("Could not open %1:\n%2").arg(path, error));
+        // Gone or unreadable: no use offering it again.
+        m_recent->remove(path);
         return nullptr;
     }
     m_pages->setCurrentWidget(editor);
@@ -387,6 +393,30 @@ void MainWindow::openFile()
                             QFileInfo(paths.first()).absolutePath());
 }
 
+void MainWindow::updateRecentMenu()
+{
+    m_recentMenu->clear();
+    const QStringList paths = m_recent->paths();
+    for (qsizetype i = 0; i < paths.size(); ++i) {
+        const QString &path = paths[i];
+        const QFileInfo info(path);
+        // The folder too: scripts in different projects often share a name.
+        QString text
+            = tr("%1  (%2)").arg(info.fileName(), QDir::toNativeSeparators(info.absolutePath()));
+        text.replace(QLatin1Char('&'), QLatin1String("&&"));
+        if (i < 9)
+            text.prepend(QStringLiteral("&%1 ").arg(i + 1));
+        QAction *action = m_recentMenu->addAction(text, this, [this, path] { openFile(path); });
+        action->setData(path);
+        action->setToolTip(QDir::toNativeSeparators(path));
+        action->setStatusTip(action->toolTip());
+    }
+    if (!paths.isEmpty()) {
+        m_recentMenu->addSeparator();
+        m_recentMenu->addAction(tr("&Clear List"), m_recent, &RecentFiles::clear);
+    }
+}
+
 void MainWindow::saveCurrent()
 {
     EditorPage *editor = currentEditor();
@@ -435,6 +465,15 @@ void MainWindow::setupMenus()
     QAction *open = file->addAction(QIcon::fromTheme(QStringLiteral("document-open")),
                                     tr("&Open File…"), this, qOverload<>(&MainWindow::openFile));
     open->setShortcut(QKeySequence::Open);
+    m_recentMenu = file->addMenu(QIcon::fromTheme(QStringLiteral("document-open-recent")),
+                                 tr("Open &Recent"));
+    m_recentMenu->setToolTipsVisible(true);
+    // Filled when it opens, not when the list changes: choosing a file moves
+    // it to the top, which would delete the action while it is triggering.
+    connect(m_recentMenu, &QMenu::aboutToShow, this, &MainWindow::updateRecentMenu);
+    connect(m_recent, &RecentFiles::changed, this,
+            [this] { m_recentMenu->setEnabled(!m_recent->paths().isEmpty()); });
+    m_recentMenu->setEnabled(!m_recent->paths().isEmpty());
     m_save = file->addAction(QIcon::fromTheme(QStringLiteral("document-save")), tr("&Save"), this,
                              &MainWindow::saveCurrent);
     m_save->setShortcut(QKeySequence::Save);

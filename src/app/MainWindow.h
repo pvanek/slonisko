@@ -10,6 +10,7 @@
 #include <QSettings>
 
 class QAction;
+class QMenu;
 class QSplitter;
 class QTabWidget;
 
@@ -20,6 +21,7 @@ class EditorPage;
 class FileBrowser;
 class PageTabWidget;
 class PageWindow;
+class RecentFiles;
 class ObjectPage;
 class ResultPage;
 class Session;
@@ -37,6 +39,8 @@ public:
 
     ConnectionBrowser *browser() const { return m_browser; }
     FileBrowser *files() const { return m_files; }
+    RecentFiles *recentFiles() const { return m_recent; }
+    QMenu *recentMenu() const { return m_recentMenu; }
 
     // The current page of the active window: this one or a page window.
     WorkspacePage *currentPage() const;
@@ -84,6 +88,7 @@ private:
     void updateTab(WorkspacePage *page);
     void updateActions();
     void openFile();
+    void updateRecentMenu();
     void saveCurrent();
     // The dialog for a database, chosen in the browser: its documentation
     // or its quality report.
@@ -102,6 +107,8 @@ private:
     FileBrowser *m_files = nullptr;
     PageTabWidget *m_pages = nullptr; // The work area.
     QList<PageWindow *> m_windows; // Pages dragged out of it.
+    RecentFiles *m_recent = nullptr;
+    QMenu *m_recentMenu = nullptr; // File → Open Recent.
     QAction *m_save = nullptr;
     QAction *m_saveAs = nullptr;
     int m_editorCount = 0;
